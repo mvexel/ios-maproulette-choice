@@ -16,10 +16,7 @@ final class AppStoreShotsUITests: XCTestCase {
     XCTAssert(start.waitForExistence(timeout: 10))
     sleep(4)  // map tiles behind the sheet
     shot(app, "welcome")
-    // The guest lines further down the card (Iris B-6).
-    app.scrollViews.firstMatch.swipeUp()
-    sleep(1)
-    shot(app, "welcome-guest")
+    // On a 6.9" phone the whole card fits, guest lines included (Iris B-6).
     start.tap()
     allowLocationIfAsked(app)
     XCTAssert(text(app, "3 of 8 stops checked").waitForExistence(timeout: 10))

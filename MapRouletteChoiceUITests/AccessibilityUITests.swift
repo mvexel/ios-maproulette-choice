@@ -46,9 +46,7 @@ final class AccessibilityUITests: XCTestCase {
     for _ in 0..<4 where !notSure.isHittable { app.swipeUp() }
     XCTAssert(notSure.isHittable)
 
-    let back = app.buttons["Back to all stops"].firstMatch
-    for _ in 0..<6 where !back.isHittable { app.swipeUp() }
-    back.tap()
+    app.navigationBars.buttons["BackButton"].firstMatch.tap()
     XCTAssert(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'stops checked'")).firstMatch.waitForExistence(timeout: 10))
     shot(app, "ax5-campaign")
   }
