@@ -71,8 +71,10 @@ struct SessionClient: Sendable {
   var osmServer: String? { demo != nil ? TaskText.devOSM : Self.osmServers[endpoints.origin] }
   /// ASWebAuthenticationSession runs ephemeral: no cookies are shared with Safari, so every
   /// sign-in shows the OSM login and can choose an account.
-  let accountHint =
-    "You'll sign in on openstreetmap.org. No account yet? It's free to create one there."
+  var accountHint: String {
+    let host = osmServer.flatMap { URL(string: $0)?.host() } ?? "openstreetmap.org"
+    return "You'll sign in on \(host). No account yet? It's free to create one there."
+  }
 
   init(config: AppConfig) {
     guard

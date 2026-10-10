@@ -1,4 +1,5 @@
 @preconcurrency import MapLibre
+import CoreLocation
 import SwiftUI
 
 /// A MapLibre map (OpenFreeMap style by default) of a campaign's places. Places still to check are
@@ -17,7 +18,8 @@ struct TaskMapView: UIViewRepresentable {
   func makeUIView(context: Context) -> MLNMapView {
     let map = MLNMapView(frame: .zero, styleURL: styleURL)
     map.delegate = context.coordinator
-    map.showsUserLocation = true
+    // Turning this on makes MapLibre ask for location itself, so wait until the app has asked.
+    map.showsUserLocation = Self.locationAllowed
     map.compassViewPosition = .topRight
     map.isUserInteractionEnabled = interactive
     // Salt Lake City until tasks load.
@@ -27,7 +29,15 @@ struct TaskMapView: UIViewRepresentable {
 
   func updateUIView(_ map: MLNMapView, context: Context) {
     context.coordinator.open = open
+    if map.showsUserLocation != Self.locationAllowed { map.showsUserLocation = Self.locationAllowed }
     context.coordinator.show(tasks, done: done, noun: noun, on: map)
+  }
+
+  private static var locationAllowed: Bool {
+    switch CLLocationManager().authorizationStatus {
+    case .authorizedWhenInUse, .authorizedAlways: true
+    default: false
+    }
   }
 
   final class TaskAnnotation: MLNPointAnnotation {
