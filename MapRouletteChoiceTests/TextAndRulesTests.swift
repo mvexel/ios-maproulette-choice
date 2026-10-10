@@ -169,6 +169,20 @@ import Testing
     #expect(Wording.linkSent(to: "a@b.org", until: Date()).hasPrefix("Sent to a@b.org. Check your email later. The link works until "))
   }
 
+  @Test func nothingSavedIsCalmAndAsksForAnAnswerFirst() {
+    let nothingSaved = MapRouletteError(.conflict, status: 409, reason: "nothing_saved")
+    #expect(Wording.isNothingSaved(nothingSaved))
+    #expect(!Wording.isInputError(nothingSaved))
+    #expect(Wording.linkFailed(nothingSaved) == "Answer a place first, then we can send you the link.")
+    #expect(Wording.linkFailed(nothingSaved, Noun(one: "stop", many: "stops"))
+      == "Answer a stop first, then we can send you the link.")
+    // A claimed guest is a different conflict.
+    let claimed = MapRouletteError(.conflict, status: 409, reason: "guest_claimed")
+    #expect(!Wording.isNothingSaved(claimed))
+    #expect(Wording.linkFailed(claimed) == "These answers are already on the map.")
+    #expect(!Wording.isNothingSaved(MapRouletteError(.validation, reason: "nothing_saved")))
+  }
+
   @Test func dayNeverWraps() {
     let day = Wording.day(Date())
     #expect(!day.contains(" "))

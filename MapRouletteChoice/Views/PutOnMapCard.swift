@@ -9,6 +9,9 @@ struct PutOnMapCard: View {
   @Environment(\.webAuthenticationSession) private var webAuth
   @Environment(\.dismiss) private var dismiss
 
+  /// The campaign's noun, for the "answer one first" line.
+  var noun: Noun = .place
+
   @State private var email = ""
   @State private var sending = false
   @State private var sentTo: String?
@@ -71,7 +74,7 @@ struct PutOnMapCard: View {
         try await session.sendFinishLink(to: address)
         sentTo = address
       } catch {
-        self.error = Wording.linkFailed(error)
+        self.error = Wording.linkFailed(error, noun)
         errorIsInput = Wording.isInputError(error)
       }
     }

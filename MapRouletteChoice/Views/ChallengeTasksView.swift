@@ -98,7 +98,7 @@ struct ChallengeTasksView: View {
     .sheet(item: $sheet) { which in
       switch which {
       case .welcome: welcome
-      case .putOnMap: PutOnMapCard()
+      case .putOnMap: PutOnMapCard(noun: noun)
       case .share: share
       }
     }
