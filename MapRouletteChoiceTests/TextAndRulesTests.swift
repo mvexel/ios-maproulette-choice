@@ -184,3 +184,13 @@ import Testing
     #expect(Wording.linkSent(to: "a@b.org", until: Date()).hasPrefix("Sent to a@b.org. Check your email later. The link works until "))
   }
 }
+
+@Suite struct ProblemsTextTests {
+  @Test func messageExplainsEachChoiceInOrder() {
+    let stops = Noun.from(match: ["highway": "bus_stop"])
+    #expect(
+      Wording.problemsMessage(stops, gone: "Stop is gone")
+        == "Skip leaves it for someone else. “I can't check this stop” tells the organizer it needs another look. “Stop is gone” reports that the stop isn't there anymore.")
+    #expect(Wording.problemsMessage(stops).hasSuffix("needs another look."))
+  }
+}

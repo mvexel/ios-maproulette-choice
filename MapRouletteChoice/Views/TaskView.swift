@@ -423,16 +423,17 @@ struct TaskView: View {
       Button(Wording.somethingWrong, systemImage: "exclamationmark.bubble") { showProblems = true }
         .frame(maxWidth: .infinity, minHeight: 44)
         .confirmationDialog(Wording.somethingWrong, isPresented: $showProblems, titleVisibility: .visible) {
-          ForEach(outcomes.filter { $0.id != ChoiceOutcome.tooHardID }) { outcome in
-            Button(outcome.label) { choose(c, loaded, form, .outcome(outcome)) }
-          }
+          // Lightest first: Skip, then "can't check", then the challenge's outcomes.
+          if canSkip { Button(Wording.skip(noun)) { c.perform(.skip) } }
           if let tooHard = outcomes.first(where: { $0.id == ChoiceOutcome.tooHardID }) {
             Button(Wording.cantCheck(noun)) { choose(c, loaded, form, .outcome(tooHard)) }
           }
-          if canSkip { Button(Wording.skip(noun)) { c.perform(.skip) } }
+          ForEach(outcomes.filter { $0.id != ChoiceOutcome.tooHardID }) { outcome in
+            Button(outcome.label) { choose(c, loaded, form, .outcome(outcome)) }
+          }
           Button("Cancel", role: .cancel) {}
         } message: {
-          Text(Wording.problemsMessage(noun))
+          Text(Wording.problemsMessage(noun, gone: outcomes.first { $0.deletesElement || $0.id == "gone" }?.label))
         }
     }
   }

@@ -48,8 +48,10 @@ enum Wording {
   static let notSureShort = "Not sure"
   static let somethingWrong = "Something's wrong here"
   static func cantCheck(_ noun: Noun) -> String { "I can't check this \(noun.one)" }
-  static func problemsMessage(_ noun: Noun) -> String {
+  /// `gone`: the label of an outcome that removes the place ("Stop is gone"), if offered.
+  static func problemsMessage(_ noun: Noun, gone: String? = nil) -> String {
     "Skip leaves it for someone else. “\(cantCheck(noun))” tells the organizer it needs another look."
+      + (gone.map { " “\($0)” reports that the \(noun.one) isn't there anymore." } ?? "")
   }
   static let needsAccount = "To save answers you'll sign in with a free OpenStreetMap account."
 

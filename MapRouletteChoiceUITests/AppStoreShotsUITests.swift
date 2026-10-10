@@ -14,7 +14,12 @@ final class AppStoreShotsUITests: XCTestCase {
     app.staticTexts["SLC Bus Stops"].tap()
     let start = app.buttons["Let's go"]
     XCTAssert(start.waitForExistence(timeout: 10))
+    sleep(4)  // map tiles behind the sheet
     shot(app, "welcome")
+    // The guest lines further down the card (Iris B-6).
+    app.swipeUp()
+    sleep(1)
+    shot(app, "welcome-guest")
     start.tap()
     allowLocationIfAsked(app)
     XCTAssert(text(app, "3 of 8 stops checked").waitForExistence(timeout: 10))

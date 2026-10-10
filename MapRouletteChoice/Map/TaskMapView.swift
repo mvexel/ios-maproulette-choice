@@ -24,6 +24,8 @@ struct TaskMapView: UIViewRepresentable {
     // Turning this on makes MapLibre ask for location itself, so wait until the app has asked.
     map.showsUserLocation = Self.locationAllowed
     map.compassViewPosition = .topRight
+    // The system blue puck: the brand tint would make "you" look like another stop.
+    map.tintColor = .systemBlue
     if interactive {
       map.accessibilityHint = "Each pin is a place. The List view has the same places, nearest first."
     }
@@ -101,6 +103,11 @@ struct TaskMapView: UIViewRepresentable {
 
     func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
       for layer in style.layers {
+        // Flat buildings: 3D extrusions clutter the small header map.
+        if let buildings = layer as? MLNFillExtrusionStyleLayer {
+          buildings.isVisible = false
+          continue
+        }
         if let symbols = layer as? MLNSymbolStyleLayer, let source = symbols.sourceLayerIdentifier,
           Self.hiddenSymbolSources.contains(source)
         {
