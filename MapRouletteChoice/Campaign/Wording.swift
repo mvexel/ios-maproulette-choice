@@ -97,7 +97,7 @@ enum Wording {
   }
   static let putOnMapIntro =
     "To put them on the map, finish on a computer. It takes about 3 minutes. We'll email you a link."
-  static let emailUse = "We only use your email to send this link and two reminders."
+  static let emailUse = "We only email you about these answers, and delete your address once they're on the map or removed."
   static func linkSent(to email: String, until: Date?) -> String {
     "Sent to \(email). Check your email later." + (until.map { " The link works until \(day($0))." } ?? "")
   }
