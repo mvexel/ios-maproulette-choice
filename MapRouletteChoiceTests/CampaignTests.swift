@@ -14,6 +14,10 @@ import Testing
     #expect(CampaignLink.challenge(from: URL(string: "mrchoice://task/42")!) == nil)
     #expect(CampaignLink.challenge(from: URL(string: "http://example.org/challenge/7")!) == nil)
     #expect(CampaignLink.challenge(from: CampaignLink.url(123)) == 123)
+    #expect(CampaignLink.challenge(from: URL(string: "https://streettally.osm.lol/challenge/3")!) == 3)
+    #expect(CampaignLink.webURL(123, host: "streettally.osm.lol").absoluteString
+      == "https://streettally.osm.lol/challenge/123")
+    #expect(CampaignLink.challenge(from: CampaignLink.webURL(123)) == 123)
   }
 }
 

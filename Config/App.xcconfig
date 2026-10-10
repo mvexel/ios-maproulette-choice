@@ -11,6 +11,9 @@ MAPROULETTE_BASE_URL = https:/$()/mr-api.osm.lol
 MAPROULETTE_OAUTH_CLIENT_ID = maproulette-ios-choice
 MAPROULETTE_OAUTH_CALLBACK_SCHEME = lol.osm.maproulette.choice
 MAPROULETTE_ALLOW_LOOPBACK = NO
+// YES lets the stage and prod backends (mr-stage/mr-prod.osm.lol, which edit the real
+// OpenStreetMap) receive answers. Off until the pilot moves there.
+MAPROULETTE_ALLOW_LIVE_WRITES = NO
 // YES: participants answer first and put their answers on the map later (deferred sign-up).
 // Needs a backend with mobileOAuth.guests.enabled.
 MAPROULETTE_GUESTS = NO
@@ -18,6 +21,11 @@ MAPROULETTE_GUESTS = NO
 MAP_STYLE_URL = https:/$()/tiles.openfreemap.org/styles/positron
 // The small map above a task.
 MAP_DETAIL_STYLE_URL = https:/$()/tiles.openfreemap.org/styles/liberty
+
+// The participant web host: campaign links and QR codes (https://<host>/challenge/<id>) open the
+// app through universal links once it serves apple-app-site-association; otherwise its landing
+// page. Sets the Associated Domains entitlement (applinks:<host>).
+CAMPAIGN_LINK_HOST = streettally.osm.lol
 
 APP_BUNDLE_IDENTIFIER = lol.osm.maproulette.choice
 

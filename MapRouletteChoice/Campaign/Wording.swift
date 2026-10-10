@@ -110,8 +110,15 @@ enum Wording {
   static let signInPutsOnMap = "Sign in now and your saved answers go on the map right away."
   /// Only a bad address is the participant's to fix (shown in red); the rest are calm.
   static func isInputError(_ error: any Error) -> Bool { (error as? MapRouletteError)?.kind == .validation }
-  static func linkFailed(_ error: any Error) -> String {
-    switch (error as? MapRouletteError)?.kind {
+  /// The backend sends the link only once the guest has a saved answer (409 `nothing_saved`).
+  /// Matched by kind and server code, which the SDK has exposed since the guest API (#2).
+  static func isNothingSaved(_ error: any Error) -> Bool {
+    guard let error = error as? MapRouletteError else { return false }
+    return error.kind == .conflict && error.reason == "nothing_saved"
+  }
+  static func linkFailed(_ error: any Error, _ noun: Noun = .place) -> String {
+    if isNothingSaved(error) { return "Answer a \(noun.one) first, then we can send you the link." }
+    return switch (error as? MapRouletteError)?.kind {
     case .validation?: "That doesn't look like an email address."
     case .rateLimit?: "We've sent a few links already. Try again tomorrow."
     case .network?: "Couldn't connect. Check your connection and try again."

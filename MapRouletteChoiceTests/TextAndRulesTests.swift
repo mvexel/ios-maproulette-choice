@@ -86,6 +86,16 @@ import Testing
     #expect(AppSession.writesAllowed(origin: "http://127.0.0.1:9000", loopbackAllowed: true))
   }
 
+  @Test func stageAndProdWritesOnlyWhenTheBuildAllowsThem() {
+    for origin in ["https://mr-stage.osm.lol", "https://mr-prod.osm.lol"] {
+      #expect(!AppSession.writesAllowed(origin: origin, loopbackAllowed: false))
+      #expect(AppSession.writesAllowed(origin: origin, loopbackAllowed: false, liveAllowed: true))
+      #expect(AppSession.osmServers[origin] == TaskText.liveOSM)
+    }
+    #expect(!AppSession.writesAllowed(origin: "https://maproulette.org", loopbackAllowed: false, liveAllowed: true))
+    #expect(!AppSession.writesAllowed(origin: "https://mr-prod.osm.lol.evil", loopbackAllowed: false, liveAllowed: true))
+  }
+
   @Test func scopes() {
     #expect(AppSession.requestedScope(writesConfigured: true) == "tasks:read tasks:write osm:tagfix")
     #expect(AppSession.requestedScope(writesConfigured: false) == "tasks:read")
@@ -185,6 +195,20 @@ import Testing
   @Test func linkSentCopy() {
     #expect(Wording.linkSent(to: "a@b.org", until: nil) == "Sent to a@b.org. Check your email later.")
     #expect(Wording.linkSent(to: "a@b.org", until: Date()).hasPrefix("Sent to a@b.org. Check your email later. The link works until "))
+  }
+
+  @Test func nothingSavedIsCalmAndAsksForAnAnswerFirst() {
+    let nothingSaved = MapRouletteError(.conflict, status: 409, reason: "nothing_saved")
+    #expect(Wording.isNothingSaved(nothingSaved))
+    #expect(!Wording.isInputError(nothingSaved))
+    #expect(Wording.linkFailed(nothingSaved) == "Answer a place first, then we can send you the link.")
+    #expect(Wording.linkFailed(nothingSaved, Noun(one: "stop", many: "stops"))
+      == "Answer a stop first, then we can send you the link.")
+    // A claimed guest is a different conflict.
+    let claimed = MapRouletteError(.conflict, status: 409, reason: "guest_claimed")
+    #expect(!Wording.isNothingSaved(claimed))
+    #expect(Wording.linkFailed(claimed) == "These answers are already on the map.")
+    #expect(!Wording.isNothingSaved(MapRouletteError(.validation, reason: "nothing_saved")))
   }
 
   @Test func dayNeverWraps() {

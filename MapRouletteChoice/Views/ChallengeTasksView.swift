@@ -106,7 +106,7 @@ struct ChallengeTasksView: View {
     .sheet(item: $sheet) { which in
       switch which {
       case .welcome: welcome
-      case .putOnMap: PutOnMapCard()
+      case .putOnMap: PutOnMapCard(noun: noun)
       case .daySummary:
         DaySummaryCard(
           checkedToday: campaigns.checkedToday(challengeID.value), done: doneIDs.count, total: total, noun: noun)
@@ -369,7 +369,7 @@ struct ChallengeTasksView: View {
   }
 
   private var share: some View {
-    let url = CampaignLink.url(challengeID.value)
+    let url = CampaignLink.webURL(challengeID.value)
     return NavigationStack {
       VStack(spacing: 20) {
         Text("Scan to open this campaign in the app").font(.headline).multilineTextAlignment(.center)
