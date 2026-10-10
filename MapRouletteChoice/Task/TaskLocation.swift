@@ -77,6 +77,20 @@ enum TaskLocation {
     sorted(tasks.filter { $0.isOpen && !excluding.contains($0.id) }, from: origin).first
   }
 
+  /// A box around `points`, padded by about 50 m, for bounds searches; nil without points.
+  static func bounds(_ points: [CLLocationCoordinate2D]) -> Bounds? {
+    guard let first = points.first else { return nil }
+    var (south, north, west, east) = (first.latitude, first.latitude, first.longitude, first.longitude)
+    for p in points.dropFirst() {
+      (south, north) = (min(south, p.latitude), max(north, p.latitude))
+      (west, east) = (min(west, p.longitude), max(east, p.longitude))
+    }
+    let pad = 0.0005
+    return try? Bounds(
+      west: max(west - pad, -180), south: max(south - pad, -90), east: min(east + pad, 180),
+      north: min(north + pad, 90))
+  }
+
   static func meters(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D) -> CLLocationDistance {
     CLLocation(latitude: a.latitude, longitude: a.longitude).distance(from: CLLocation(latitude: b.latitude, longitude: b.longitude))
   }
