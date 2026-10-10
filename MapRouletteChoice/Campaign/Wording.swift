@@ -103,8 +103,11 @@ enum Wording {
   static func linkSent(to email: String, until: Date?) -> String {
     "Sent to \(email). Check your email later." + (until.map { " The link works until \(day($0))." } ?? "")
   }
-  /// "Nov 30": the one date format for guest deadlines.
-  static func day(_ date: Date) -> String { date.formatted(.dateTime.month(.abbreviated).day()) }
+  /// "Nov 30": the one date format for guest deadlines. A non-breaking space keeps month and day
+  /// on one line (Iris B-8).
+  static func day(_ date: Date) -> String {
+    date.formatted(.dateTime.month(.abbreviated).day()).replacingOccurrences(of: " ", with: "\u{00A0}")
+  }
   static let enterEmailAgain = "Enter your email again and we'll send a new link."
   static let signInPutsOnMap = "Sign in now and your saved answers go on the map right away."
   /// Only a bad address is the participant's to fix (shown in red); the rest are calm.

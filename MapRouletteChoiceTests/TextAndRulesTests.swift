@@ -186,6 +186,12 @@ import Testing
     #expect(Wording.linkSent(to: "a@b.org", until: nil) == "Sent to a@b.org. Check your email later.")
     #expect(Wording.linkSent(to: "a@b.org", until: Date()).hasPrefix("Sent to a@b.org. Check your email later. The link works until "))
   }
+
+  @Test func dayNeverWraps() {
+    let day = Wording.day(Date())
+    #expect(!day.contains(" "))
+    #expect(day.contains("\u{00A0}"))
+  }
 }
 
 @Suite struct ProblemsTextTests {
