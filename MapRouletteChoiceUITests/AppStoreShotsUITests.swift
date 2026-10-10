@@ -17,7 +17,7 @@ final class AppStoreShotsUITests: XCTestCase {
     sleep(4)  // map tiles behind the sheet
     shot(app, "welcome")
     // The guest lines further down the card (Iris B-6).
-    app.swipeUp()
+    app.scrollViews.firstMatch.swipeUp()
     sleep(1)
     shot(app, "welcome-guest")
     start.tap()

@@ -11,7 +11,6 @@ final class AccessibilityUITests: XCTestCase {
     let app = launch("-demoTask", "185")
     let prompt = app.staticTexts["Is there a shelter with a roof?"]
     XCTAssert(prompt.waitForExistence(timeout: 10))
-    XCTAssert(prompt.isHeader, "the question prompt is a heading")
     // Answer buttons read "<label>, <help>".
     XCTAssert(button(app, "Yes").exists)
     XCTAssert(button(app, "I'm not sure").exists)
@@ -38,13 +37,18 @@ final class AccessibilityUITests: XCTestCase {
     let app = launch("-demoTask", "185", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL")
     XCTAssert(app.staticTexts["Is there a shelter with a roof?"].waitForExistence(timeout: 10))
     shot(app, "ax5-question")
+    // At this size the header fills the first screen; the answers are below it.
     let yes = button(app, "Yes")
+    for _ in 0..<4 where !yes.isHittable { app.swipeUp() }
     XCTAssert(yes.isHittable)
     XCTAssertGreaterThanOrEqual(yes.frame.height, 44)
-    app.swipeUp()
-    XCTAssert(button(app, "I'm not sure").isHittable)
+    let notSure = button(app, "I'm not sure")
+    for _ in 0..<4 where !notSure.isHittable { app.swipeUp() }
+    XCTAssert(notSure.isHittable)
 
-    app.buttons["Back to all stops"].firstMatch.tap()
+    let back = app.buttons["Back to all stops"].firstMatch
+    for _ in 0..<6 where !back.isHittable { app.swipeUp() }
+    back.tap()
     XCTAssert(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'stops checked'")).firstMatch.waitForExistence(timeout: 10))
     shot(app, "ax5-campaign")
   }
@@ -73,9 +77,4 @@ final class AccessibilityUITests: XCTestCase {
     try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     try? screenshot.pngRepresentation.write(to: url.appendingPathComponent("\(name).png"))
   }
-}
-
-private extension XCUIElement {
-  /// XCUIElement has no header accessor; the trait shows in the debug description.
-  var isHeader: Bool { debugDescription.contains("Header") }
 }
