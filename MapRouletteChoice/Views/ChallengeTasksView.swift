@@ -65,8 +65,8 @@ struct ChallengeTasksView: View {
   /// Pages of 100 to read before stopping.
   private static let maxPages = 10
 
-  private var doneIDs: Set<Int64> {
-    Set(tasks.filter { $0.isDone || campaigns.justDone.contains($0.id) }.map(\.id))
+  private var progress: CampaignProgress {
+    CampaignProgress(tasks: tasks, justDone: campaigns.justDone, held: held, answerable: answerable)
   }
   /// A guest's saved answers: checked here, but not on the map until they finish signing up.
   private var pendingIDs: Set<Int64> {
@@ -76,20 +76,16 @@ struct ChallengeTasksView: View {
   private func answerable(_ task: LocatedTask) -> Bool {
     task.isOpen || (preview != nil && CampaignPreview.invalidSurvey(task.task))
   }
-  private var open: [LocatedTask] {
-    TaskLocation.sorted(
-      tasks.filter { answerable($0) && !campaigns.justDone.contains($0.id) && !held.contains($0.id) }, from: origin)
-  }
+  private var doneIDs: Set<Int64> { progress.done }
+  private var open: [LocatedTask] { TaskLocation.sorted(progress.open, from: origin) }
   private var checked: [LocatedTask] {
     let done = doneIDs
     return TaskLocation.sorted(tasks.filter { done.contains($0.id) }, from: origin)
   }
-  /// Open and checked places; the rest (not answerable here) are left off the map and list.
   /// The campaign's size for progress: held places still count (they're answered, just not on the map yet).
-  private var total: Int { tasks.filter { $0.isOpen || doneIDs.contains($0.id) }.count }
-  private var shown: [LocatedTask] {
-    tasks.filter { (answerable($0) && !held.contains($0.id)) || doneIDs.contains($0.id) }
-  }
+  private var total: Int { progress.total }
+  /// Open and checked places (and, in preview, broken surveys); the rest are left off the map and list.
+  private var shown: [LocatedTask] { progress.shown }
 
   var body: some View {
     VStack(spacing: 8) {
