@@ -78,9 +78,24 @@ struct TaskMapView: UIViewRepresentable {
       guard refit else { return }
       fitted = true
       if annotations.count == 1 {
-        map.setCenter(annotations[0].coordinate, zoomLevel: 17, animated: false)
+        // 16 keeps at least one named street in a small header (MapLibre zooms run a level closer).
+        map.setCenter(annotations[0].coordinate, zoomLevel: 16, animated: false)
       } else {
         map.showAnnotations(annotations, animated: true)
+      }
+    }
+
+    /// Symbol layers from these OpenMapTiles source layers (shops, bus stops, stations, airports)
+    /// look tappable and compete with campaign pins, so they are hidden.
+    static let hiddenSymbolSources: Set<String> = ["poi", "aerodrome_label"]
+
+    func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
+      for layer in style.layers {
+        if let symbols = layer as? MLNSymbolStyleLayer, let source = symbols.sourceLayerIdentifier,
+          Self.hiddenSymbolSources.contains(source)
+        {
+          symbols.isVisible = false
+        }
       }
     }
 

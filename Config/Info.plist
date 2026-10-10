@@ -10,6 +10,8 @@
 	<string>$(MAPROULETTE_OAUTH_CALLBACK_SCHEME)</string>
 	<key>MRAllowLoopback</key>
 	<string>$(MAPROULETTE_ALLOW_LOOPBACK)</string>
+	<key>MRAllowLiveWrites</key>
+	<string>$(MAPROULETTE_ALLOW_LIVE_WRITES)</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -21,6 +23,10 @@
 			</array>
 		</dict>
 	</array>
+	<key>MRCampaignLinkHost</key>
+	<string>$(CAMPAIGN_LINK_HOST)</string>
+	<key>MRMapDetailStyleURL</key>
+	<string>$(MAP_DETAIL_STYLE_URL)</string>
 	<key>MRGuests</key>
 	<string>$(MAPROULETTE_GUESTS)</string>
 	<key>MRMapStyleURL</key>

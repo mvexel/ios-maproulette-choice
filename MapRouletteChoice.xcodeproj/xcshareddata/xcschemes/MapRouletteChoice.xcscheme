@@ -38,6 +38,16 @@
                ReferencedContainer = "container:MapRouletteChoice.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "AA0000000000000000000503"
+               BuildableName = "MapRouletteChoiceUITests.xctest"
+               BlueprintName = "MapRouletteChoiceUITests"
+               ReferencedContainer = "container:MapRouletteChoice.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction
