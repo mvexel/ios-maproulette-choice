@@ -58,7 +58,7 @@ campaign) and skip its welcome card.
 | `MAPROULETTE_BASE_URL` | `https://mr-api.osm.lol` | Backend API origin. The dev deployment; edits development OSM. Planned rename: `mr-dev.osm.lol` (also allowed). |
 | `MAPROULETTE_OAUTH_CLIENT_ID` | `maproulette-ios-choice` | Native OAuth client registered on the backend (scopes `tasks:read tasks:write osm:tagfix`). Registered on dev; stage/prod need it too. |
 | `MAPROULETTE_OAUTH_CALLBACK_SCHEME` | `lol.osm.maproulette.choice` | Callback is `<scheme>:/oauth2redirect`. |
-| `MAP_STYLE_URL` | `https://tiles.openfreemap.org/styles/liberty` | Any MapLibre style URL. |
+| `MAP_STYLE_URL` | `https://tiles.openfreemap.org/styles/positron` | Any MapLibre style URL. The map hides the style's POI and transit symbols so campaign pins are the only things to tap. |
 | `APP_BUNDLE_IDENTIFIER` | `lol.osm.maproulette.choice` | |
 
 Task writes (answers, skips) are sent only to `mr-api.osm.lol` / `mr-dev.osm.lol` (and loopback in

@@ -84,6 +84,20 @@ struct TaskMapView: UIViewRepresentable {
       }
     }
 
+    /// Symbol layers from these OpenMapTiles source layers (shops, bus stops, stations, airports)
+    /// look tappable and compete with campaign pins, so they are hidden.
+    static let hiddenSymbolSources: Set<String> = ["poi", "aerodrome_label"]
+
+    func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
+      for layer in style.layers {
+        if let symbols = layer as? MLNSymbolStyleLayer, let source = symbols.sourceLayerIdentifier,
+          Self.hiddenSymbolSources.contains(source)
+        {
+          symbols.isVisible = false
+        }
+      }
+    }
+
     func mapView(_ mapView: MLNMapView, imageFor annotation: any MLNAnnotation) -> MLNAnnotationImage? {
       guard let task = annotation as? TaskAnnotation else { return nil }
       let id = task.done ? "done" : "todo"

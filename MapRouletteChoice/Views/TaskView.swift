@@ -19,6 +19,8 @@ struct TaskView: View {
   /// The campaign's open places, for "Next nearest".
   private let candidates: [LocatedTask]
   private let noun: Noun
+  /// The participant's position when the place was opened, for "130 m northeast of you".
+  private let userLocation: CLLocationCoordinate2D?
   /// Places opened in this screen; never offered again as next.
   @State private var visited: Set<Int64>
   @State private var controller: TaskWorkController?
@@ -34,11 +36,12 @@ struct TaskView: View {
   @State private var showProblems = false
   @State private var counted = false
 
-  init(taskID: Int64, candidates: [LocatedTask], noun: Noun) {
+  init(taskID: Int64, candidates: [LocatedTask], noun: Noun, userLocation: CLLocationCoordinate2D? = nil) {
     _taskID = State(initialValue: taskID)
     _visited = State(initialValue: [taskID])
     self.candidates = candidates
     self.noun = noun
+    self.userLocation = userLocation
   }
 
   /// A confirmation bound to the controller that showed it: a dialog left open across an
@@ -258,6 +261,9 @@ struct TaskView: View {
     }
     VStack(alignment: .leading, spacing: 4) {
       Text(Wording.placeName(task, noun)).font(.title2.bold())
+      if let whereText = TaskLocation.fromYouText(userLocation, TaskLocation.coordinate(task)) {
+        Text(whereText).font(.subheadline).foregroundStyle(.secondary)
+      }
       if showDetails {
         Text(verbatim: task.name).font(.footnote.monospaced()).foregroundStyle(.secondary)
         let element = ChoiceWork(task.work()).map { " · \(TaskText.element($0.element))" } ?? ""
@@ -310,7 +316,7 @@ struct TaskView: View {
     .accessibilityElement(children: .combine)
     Text(q.prompt).font(.title2.weight(.semibold))
     if let description = q.description, !description.isEmpty {
-      Text(description).foregroundStyle(.secondary)
+      Text(description).font(.body).foregroundStyle(.primary)
     }
     ForEach(q.options) { option in
       answerButton(
@@ -539,7 +545,9 @@ struct TaskView: View {
           .fill(selected ? Color.accentColor.opacity(0.15) : Color(.secondarySystemBackground))
       )
       .overlay(
-        RoundedRectangle(cornerRadius: 14).stroke(selected ? Color.accentColor : .clear, lineWidth: 2)
+        // A visible edge even when unselected, so buttons hold up in glare.
+        RoundedRectangle(cornerRadius: 14)
+          .stroke(selected ? Color.accentColor : Color.secondary.opacity(0.5), lineWidth: selected ? 2 : 1.5)
       )
       .contentShape(RoundedRectangle(cornerRadius: 14))
     }

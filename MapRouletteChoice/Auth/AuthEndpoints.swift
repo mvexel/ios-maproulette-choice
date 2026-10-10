@@ -8,7 +8,7 @@ struct AppConfig: Sendable {
   let allowLoopback: Bool
   let mapStyleURL: URL
 
-  static let defaultStyle = URL(string: "https://tiles.openfreemap.org/styles/liberty")!
+  static let defaultStyle = URL(string: "https://tiles.openfreemap.org/styles/positron")!
 
   static var current: AppConfig {
     let info = Bundle.main.infoDictionary ?? [:]

@@ -12,6 +12,6 @@ MAPROULETTE_OAUTH_CLIENT_ID = maproulette-ios-choice
 MAPROULETTE_OAUTH_CALLBACK_SCHEME = lol.osm.maproulette.choice
 MAPROULETTE_ALLOW_LOOPBACK = NO
 // The OpenFreeMap (or any MapLibre) style for the task map.
-MAP_STYLE_URL = https:/$()/tiles.openfreemap.org/styles/liberty
+MAP_STYLE_URL = https:/$()/tiles.openfreemap.org/styles/positron
 
 APP_BUNDLE_IDENTIFIER = lol.osm.maproulette.choice
