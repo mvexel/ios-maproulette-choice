@@ -1,0 +1,4 @@
+xcuserdata/
+*.xcresult
+.swiftpm/
+DerivedData/
