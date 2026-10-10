@@ -160,7 +160,7 @@ struct SessionClient: Sendable {
   nonisolated static let signInDidNotFinish = "Sign-in didn't finish. Please try again."
 
   private func signedOutMessage() -> String {
-    if canAnswerAsGuest { return Self.noAccountNeeded }
+    if canAnswerAsGuest { return Self.noAccountNeeded() }
     return endpoints.enabled
       ? "You can look around without signing in. Sign in with OpenStreetMap to save answers."
       : "You can look around. Signing in isn't set up in this build."
@@ -188,8 +188,10 @@ struct SessionClient: Sendable {
 
   // MARK: Guests
 
-  nonisolated static let noAccountNeeded =
-    "No account needed to start. Answer first, and we'll help you put your answers on the map afterwards."
+  /// Without a campaign (the status line), its places are "places".
+  nonisolated static func noAccountNeeded(_ noun: Noun = .place) -> String {
+    "No account needed to start. Answer a few \(noun.many) first, and we'll help you put them on the map afterwards."
+  }
 
   /// Signed out in a build that lets participants answer first, unless the backend refused guests.
   var canAnswerAsGuest: Bool {

@@ -305,7 +305,7 @@ struct ChallengeTasksView: View {
           Label(session.canAnswerAsGuest ? Wording.guestAnswersArePublic : Wording.answersArePublic, systemImage: "map")
           Label(Wording.locationStaysOnPhone(noun), systemImage: "location")
           if session.canAnswerAsGuest {
-            Label(AppSession.noAccountNeeded, systemImage: "person.crop.circle")
+            Label(AppSession.noAccountNeeded(noun), systemImage: "person.crop.circle")
           } else if !session.view.signedIn {
             Label(Wording.needsAccount, systemImage: "person.crop.circle")
           }
