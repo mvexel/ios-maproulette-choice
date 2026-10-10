@@ -63,6 +63,8 @@ struct ChallengeTasksView: View {
     return TaskLocation.sorted(tasks.filter { done.contains($0.id) }, from: origin)
   }
   /// Open and checked places; the rest (not answerable here) are left off the map and list.
+  /// The campaign's size for progress: held places still count (they're answered, just not on the map yet).
+  private var total: Int { tasks.filter { $0.isOpen || doneIDs.contains($0.id) }.count }
   private var shown: [LocatedTask] {
     tasks.filter { ($0.isOpen && !held.contains($0.id)) || doneIDs.contains($0.id) }
   }
@@ -106,7 +108,7 @@ struct ChallengeTasksView: View {
       case .putOnMap: PutOnMapCard()
       case .daySummary:
         DaySummaryCard(
-          checkedToday: campaigns.checkedToday(challengeID.value), done: doneIDs.count, total: shown.count, noun: noun)
+          checkedToday: campaigns.checkedToday(challengeID.value), done: doneIDs.count, total: total, noun: noun)
       case .share: share
       }
     }
@@ -161,13 +163,13 @@ struct ChallengeTasksView: View {
         let done = doneIDs.count
         let today = campaigns.checkedToday(challengeID.value)
         HStack {
-          Text(Wording.progress(done: done, total: shown.count, noun))
+          Text(Wording.progress(done: done, total: total, noun))
           Spacer()
           if today > 0 { Text("You've checked \(today) today") }
         }
         .font(.subheadline)
         .foregroundStyle(.secondary)
-        ProgressView(value: Double(done), total: Double(max(shown.count, 1)))
+        ProgressView(value: Double(done), total: Double(max(total, 1)))
       } else {
         HStack {
           if request != nil { ProgressView() }
