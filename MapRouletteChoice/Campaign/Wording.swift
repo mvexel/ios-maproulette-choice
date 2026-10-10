@@ -115,6 +115,14 @@ enum Wording {
     "\(noun.count(count)) saved, not on the map yet."
       + (until.map { " Finish on a computer by \($0.formatted(.dateTime.month(.abbreviated).day()))." } ?? "")
   }
+  /// Deferred sign-up §1.6, in the last 3 days.
+  static func savedClosing(_ count: Int, _ noun: Noun, on date: Date) -> String {
+    "\(count) saved \(count == 1 ? noun.one : noun.many) will be removed on "
+      + "\(date.formatted(.dateTime.month(.abbreviated).day())) unless you finish on a computer."
+  }
+  /// After the deadline: calm, no error tone (§1.6).
+  static let savedExpired =
+    "Your saved answers weren't put on the map, so we removed them. They still count in the campaign's totals. Thanks for checking."
   static let deleteMyData = "Delete my data"
   static let deleteMyDataExplained =
     "Removes your email and any saved answers that aren't on the map yet. Answers already on the map stay there, because they belong to OpenStreetMap now."

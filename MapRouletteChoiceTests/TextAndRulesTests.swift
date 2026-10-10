@@ -173,4 +173,10 @@ import Testing
         == "You're signed in as rosa_slc. Your 12 answers are on the map. New answers go straight on the map from now on.")
     #expect(AppSession.claimedMessage(nil).hasPrefix("You're signed in with OpenStreetMap. New answers"))
   }
+
+  @Test func deadlineCopy() {
+    let stops = Noun.from(match: ["highway": "bus_stop"])
+    #expect(Wording.savedClosing(14, stops, on: Date()).hasPrefix("14 saved stops will be removed on "))
+    #expect(Wording.savedClosing(1, stops, on: Date()).hasSuffix(" unless you finish on a computer."))
+  }
 }
