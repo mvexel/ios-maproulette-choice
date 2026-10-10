@@ -167,8 +167,12 @@ struct ChallengeTasksView: View {
           if failed { Button("Retry") { load() } }
         }
       }
-      if session.view.guest, let saved = session.guestStatus, saved.pendingCount > 0 {
-        savedBanner(saved)
+      if session.view.guest, let saved = session.guestStatus {
+        if saved.state == .expired {
+          Text(Wording.savedExpired).font(.subheadline).foregroundStyle(.secondary)
+        } else if saved.pendingCount > 0 {
+          savedBanner(saved)
+        }
       }
       if let nearest = open.first {
         Button {
@@ -189,17 +193,25 @@ struct ChallengeTasksView: View {
     .padding(.top, 8)
   }
 
-  /// A guest's saved answers that aren't on the map yet (deferred sign-up §1.4).
+  /// A guest's saved answers that aren't on the map yet (deferred sign-up §1.4); amber in the
+  /// last 3 days before they are removed (§1.6).
   private func savedBanner(_ saved: GuestStatus) -> some View {
-    HStack(alignment: .firstTextBaseline) {
-      Text(Wording.savedNotOnMap(saved.pendingCount, noun, until: saved.expiresAt))
-        .font(.subheadline.weight(.semibold))
+    let closing = saved.expiresAt.timeIntervalSinceNow < 3 * 86400
+    return HStack(alignment: .firstTextBaseline) {
+      Text(
+        closing
+          ? Wording.savedClosing(saved.pendingCount, noun, on: saved.expiresAt)
+          : Wording.savedNotOnMap(saved.pendingCount, noun, until: saved.expiresAt)
+      )
+      .font(.subheadline.weight(.semibold))
       Spacer()
       Button(saved.email == .none ? "Send me the link" : "Resend link") { sheet = .putOnMap }
         .font(.subheadline)
     }
     .padding(10)
-    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+    .background(
+      closing ? AnyShapeStyle(Color.orange.opacity(0.2)) : AnyShapeStyle(Color(.secondarySystemBackground)),
+      in: RoundedRectangle(cornerRadius: 10))
   }
 
   // MARK: List
