@@ -94,7 +94,7 @@ struct TaskView: View {
     .onChange(of: session.view.generation) { accountChanged() }
     .onChange(of: controller?.changed) { if controller?.changed == true { reportChange() } }
     .onChange(of: finishedTaskID) { countFinished() }
-    .sheet(isPresented: $showPutOnMap) { PutOnMapCard() }
+    .sheet(isPresented: $showPutOnMap) { PutOnMapCard(noun: noun) }
   }
 
   // MARK: Lifecycle
