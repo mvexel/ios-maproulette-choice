@@ -28,6 +28,8 @@ struct ChallengeTasksView: View {
   @State private var challenge: Challenge?
   @State private var tasks: [LocatedTask] = []
   @State private var noun = Noun.place
+  /// The campaign's questions (first seen wins), for the welcome card.
+  @State private var questions: [ChoiceQuestion] = []
   @State private var hidden = 0
   @State private var truncated = false
   @State private var status = "Loading…"
@@ -236,10 +238,22 @@ struct ChallengeTasksView: View {
           if !open.isEmpty {
             Label("\(noun.count(open.count)) to check. Each takes about a minute.", systemImage: "checklist")
           }
-          let instruction = (challenge?.instruction ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-          if !instruction.isEmpty {
+          if !questions.isEmpty {
             Text("What to look for").font(.headline)
-            Text(instruction).textSelection(.enabled)
+            ForEach(questions) { q in
+              VStack(alignment: .leading, spacing: 2) {
+                Label(q.prompt, systemImage: "questionmark.circle")
+                if let help = q.description, !help.isEmpty {
+                  Text(help).font(.subheadline).foregroundStyle(.secondary).padding(.leading, 28)
+                }
+              }
+            }
+          }
+          // The challenge instruction is written for web mappers ("…in your editor").
+          let instruction = (challenge?.instruction ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+          if showDetails && !instruction.isEmpty {
+            Text("Instructions for mappers").font(.headline)
+            Text(instruction).font(.subheadline).textSelection(.enabled)
           }
           Label(Wording.answersArePublic, systemImage: "map")
           Label(Wording.locationStaysOnPhone, systemImage: "location")
@@ -287,6 +301,17 @@ struct ChallengeTasksView: View {
     }
   }
 
+  /// Every question asked in the campaign, in first-seen order.
+  static func questions(_ tasks: [MapRouletteTask]) -> [ChoiceQuestion] {
+    var seen = Set<String>()
+    var result: [ChoiceQuestion] = []
+    for task in tasks {
+      guard case .choice(_, _, let qs, _) = task.work() else { continue }
+      for q in qs where seen.insert(q.id).inserted { result.append(q) }
+    }
+    return result
+  }
+
   private func closeWelcome() {
     let first = !campaigns.hasSeenWelcome(challengeID.value)
     campaigns.markWelcomeSeen(challengeID.value)
@@ -318,6 +343,7 @@ struct ChallengeTasksView: View {
         challenge = loadedChallenge
         tasks = located
         noun = Noun.from(all)
+        questions = Self.questions(all)
         hidden = located.filter { !$0.isOpen && !$0.isDone }.count
         truncated = cursor != nil
         status = located.contains(where: { $0.isOpen || $0.isDone }) ? "" : "Nothing to check in this campaign yet."
