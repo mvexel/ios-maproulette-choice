@@ -1,3 +1,4 @@
+import Foundation
 import MapRoulette
 
 /// What a campaign's tasks are called on screen ("stop", "bench"), derived from the identity tag
@@ -90,6 +91,30 @@ enum Wording {
   static func savedForLater(_ todayCount: Int, _ noun: Noun) -> String {
     "Saved. That's \(noun.count(todayCount)) today."
   }
+  static let putOnMapIntro =
+    "To put them on the map, finish on a computer. It takes about 3 minutes. We'll email you a link."
+  static let emailUse = "We only use your email to send this link and two reminders."
+  static func linkSent(to email: String, until: Date?) -> String {
+    "Check your email later (\(email)). "
+      + (until.map { "The link works until \($0.formatted(date: .abbreviated, time: .omitted))." } ?? "")
+  }
+  static func linkFailed(_ error: any Error) -> String {
+    switch (error as? MapRouletteError)?.kind {
+    case .validation?: "That doesn't look like an email address."
+    case .rateLimit?: "We've sent a few links already. Try again tomorrow."
+    case .network?: "Couldn't connect. Check your connection and try again."
+    case .conflict?: "These answers are already on the map."
+    default: "Couldn't send the link right now. Try again later."
+    }
+  }
+  static func savedNotOnMap(_ count: Int, _ noun: Noun, until: Date?) -> String {
+    "\(noun.count(count)) saved, not on the map yet."
+      + (until.map { " Finish on a computer by \($0.formatted(.dateTime.month(.abbreviated).day()))." } ?? "")
+  }
+  static let deleteMyData = "Delete my data"
+  static let deleteMyDataExplained =
+    "Removes your email and any saved answers that aren't on the map yet. Answers already on the map stay there, because they belong to OpenStreetMap now."
+  static let deleteMyDataDone = "Done. Your email and saved answers are deleted."
   static let savedForLaterNote = "Saved on our server. They go on the map when you finish on a computer."
   static func saved(_ todayCount: Int, _ noun: Noun) -> String {
     "Saved, thanks! That's \(noun.count(todayCount)) today."

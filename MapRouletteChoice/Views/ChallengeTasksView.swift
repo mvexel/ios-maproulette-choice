@@ -42,7 +42,7 @@ struct ChallengeTasksView: View {
   @State private var sheet: Sheet?
 
   enum Sheet: String, Identifiable {
-    case welcome, share
+    case welcome, share, putOnMap
     var id: Self { self }
   }
 
@@ -98,6 +98,7 @@ struct ChallengeTasksView: View {
     .sheet(item: $sheet) { which in
       switch which {
       case .welcome: welcome
+      case .putOnMap: PutOnMapCard()
       case .share: share
       }
     }
@@ -115,7 +116,11 @@ struct ChallengeTasksView: View {
       client = session.newClient()
       load()
     }
-    .onChange(of: changes.version) { load() }
+    .onChange(of: changes.version) {
+      load()
+      Task { await session.refreshGuestStatus() }
+    }
+    .task { await session.refreshGuestStatus() }
   }
 
   #if DEBUG
@@ -162,6 +167,9 @@ struct ChallengeTasksView: View {
           if failed { Button("Retry") { load() } }
         }
       }
+      if session.view.guest, let saved = session.guestStatus, saved.pendingCount > 0 {
+        savedBanner(saved)
+      }
       if let nearest = open.first {
         Button {
           navigate(to: nearest.id)
@@ -179,6 +187,19 @@ struct ChallengeTasksView: View {
     }
     .padding(.horizontal)
     .padding(.top, 8)
+  }
+
+  /// A guest's saved answers that aren't on the map yet (deferred sign-up §1.4).
+  private func savedBanner(_ saved: GuestStatus) -> some View {
+    HStack(alignment: .firstTextBaseline) {
+      Text(Wording.savedNotOnMap(saved.pendingCount, noun, until: saved.expiresAt))
+        .font(.subheadline.weight(.semibold))
+      Spacer()
+      Button(saved.email == .none ? "Send me the link" : "Resend link") { sheet = .putOnMap }
+        .font(.subheadline)
+    }
+    .padding(10)
+    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
   }
 
   // MARK: List

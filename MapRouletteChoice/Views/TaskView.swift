@@ -14,6 +14,8 @@ struct TaskView: View {
   @Environment(\.webAuthenticationSession) private var webAuth
   @Environment(\.dismiss) private var dismiss
   @AppStorage(SettingsKey.showOSMDetails) private var showDetails = false
+  @AppStorage(SettingsKey.putOnMapCardShown) private var putOnMapCardShown = false
+  @State private var showPutOnMap = false
 
   @State private var taskID: Int64
   /// The campaign's open places, for "Next nearest".
@@ -83,6 +85,7 @@ struct TaskView: View {
     .onChange(of: session.view.generation) { accountChanged() }
     .onChange(of: controller?.changed) { if controller?.changed == true { reportChange() } }
     .onChange(of: finishedTaskID) { countFinished() }
+    .sheet(isPresented: $showPutOnMap) { PutOnMapCard() }
   }
 
   // MARK: Lifecycle
@@ -150,6 +153,11 @@ struct TaskView: View {
     guard let id = finishedTaskID, !counted, case .done(let d) = controller?.state else { return }
     counted = true
     campaigns.recordChecked(d.loaded.challenge.id.value, task: id)
+    if d.savedForLater && !putOnMapCardShown {
+      // Once, after the first saved answer; later from the campaign's banner.
+      putOnMapCardShown = true
+      showPutOnMap = true
+    }
   }
 
   /// The current place's position: the loaded task's, else the campaign list's.
