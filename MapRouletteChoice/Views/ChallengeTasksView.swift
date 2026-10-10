@@ -274,7 +274,7 @@ struct ChallengeTasksView: View {
             Text("Instructions for mappers").font(.headline)
             Text(instruction).font(.subheadline).textSelection(.enabled)
           }
-          Label(Wording.answersArePublic, systemImage: "map")
+          Label(session.canAnswerAsGuest ? Wording.guestAnswersArePublic : Wording.answersArePublic, systemImage: "map")
           Label(Wording.locationStaysOnPhone, systemImage: "location")
           if session.canAnswerAsGuest {
             Label(AppSession.noAccountNeeded, systemImage: "person.crop.circle")
