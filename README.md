@@ -65,7 +65,8 @@ TEST_RUNNER_SCREENSHOT_DIR="$PWD/screens" xcodebuild -project MapRouletteChoice.
 | `MAPROULETTE_OAUTH_CLIENT_ID` | `maproulette-ios-choice` | Native OAuth client registered on the backend (scopes `tasks:read tasks:write osm:tagfix`). Registered on dev; stage/prod need it too. |
 | `MAPROULETTE_OAUTH_CALLBACK_SCHEME` | `lol.osm.maproulette.choice` | Callback is `<scheme>:/oauth2redirect`. |
 | `MAPROULETTE_GUESTS` | `NO` | `YES`: participants answer first; answers are saved on the server and go on the map once they finish signing up (deferred sign-up). Needs a backend with guests on. |
-| `MAP_STYLE_URL` | `https://tiles.openfreemap.org/styles/liberty` | Any MapLibre style URL. |
+| `MAP_STYLE_URL` | `https://tiles.openfreemap.org/styles/positron` | Any MapLibre style URL. The map hides the style's POI and transit symbols so campaign pins are the only things to tap. |
+| `MAP_DETAIL_STYLE_URL` | `https://tiles.openfreemap.org/styles/liberty` | The small map above a task; same symbol hiding. |
 | `APP_BUNDLE_IDENTIFIER` | `lol.osm.maproulette.choice` | |
 
 Task writes (answers, skips) are sent only to `mr-api.osm.lol` / `mr-dev.osm.lol` (and loopback in

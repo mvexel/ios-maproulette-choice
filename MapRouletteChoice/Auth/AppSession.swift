@@ -120,7 +120,7 @@ struct SessionClient: Sendable {
       demo = transport
       guestsEnabled = false
       view = SessionView(
-        signedIn: true, userID: 7, message: "Signed in as MapRoulette user 7 · demo backend, no network",
+        signedIn: true, userID: 7, message: "Demo campaign. Nothing is saved.",
         canWriteTasks: true, canEditOsm: true)
       deletionSetting = false
     }
