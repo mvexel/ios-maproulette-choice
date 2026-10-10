@@ -150,7 +150,7 @@ struct ChallengeTasksView: View {
   #endif
 
   private func navigate(to id: Int64) {
-    selected = Selection(id: id, candidates: tasks.filter(\.isOpen))
+    selected = Selection(id: id, candidates: tasks.filter { $0.isOpen && !held.contains($0.id) })
   }
 
   // MARK: Summary
