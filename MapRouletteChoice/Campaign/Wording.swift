@@ -98,9 +98,13 @@ enum Wording {
     "To put them on the map, finish on a computer. It takes about 3 minutes. We'll email you a link."
   static let emailUse = "We only use your email to send this link and two reminders."
   static func linkSent(to email: String, until: Date?) -> String {
-    "Check your email later (\(email)). "
-      + (until.map { "The link works until \($0.formatted(date: .abbreviated, time: .omitted))." } ?? "")
+    "Sent to \(email). Check your email later." + (until.map { " The link works until \(day($0))." } ?? "")
   }
+  /// "Nov 30": the one date format for guest deadlines.
+  static func day(_ date: Date) -> String { date.formatted(.dateTime.month(.abbreviated).day()) }
+  static let signInPutsOnMap = "Sign in now and your saved answers go on the map right away."
+  /// Only a bad address is the participant's to fix (shown in red); the rest are calm.
+  static func isInputError(_ error: any Error) -> Bool { (error as? MapRouletteError)?.kind == .validation }
   static func linkFailed(_ error: any Error) -> String {
     switch (error as? MapRouletteError)?.kind {
     case .validation?: "That doesn't look like an email address."
@@ -112,7 +116,7 @@ enum Wording {
   }
   static func savedNotOnMap(_ count: Int, _ noun: Noun, until: Date?) -> String {
     "\(noun.count(count)) saved, not on the map yet."
-      + (until.map { " Finish on a computer by \($0.formatted(.dateTime.month(.abbreviated).day()))." } ?? "")
+      + (until.map { " Finish on a computer by \(day($0))." } ?? "")
   }
   static let deleteMyData = "Delete my data"
   static let deleteMyDataExplained =

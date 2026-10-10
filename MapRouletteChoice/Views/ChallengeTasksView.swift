@@ -195,7 +195,7 @@ struct ChallengeTasksView: View {
       Text(Wording.savedNotOnMap(saved.pendingCount, noun, until: saved.expiresAt))
         .font(.subheadline.weight(.semibold))
       Spacer()
-      Button(saved.email == .none ? "Send me the link" : "Resend link") { sheet = .putOnMap }
+      Button(saved.email == .none ? "Send me the link" : "Resend the link") { sheet = .putOnMap }
         .font(.subheadline)
     }
     .padding(10)

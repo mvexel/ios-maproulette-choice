@@ -13,6 +13,7 @@ struct PutOnMapCard: View {
   @State private var sending = false
   @State private var sentTo: String?
   @State private var error: String?
+  @State private var errorIsInput = false
 
   var body: some View {
     NavigationStack {
@@ -41,7 +42,7 @@ struct PutOnMapCard: View {
               }
             }
             .disabled(sending || !email.contains("@"))
-            if let error { Text(error).foregroundStyle(.red) }
+            if let error { Text(error).foregroundStyle(errorIsInput ? Color.red : Color.secondary) }
           } footer: {
             Text(Wording.emailUse)
           }
@@ -49,7 +50,7 @@ struct PutOnMapCard: View {
         Section {
           Button("I already use OpenStreetMap") { signIn() }
         } footer: {
-          Text(session.accountHint)
+          Text(Wording.signInPutsOnMap)
         }
       }
       .navigationTitle("Your answers are saved")
@@ -71,6 +72,7 @@ struct PutOnMapCard: View {
         sentTo = address
       } catch {
         self.error = Wording.linkFailed(error)
+        errorIsInput = Wording.isInputError(error)
       }
     }
   }

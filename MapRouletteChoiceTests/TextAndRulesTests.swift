@@ -162,3 +162,10 @@ import Testing
   }
 
 }
+
+@Suite struct GuestLinkTextTests {
+  @Test func linkSentCopy() {
+    #expect(Wording.linkSent(to: "a@b.org", until: nil) == "Sent to a@b.org. Check your email later.")
+    #expect(Wording.linkSent(to: "a@b.org", until: Date()).hasPrefix("Sent to a@b.org. Check your email later. The link works until "))
+  }
+}
