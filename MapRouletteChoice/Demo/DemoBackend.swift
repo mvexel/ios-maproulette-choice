@@ -36,6 +36,14 @@
         case _?: return ok(["eligible": true, "deleteAllowed": true])
         case nil: return notFound
         }
+      // The SDK locks before submitting a choice and releases on failure.
+      case (.get, let p) where p.count == 3 && p[2] == "start":
+        guard let id = id(p[1]) else { return notFound }
+        var body = task(id)
+        body["lockPrimaryTaskId"] = id
+        body["lockBundledTasks"] = [Int64]()
+        return ok(body)
+      case (.get, let p) where p.count == 3 && p[2] == "release": return ok([String: Any]())
       case (.post, let p) where p.count == 3 && p[2] == "skip": return ok([String: Any]())
       case (.post, let p) where p.count == 3 && p[2] == "choice":
         guard let id = id(p[1]), let body = request.body,
