@@ -223,7 +223,7 @@ import Testing
     c.recheck()
     await c.idle()
     let held = try #require(c.state.checkAgain)
-    #expect(held.message.contains("still locked to you") && held.canResend)
+    #expect(held.message.contains("Not saved yet") && held.canResend)
     c.recheck()
     await c.idle()
     #expect(try #require(c.state.checkAgain).canResend, "an edit never falls back to editable answers")
@@ -242,7 +242,7 @@ import Testing
     await c.idle()
     c.recheck()
     await c.idle()
-    #expect(try #require(c.state.answering?.2).contains("not recorded"))
+    #expect(try #require(c.state.answering?.2).contains("weren't saved"))
   }
 
   @Test func submissionPendingNeverInvitesAnotherSubmission() async throws {
@@ -253,7 +253,7 @@ import Testing
     await c.idle()
     let state = try #require(c.state.checkAgain)
     #expect(!state.canResend)
-    #expect(state.message.contains("Pick another task"))
+    #expect(state.message.contains("Pick another place"))
     c.resendSame()
     await c.idle()
     #expect(o.calls.filter { $0 == "submit" }.count == 1)
@@ -272,7 +272,7 @@ import Testing
     c.recheck()
     await c.idle()
     let pending = try #require(c.state.checkAgain)
-    #expect(pending.message.contains("changeset 55") && !pending.message.contains("Not recorded"))
+    #expect(pending.message.contains("changeset 55") && !pending.message.contains("Not saved"))
     #expect(pending.changesetID == 55)
     c.resendSame()
     await c.idle()
@@ -295,7 +295,7 @@ import Testing
     let c = await answered(o)
     c.recheck()
     await c.idle()
-    #expect(try #require(c.state.checkAgain).message.contains("could not be re-read"))
+    #expect(try #require(c.state.checkAgain).message.contains("Couldn't check whether"))
   }
 
   @Test func osmPermissionProblemsAskToSignInAgain() async throws {
@@ -318,7 +318,7 @@ import Testing
     o.submit = { _ in throw failure(.server, .choice(.osmUnavailable)) }
     let c = await answered(o)
     #expect(try form(c).answers == ["backrest": "yes"])
-    #expect(try #require(c.state.answering?.2).contains("nothing was changed"))
+    #expect(try #require(c.state.answering?.2).contains("Your answers are kept"))
   }
 
   @Test func elementInUseOffersTheSameOutcomeWithoutDeletion() async throws {
