@@ -58,9 +58,17 @@ campaign) and skip its welcome card.
 | `MAPROULETTE_BASE_URL` | `https://mr-api.osm.lol` | Backend API origin. The dev deployment; edits development OSM. Planned rename: `mr-dev.osm.lol` (also allowed). |
 | `MAPROULETTE_OAUTH_CLIENT_ID` | `maproulette-ios-choice` | Native OAuth client registered on the backend (scopes `tasks:read tasks:write osm:tagfix`). Registered on dev; stage/prod need it too. |
 | `MAPROULETTE_OAUTH_CALLBACK_SCHEME` | `lol.osm.maproulette.choice` | Callback is `<scheme>:/oauth2redirect`. |
+| `MAPROULETTE_ALLOW_LIVE_WRITES` | `NO` | `YES` lets `mr-stage.osm.lol` / `mr-prod.osm.lol` (real OpenStreetMap) receive answers. |
 | `MAP_STYLE_URL` | `https://tiles.openfreemap.org/styles/liberty` | Any MapLibre style URL. |
 | `APP_BUNDLE_IDENTIFIER` | `lol.osm.maproulette.choice` | |
 
 Task writes (answers, skips) are sent only to `mr-api.osm.lol` / `mr-dev.osm.lol` (and loopback in
-Debug with `MAPROULETTE_ALLOW_LOOPBACK=YES`); other backends are read-only. See
-`AppSession.writeOrigins`.
+Debug with `MAPROULETTE_ALLOW_LOOPBACK=YES`), plus `mr-stage.osm.lol` / `mr-prod.osm.lol` when
+`MAPROULETTE_ALLOW_LIVE_WRITES=YES`; other backends are read-only. See `AppSession.writeOrigins`
+and `liveWriteOrigins`. A stage or prod pilot build:
+
+```sh
+xcodebuild ... MAPROULETTE_BASE_URL=https://mr-stage.osm.lol MAPROULETTE_ALLOW_LIVE_WRITES=YES
+```
+
+That backend must also have the `maproulette-ios-choice` OAuth client and accept writes.
