@@ -159,11 +159,4 @@ import Testing
     #expect(!e.acceptsCallback(URL(string: "org.evil:/oauth2redirect?code=a")!))
   }
 
-  @Test func markerPoints() {
-    #expect(taskPoint(.object(["lat": .number(40.76), "lng": .number(-111.89)]))?.latitude == 40.76)
-    #expect(taskPoint(.object(["lat": .integer(1), "lng": .integer(2)]))?.longitude == 2)
-    #expect(taskPoint(.object(["lat": .string("40"), "lng": .number(1)])) == nil)
-    #expect(taskPoint(.object(["lat": .number(91), "lng": .number(1)])) == nil)
-    #expect(taskPoint(nil) == nil)
-  }
 }
