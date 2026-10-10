@@ -101,6 +101,41 @@ enum TaskLocation {
     return distance(meters(a, b))
   }
 
+  /// "130 m · northeast": distance and compass direction from `a` to `b`, for list rows.
+  static func rowText(_ a: CLLocationCoordinate2D?, _ b: CLLocationCoordinate2D?) -> String? {
+    guard let a, let b else { return nil }
+    return "\(distance(meters(a, b))) · \(compass(bearing(from: a, to: b)))"
+  }
+
+  /// "180 m northeast": distance and direction from `a` to `b`, for "Next nearest".
+  static func directionText(_ a: CLLocationCoordinate2D?, _ b: CLLocationCoordinate2D?) -> String? {
+    guard let a, let b else { return nil }
+    return "\(distance(meters(a, b))) \(compass(bearing(from: a, to: b)))"
+  }
+
+  /// "130 m northeast of you", for the place header.
+  static func fromYouText(_ you: CLLocationCoordinate2D?, _ place: CLLocationCoordinate2D?) -> String? {
+    guard let you, let place else { return nil }
+    return "\(distance(meters(you, place))) \(compass(bearing(from: you, to: place))) of you"
+  }
+
+  /// Initial great-circle bearing in degrees, 0 = north, clockwise.
+  static func bearing(from a: CLLocationCoordinate2D, to b: CLLocationCoordinate2D) -> Double {
+    let (lat1, lat2) = (a.latitude * .pi / 180, b.latitude * .pi / 180)
+    let dLon = (b.longitude - a.longitude) * .pi / 180
+    let y = sin(dLon) * cos(lat2)
+    let x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon)
+    let degrees = atan2(y, x) * 180 / .pi
+    return (degrees + 360).truncatingRemainder(dividingBy: 360)
+  }
+
+  /// One of the 8 compass points for a bearing in degrees.
+  static func compass(_ degrees: Double) -> String {
+    let points = ["north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest"]
+    let normalized = (degrees.truncatingRemainder(dividingBy: 360) + 360).truncatingRemainder(dividingBy: 360)
+    return points[Int((normalized + 22.5) / 45) % 8]
+  }
+
   static func distance(_ meters: CLLocationDistance) -> String {
     let style = Measurement(value: meters, unit: UnitLength.meters)
     return style.formatted(.measurement(width: .abbreviated, usage: .road))
