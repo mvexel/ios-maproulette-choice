@@ -14,4 +14,9 @@ MAPROULETTE_ALLOW_LOOPBACK = NO
 // The OpenFreeMap (or any MapLibre) style for the task map.
 MAP_STYLE_URL = https:/$()/tiles.openfreemap.org/styles/liberty
 
+// The participant web host: campaign links and QR codes (https://<host>/challenge/<id>) open the
+// app through universal links once it serves apple-app-site-association; otherwise its landing
+// page. Sets the Associated Domains entitlement (applinks:<host>).
+CAMPAIGN_LINK_HOST = streettally.osm.lol
+
 APP_BUNDLE_IDENTIFIER = lol.osm.maproulette.choice

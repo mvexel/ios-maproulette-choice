@@ -21,6 +21,8 @@
 			</array>
 		</dict>
 	</array>
+	<key>MRCampaignLinkHost</key>
+	<string>$(CAMPAIGN_LINK_HOST)</string>
 	<key>MRMapStyleURL</key>
 	<string>$(MAP_STYLE_URL)</string>
 </dict>
