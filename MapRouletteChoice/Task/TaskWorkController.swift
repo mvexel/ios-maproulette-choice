@@ -382,7 +382,7 @@ enum TaskScreen: Sendable {
     case (.rateLimit, "pending_limit"?):
       return .answering(
         loaded, form,
-        notice: "You've saved a lot of \(noun.many). Put them on the map before saving more.")
+        notice: "That's as many \(noun.many) as we can keep before they go on the map. Finish on a computer, or sign in with I already use OpenStreetMap to keep going.")
     case (.permission, "challenge_not_published"?):
       return .notAvailable(loaded, reason: "This campaign isn't open for answers yet.")
     case (.authentication, _):
