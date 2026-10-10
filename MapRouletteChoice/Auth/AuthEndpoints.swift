@@ -9,6 +9,12 @@ struct AppConfig: Sendable {
   let mapStyleURL: URL
 
   static let defaultStyle = URL(string: "https://tiles.openfreemap.org/styles/positron")!
+  /// The small map above a task: more contrast than the campaign map, so streets read at a glance.
+  static let detailStyle: URL = {
+    let value = (Bundle.main.infoDictionary?["MRMapDetailStyleURL"] as? String)?.trimmingCharacters(in: .whitespaces)
+    return value.flatMap { $0.contains("$(") ? nil : URL(string: $0) }
+      ?? URL(string: "https://tiles.openfreemap.org/styles/liberty")!
+  }()
 
   static var current: AppConfig {
     let info = Bundle.main.infoDictionary ?? [:]

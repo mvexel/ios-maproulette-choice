@@ -254,7 +254,7 @@ struct TaskView: View {
     let task = loaded.task
     if let coordinate = TaskLocation.coordinate(task) {
       TaskMapView(
-        styleURL: session.mapStyleURL, tasks: [LocatedTask(task)], done: checked ? [task.id.value] : [],
+        styleURL: AppConfig.detailStyle, tasks: [LocatedTask(task)], done: checked ? [task.id.value] : [],
         noun: noun, interactive: false, open: { _ in }
       )
       .frame(height: 150)
