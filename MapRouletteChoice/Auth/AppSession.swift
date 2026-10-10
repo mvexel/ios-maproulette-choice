@@ -8,7 +8,10 @@ struct SessionView: Equatable, Sendable {
   var generation = 0
   var signedIn = false
   var userID: Int64?
+  /// Participant-facing status line.
   var message: String
+  /// Technical detail (account ids, revocation results), shown only with "Show OSM details".
+  var detail: String? = nil
   /// The grant includes `tasks:write`. False for read-only grants and signed-out sessions.
   var canWriteTasks = false
   /// The grant includes `osm:tagfix` (with `tasks:write`): choice answers and deletes may edit OSM.
@@ -69,7 +72,7 @@ struct SessionClient: Sendable {
   /// ASWebAuthenticationSession runs ephemeral: no cookies are shared with Safari, so every
   /// sign-in shows the OSM login and can choose an account.
   let accountHint =
-    "Sign-in opens a private browser session, so you can choose any OpenStreetMap account each time."
+    "You'll sign in on openstreetmap.org. No account yet? It's free to create one there."
 
   init(config: AppConfig) {
     guard
@@ -123,18 +126,18 @@ struct SessionClient: Sendable {
       // A process death during refresh leaves its outcome uncertain. Never retry the old token.
       if saved.refreshPending {
         try? store.clear()
-        return publish("A previous refresh was interrupted. Sign in again.")
+        return publish("Please sign in again.", detail: "A previous refresh was interrupted.")
       }
       if endpoints.enabled, let grant = saved.grant, let user = saved.userID, user > 0 {
         self.grant = grant
         view.userID = user
       }
-      publish(grant != nil ? signedInMessage() : signedOutMessage())
+      publish(grant != nil ? signedInMessage() : signedOutMessage(), detail: grant != nil ? signedInDetail() : nil)
     } catch {
       try? store.clear()
       grant = nil
       view.userID = nil
-      publish("Saved sign-in could not be restored. Sign in again.")
+      publish("Please sign in again.", detail: "Saved sign-in could not be restored.")
     }
   }
 
@@ -145,37 +148,42 @@ struct SessionClient: Sendable {
     try store.write(JSONEncoder().encode(saved))
   }
 
+  nonisolated static let signInDidNotFinish = "Sign-in didn't finish. Please try again."
+
   private func signedOutMessage() -> String {
     endpoints.enabled
-      ? "Signed out · Public access"
-      : "Sign-in needs a configured test backend and approved OAuth client ID. Public browsing is available."
+      ? "You can look around without signing in. Sign in with OpenStreetMap to save answers."
+      : "You can look around. Signing in isn't set up in this build."
   }
 
   private func signedInMessage() -> String {
     let scopes = grant?.scopes ?? []
     let limit =
       !writesConfigured ? ""
-      : !scopes.contains(Self.writeScope) ? " · read-only sign-in"
-      : !scopes.contains(Self.tagfixScope) ? " · cannot edit OpenStreetMap" : ""
-    return "Signed in as MapRoulette user \(view.userID.map(String.init) ?? "?")\(limit)"
+      : !scopes.contains(Self.writeScope) || !scopes.contains(Self.tagfixScope) ? ". This sign-in can't save answers." : ""
+    return "Signed in with OpenStreetMap\(limit)"
   }
 
-  private func publish(_ message: String) {
+  private func signedInDetail() -> String {
+    "MapRoulette user \(view.userID.map(String.init) ?? "?") · scopes: \((grant?.scopes ?? []).sorted().joined(separator: " "))"
+  }
+
+  private func publish(_ message: String, detail: String? = nil) {
     let scopes = grant?.scopes ?? []
     let writable = scopes.contains(Self.writeScope)
     view = SessionView(
       generation: view.generation, signedIn: grant != nil, userID: grant != nil ? view.userID : nil,
-      message: message, canWriteTasks: writable,
+      message: message, detail: detail, canWriteTasks: writable,
       canEditOsm: writable && scopes.contains(Self.tagfixScope))
   }
 
   /// Ends the current generation: old clients and in-flight requests can no longer use credentials.
-  private func invalidate(_ message: String) throws {
+  private func invalidate(_ message: String, detail: String? = nil) throws {
     view.generation += 1
     grant = nil
     view.userID = nil
     refreshing = nil
-    defer { publish(message) }
+    defer { publish(message, detail: detail) }
     try store.clear()
   }
 
@@ -192,7 +200,7 @@ struct SessionClient: Sendable {
     guard signInAvailable else { return }
     // Keep the revocation result visible: the old grant may still be valid on the server.
     let revocation = view.signedIn ? await signOut() : nil
-    try? invalidate([revocation, "Opening browser sign-in…"].compactMap { $0 }.joined(separator: " "))
+    try? invalidate("Opening OpenStreetMap sign-in…", detail: revocation)
     let expected = view.generation
     let verifier = Self.randomToken()
     let state = Self.randomToken()
@@ -211,7 +219,7 @@ struct SessionClient: Sendable {
     do {
       callback = try await authenticate(url.url!)
     } catch {
-      if view.generation == expected { try? invalidate("Sign-in canceled or could not complete.") }
+      if view.generation == expected { try? invalidate(Self.signInDidNotFinish, detail: "Canceled or could not complete.") }
       return
     }
     // An old browser result must not replace a newer sign-in or signed-in account.
@@ -219,15 +227,17 @@ struct SessionClient: Sendable {
     let items = URLComponents(url: callback, resolvingAgainstBaseURL: false)?.queryItems ?? []
     func item(_ name: String) -> String? { items.first { $0.name == name }?.value }
     guard endpoints.acceptsCallback(callback), item("state") == state else {
-      try? invalidate("Sign-in callback did not match this app's pending request.")
+      try? invalidate(Self.signInDidNotFinish, detail: "Sign-in callback did not match this app's pending request.")
       return
     }
     if let error = item("error") {
-      try? invalidate(error == "access_denied" ? "Sign-in was declined." : "Sign-in canceled or could not complete.")
+      try? invalidate(
+        error == "access_denied" ? "Sign-in was canceled on OpenStreetMap." : Self.signInDidNotFinish,
+        detail: "OAuth error: \(error)")
       return
     }
     guard let code = item("code"), !code.isEmpty else {
-      try? invalidate("Sign-in canceled or could not complete.")
+      try? invalidate(Self.signInDidNotFinish, detail: "No authorization code returned.")
       return
     }
     var stage = "token exchange"
@@ -251,7 +261,7 @@ struct SessionClient: Sendable {
       view.userID = identity.id
       try persist()
       view.generation += 1
-      publish(signedInMessage())
+      publish(signedInMessage(), detail: signedInDetail())
     } catch is CancellationError {
       return
     } catch {
@@ -259,7 +269,7 @@ struct SessionClient: Sendable {
       log.debug("Sign-in failed during \(stage, privacy: .public): \(String(describing: type(of: error)), privacy: .public)")
       if view.generation == expected {
         grant = nil
-        try? invalidate("Sign-in failed during \(stage). Please try again.")
+        try? invalidate(Self.signInDidNotFinish, detail: "Sign-in failed during \(stage).")
       }
     }
   }
@@ -321,7 +331,9 @@ struct SessionClient: Sendable {
       throw CancellationError()
     } catch {
       log.debug("Refresh failed: \(String(describing: type(of: error)), privacy: .public)")
-      if view.generation == expected { try? invalidate("Refresh could not complete safely. Sign in again.") }
+      if view.generation == expected {
+        try? invalidate("Please sign in again.", detail: "Refresh could not complete safely.")
+      }
       throw SessionFailure()
     }
   }
@@ -339,7 +351,7 @@ struct SessionClient: Sendable {
   @discardableResult
   func signOut() async -> String {
     let token = grant?.refreshToken ?? grant?.accessToken
-    let localCleared = (try? invalidate("Signed out locally. Checking server revocation…")) != nil
+    let localCleared = (try? invalidate("Signing out…")) != nil
     let expected = view.generation
     var confirmed = true
     if let token, endpoints.permitsConnection(endpoints.revoke) {
@@ -351,7 +363,7 @@ struct SessionClient: Sendable {
       ? "Signed out in memory, but secure storage could not be cleared. Server revocation \(confirmed ? "confirmed" : "unconfirmed")."
       : confirmed ? "Signed out. Server revocation confirmed."
       : "Signed out locally. Server revocation could not be confirmed."
-    if view.generation == expected { publish(message) }
+    if view.generation == expected { publish("Signed out.", detail: message) }
     return message
   }
 

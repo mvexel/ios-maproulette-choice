@@ -46,7 +46,20 @@ enum Wording {
   static let notSure = "I'm not sure"
   static let notSureShort = "Not sure"
   static let somethingWrong = "Something's wrong here"
-  static let tooHard = "Too hard to tell"
+  static func cantCheck(_ noun: Noun) -> String { "I can't check this \(noun.one)" }
+  static func problemsMessage(_ noun: Noun) -> String {
+    "Skip leaves it for someone else. “\(cantCheck(noun))” tells the organizer it needs another look."
+  }
+  static let needsAccount = "To save answers you'll sign in with a free OpenStreetMap account."
+
+  /// A place's display name: its `name`, else "Stop 12345" from `ref`, else "Unnamed stop". The
+  /// task name is often an OSM id ("node/123"), so it is shown only with OSM details.
+  static func placeName(_ task: MapRouletteTask, _ noun: Noun) -> String {
+    let properties = task.templateProperties()
+    if let name = properties["name"]?.trimmingCharacters(in: .whitespaces), !name.isEmpty { return name }
+    if let ref = properties["ref"]?.trimmingCharacters(in: .whitespaces), !ref.isEmpty { return "\(noun.One) \(ref)" }
+    return "Unnamed \(noun.one)"
+  }
   static let done = "Done"
   static let showDetails = "Show OSM details"
   static let showDetailsFooter =
@@ -66,7 +79,7 @@ enum Wording {
     "Someone else is checking this \(noun.one) right now. Try another one."
   }
   static func notSureCloses(_ noun: Noun) -> String {
-    "Questions marked “\(notSureShort)” won't be asked again for this \(noun.one)."
+    "“\(notSureShort)” is fine. Those questions are left for a later visit."
   }
   static func nothingAnswered(_ noun: Noun) -> String {
     "You weren't sure about any question. You can skip this \(noun.one) instead."

@@ -37,14 +37,6 @@ struct ChallengePickerView: View {
     @Bindable var session = session
     List {
       Section {
-        Text(session.view.message).font(.subheadline).foregroundStyle(.secondary)
-          .accessibilityAddTraits(.updatesFrequently)
-        Button(signInLabel) { accountAction() }
-          .disabled(!session.signInAvailable || signingIn)
-      } header: {
-        Text("Account")
-      }
-      Section {
         if challenges.isEmpty {
           HStack {
             if request != nil { ProgressView() }
@@ -68,6 +60,20 @@ struct ChallengePickerView: View {
         if !challenges.isEmpty && showDetails {
           Text(footer)
         }
+      }
+      Section {
+        Text(session.view.message).font(.subheadline).foregroundStyle(.secondary)
+          .accessibilityAddTraits(.updatesFrequently)
+        if showDetails, let detail = session.view.detail {
+          Text(detail).font(.footnote).foregroundStyle(.secondary)
+        }
+        Button(signInLabel) { accountAction() }
+          .disabled(!session.signInAvailable || signingIn)
+        if session.signInAvailable && !session.view.signedIn {
+          Text(session.accountHint).font(.footnote).foregroundStyle(.secondary)
+        }
+      } header: {
+        Text("Account")
       }
       Section {
         Toggle(Wording.showDetails, isOn: $showDetails)
@@ -183,14 +189,13 @@ struct ChallengePickerView: View {
   }
 
   static func errorMessage(_ error: any Error) -> String {
-    guard let error = error as? MapRouletteError else { return "Could not load the data. Please retry." }
+    guard let error = error as? MapRouletteError else { return "Couldn't load. Please try again." }
     switch error.kind {
-    case .notFound: return "Not found."
-    case .authentication, .permission: return "This request is not available with the current sign-in."
-    case .network: return "Could not connect to MapRoulette. Check your connection and retry."
-    case .rateLimit: return "MapRoulette is limiting requests. Wait a moment and retry."
-    case .server: return "MapRoulette is temporarily unavailable. Please retry."
-    default: return "MapRoulette returned an unexpected response. Please retry."
+    case .notFound: return "This campaign couldn't be found. It may have ended."
+    case .authentication, .permission: return "Please sign in again to do this."
+    case .network: return "Couldn't connect. Check your connection and try again."
+    case .rateLimit: return "Too many requests right now. Wait a moment and try again."
+    default: return "Something went wrong on our side. Please try again."
     }
   }
 }

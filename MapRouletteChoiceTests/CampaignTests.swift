@@ -105,3 +105,20 @@ import Testing
     #expect(ChallengePickerView.published([untagged, tagged, other]).map(\.id.value) == [2])
   }
 }
+
+@Suite struct PlaceNameTests {
+  private func task(_ properties: [String: JSONValue]) throws -> MapRouletteTask {
+    let geometry: JSONValue = .object([
+      "type": .string("FeatureCollection"),
+      "features": .array([.object(["type": .string("Feature"), "properties": .object(properties)])]),
+    ])
+    return MapRouletteTask(id: try TaskID(9), challengeID: try ChallengeID(3), name: "node/123", geometry: geometry)
+  }
+
+  @Test func prefersNameThenRefThenNoun() throws {
+    let stop = Noun(one: "stop", many: "stops")
+    #expect(Wording.placeName(try task(["name": .string("300 S & Main")]), stop) == "300 S & Main")
+    #expect(Wording.placeName(try task(["ref": .string("12345")]), stop) == "Stop 12345")
+    #expect(Wording.placeName(try task(["@id": .string("node/123")]), stop) == "Unnamed stop")
+  }
+}

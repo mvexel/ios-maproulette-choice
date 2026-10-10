@@ -70,7 +70,7 @@ struct ChallengeTasksView: View {
       .padding(.horizontal)
       switch mode {
       case .map:
-        TaskMapView(styleURL: session.mapStyleURL, tasks: shown, done: doneIDs) { id in navigate(to: id) }
+        TaskMapView(styleURL: session.mapStyleURL, tasks: shown, done: doneIDs, noun: noun) { id in navigate(to: id) }
           .ignoresSafeArea(edges: .bottom)
       case .list: list
       }
@@ -85,7 +85,7 @@ struct ChallengeTasksView: View {
         Menu("More", systemImage: "ellipsis.circle") {
           Button("About this campaign", systemImage: "info.circle") { sheet = .welcome }
           Button("Share campaign", systemImage: "qrcode") { sheet = .share }
-          Button("Sort by my location", systemImage: "location") { locate() }
+          Button("Update my location", systemImage: "location") { locate() }
         }
       }
     }
@@ -100,7 +100,8 @@ struct ChallengeTasksView: View {
       if client == nil {
         client = session.newClient()
         load()
-        locate()
+        // First visit: the welcome card explains location before the system asks.
+        if campaigns.hasSeenWelcome(challengeID.value) { locate() }
       }
     }
     .onDisappear { locator.stop() }
@@ -125,7 +126,7 @@ struct ChallengeTasksView: View {
         HStack {
           Text(Wording.progress(done: done, total: shown.count, noun))
           Spacer()
-          if today > 0 { Text("You: \(today) today") }
+          if today > 0 { Text("You've checked \(today) today") }
         }
         .font(.subheadline)
         .foregroundStyle(.secondary)
@@ -194,9 +195,9 @@ struct ChallengeTasksView: View {
         Image(systemName: "checkmark.circle.fill").foregroundStyle(.secondary)
       }
       VStack(alignment: .leading, spacing: 2) {
-        Text(task.task.name).foregroundStyle(done ? .secondary : .primary)
+        Text(Wording.placeName(task.task, noun)).foregroundStyle(done ? .secondary : .primary)
         if showDetails {
-          Text(verbatim: "Task \(task.id) · \(TaskText.status(task.task.status?.code))")
+          Text(verbatim: "\(task.task.name) · Task \(task.id) · \(TaskText.status(task.task.status?.code))")
             .font(.footnote).foregroundStyle(.secondary)
         }
       }
@@ -238,9 +239,11 @@ struct ChallengeTasksView: View {
           }
           Label(Wording.answersArePublic, systemImage: "map")
           Label(Wording.locationStaysOnPhone, systemImage: "location")
+          if !session.view.signedIn {
+            Label(Wording.needsAccount, systemImage: "person.crop.circle")
+          }
           Button {
-            campaigns.markWelcomeSeen(challengeID.value)
-            sheet = nil
+            closeWelcome()
           } label: {
             Text("Let's go").font(.headline).frame(maxWidth: .infinity, minHeight: 50)
           }
@@ -249,10 +252,7 @@ struct ChallengeTasksView: View {
         .padding()
       }
       .toolbar {
-        Button("Close") {
-          campaigns.markWelcomeSeen(challengeID.value)
-          sheet = nil
-        }
+        Button("Close") { closeWelcome() }
       }
     }
   }
@@ -281,6 +281,13 @@ struct ChallengeTasksView: View {
       .navigationBarTitleDisplayMode(.inline)
       .toolbar { Button("Done") { sheet = nil } }
     }
+  }
+
+  private func closeWelcome() {
+    let first = !campaigns.hasSeenWelcome(challengeID.value)
+    campaigns.markWelcomeSeen(challengeID.value)
+    sheet = nil
+    if first || origin == nil { locate() }
   }
 
   // MARK: Loading

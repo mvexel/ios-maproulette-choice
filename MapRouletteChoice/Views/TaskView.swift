@@ -212,7 +212,7 @@ struct TaskView: View {
     case .skipped(_, let uncertain):
       Text(
         uncertain
-          ? "The connection dropped before the skip was confirmed. It wasn't sent again."
+          ? "The connection dropped, so we're not sure the skip went through. You don't need to do anything."
           : "Skipped. It stays open for someone else."
       )
       nextButtons()
@@ -220,7 +220,7 @@ struct TaskView: View {
       Text(Wording.takenByOther(noun))
       nextButtons()
     case .staleOwnLock(_, _, let action, let held):
-      Text("An earlier attempt is still open, so this couldn't be saved. Nothing was changed.")
+      Text("Your last try on this \(noun.one) is still being processed. Wait a moment, then try again. Nothing was changed.")
       if showDetails { Text(verbatim: "Locked task: \(held.value)").font(.footnote).foregroundStyle(.secondary) }
       bigButton("Try again") { c.perform(action) }
       backButton()
@@ -247,8 +247,9 @@ struct TaskView: View {
       .id(coordinate.latitude + coordinate.longitude)
     }
     VStack(alignment: .leading, spacing: 4) {
-      Text(task.name).font(.title2.bold())
+      Text(Wording.placeName(task, noun)).font(.title2.bold())
       if showDetails {
+        Text(verbatim: task.name).font(.footnote.monospaced()).foregroundStyle(.secondary)
         let element = ChoiceWork(task.work()).map { " · \(TaskText.element($0.element))" } ?? ""
         Text(verbatim: "Task \(task.id.value) · \(TaskText.status(task.status?.code))\(element)")
           .font(.footnote.monospaced()).foregroundStyle(.secondary)
@@ -381,10 +382,12 @@ struct TaskView: View {
             Button(outcome.label) { choose(c, loaded, form, .outcome(outcome)) }
           }
           if let tooHard = outcomes.first(where: { $0.id == ChoiceOutcome.tooHardID }) {
-            Button(Wording.tooHard) { choose(c, loaded, form, .outcome(tooHard)) }
+            Button(Wording.cantCheck(noun)) { choose(c, loaded, form, .outcome(tooHard)) }
           }
           if canSkip { Button(Wording.skip(noun)) { c.perform(.skip) } }
           Button("Cancel", role: .cancel) {}
+        } message: {
+          Text(Wording.problemsMessage(noun))
         }
     }
   }
@@ -444,7 +447,7 @@ struct TaskView: View {
     if pending.checking {
       HStack { ProgressView(); Text("Checking…") }
     } else {
-      Text("We couldn't confirm your answers were saved. They weren't sent again.")
+      Text("The connection dropped, so we're not sure your answers were saved. Tap Check again to find out. They weren't sent twice.")
       if showDetails {
         Text(pending.message).font(.footnote).foregroundStyle(.secondary)
         if let id = pending.changesetID { changesetLink(id) }
@@ -479,13 +482,13 @@ struct TaskView: View {
         Wording.next(noun, distance: TaskLocation.distanceText(here, next.coordinate)), prominent: prominent
       ) { open(next) }
     } else {
-      Text("No more \(noun.many) to check nearby. Thank you!").foregroundStyle(.secondary)
+      Text("That was the last \(noun.one) to check. Thank you!").foregroundStyle(.secondary)
     }
     backButton()
   }
 
   private func backButton() -> some View {
-    Button("Back to the map") { dismiss() }.frame(maxWidth: .infinity, minHeight: 44)
+    Button("Back to all \(noun.many)") { dismiss() }.frame(maxWidth: .infinity, minHeight: 44)
   }
 
   // MARK: Controls

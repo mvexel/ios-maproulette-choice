@@ -8,6 +8,7 @@ struct TaskMapView: UIViewRepresentable {
   let styleURL: URL
   let tasks: [LocatedTask]
   var done: Set<Int64> = []
+  var noun = Noun.place
   var interactive = true
   let open: (Int64) -> Void
 
@@ -26,7 +27,7 @@ struct TaskMapView: UIViewRepresentable {
 
   func updateUIView(_ map: MLNMapView, context: Context) {
     context.coordinator.open = open
-    context.coordinator.show(tasks, done: done, on: map)
+    context.coordinator.show(tasks, done: done, noun: noun, on: map)
   }
 
   final class TaskAnnotation: MLNPointAnnotation {
@@ -42,7 +43,7 @@ struct TaskMapView: UIViewRepresentable {
 
     init(open: @escaping (Int64) -> Void) { self.open = open }
 
-    func show(_ tasks: [LocatedTask], done: Set<Int64>, on map: MLNMapView) {
+    func show(_ tasks: [LocatedTask], done: Set<Int64>, noun: Noun, on map: MLNMapView) {
       let ids = tasks.map(\.id)
       guard ids != shown || done != shownDone else { return }
       let refit = ids != shown && !fitted
@@ -57,7 +58,7 @@ struct TaskMapView: UIViewRepresentable {
         a.taskID = task.id
         a.done = done.contains(task.id)
         a.coordinate = coordinate
-        a.title = task.task.name
+        a.title = Wording.placeName(task.task, noun)
         a.subtitle = a.done ? "Already checked" : "Tap to answer"
         return a
       }
