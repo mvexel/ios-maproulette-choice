@@ -3,12 +3,24 @@ import CoreImage.CIFilterBuiltins
 import Foundation
 import UIKit
 
-/// Links that open a campaign: `mrchoice://challenge/<id>`, and the same path on any https host
-/// (ready for universal links once a domain serves an apple-app-site-association file).
+/// Links that open a campaign: `https://streettally.osm.lol/challenge/<id>` (a universal link;
+/// without the app, the landing page), `mrchoice://challenge/<id>`, and the same path on any
+/// https host.
 enum CampaignLink {
   static let scheme = "mrchoice"
+  /// The participant web host (`CAMPAIGN_LINK_HOST`), also the Associated Domains entry.
+  static let host: String = {
+    let value = (Bundle.main.infoDictionary?["MRCampaignLinkHost"] as? String)?
+      .trimmingCharacters(in: .whitespaces) ?? ""
+    return value.isEmpty || value.contains("$(") ? "streettally.osm.lol" : value
+  }()
 
   static func url(_ challenge: Int64) -> URL { URL(string: "\(scheme)://challenge/\(challenge)")! }
+
+  /// The link to share and print: opens the app where installed, the landing page elsewhere.
+  static func webURL(_ challenge: Int64, host: String = CampaignLink.host) -> URL {
+    URL(string: "https://\(host)/challenge/\(challenge)")!
+  }
 
   /// The challenge id a link opens, or nil.
   static func challenge(from url: URL) -> Int64? {

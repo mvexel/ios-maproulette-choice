@@ -171,9 +171,13 @@ enum TaskScreen: Sendable {
   @ObservationIgnored private var discarded = false
   @ObservationIgnored private let log = Logger(subsystem: "lol.osm.maproulette.choice", category: "task")
 
-  init(ops: any TaskOps, writer: Writer?) {
+  /// What the campaign checks ("stop", "bench"), for participant messages.
+  @ObservationIgnored private let noun: Noun
+
+  init(ops: any TaskOps, writer: Writer?, noun: Noun = .place) {
     self.ops = ops
     self.writer = writer
+    self.noun = noun
   }
 
   var busy: Bool {
@@ -200,7 +204,7 @@ enum TaskScreen: Sendable {
         let challenge = try await ops.getChallenge(task)
         next = await opened(LoadedTask(task: task, challenge: challenge))
       } catch {
-        next = .loadFailed(Self.readError(error))
+        next = .loadFailed(Self.readError(error, noun))
       }
       publish(next)
     }
@@ -367,11 +371,11 @@ enum TaskScreen: Sendable {
     }
     guard let error = error as? MapRouletteError else {
       // Credential failures (for example a refresh that could not complete) happen before sending.
-      return answering("Could not send the request. Nothing was recorded.")
+      return answering("Couldn't send your answers. Nothing was saved. Try again.")
     }
     if error.kind == .validation, error.problem == nil {
       // The SDK checks the submission against the payload before sending anything.
-      return answering("The app could not complete this submission. Nothing was recorded.")
+      return answering("Something went wrong. Nothing was saved. Try again.")
     }
     switch error.problem {
     case .choice(.taskIneligible)?: return .noLongerNeeded(loaded)
@@ -379,23 +383,23 @@ enum TaskScreen: Sendable {
       if case .outcome(let outcome) = action, Self.withoutDeletion(outcome) != nil {
         return .elementInUse(loaded, form, outcome)
       }
-      return answering("OpenStreetMap refused the change because the element is in use. Nothing was changed.")
+      return answering("The map wouldn't accept this change. Nothing was saved.")
     case .choice(.osmReauthRequired)?:
       return .signInRequired(
         loaded,
-        reason: "OpenStreetMap no longer accepts MapRoulette's permission to edit for you. Nothing was changed. Sign in again to enable editing.")
+        reason: "Your sign-in has expired. Sign in again to save answers. Nothing was saved.")
     case .choice(.osmScopeRequired)?:
       return .signInRequired(
-        loaded, reason: "This sign-in cannot edit OpenStreetMap. Nothing was changed. Sign in again to enable editing.")
+        loaded, reason: "This sign-in can't save answers. Sign in again. Nothing was saved.")
     case .insufficientScope?:
       return .signInRequired(
-        loaded, reason: "This sign-in can only read tasks. Nothing was recorded. Sign in again to enable task actions.")
+        loaded, reason: "This sign-in can't save answers. Sign in again. Nothing was saved.")
     case .choice(.osmUnavailable)?:
       return answering(
-        "OpenStreetMap edits are not available right now, so nothing was changed. Your answers are kept; try again later.")
+        "Saving is paused right now. Your answers are kept. Try again in a bit.")
     case .choice(.submissionPending)?:
       return checkAgain(
-        "An earlier submission for this task is still being processed. Nothing was sent.", .submissionPending)
+        "Your last answers for this \(noun.one) are still being saved. Wait a moment, then try again.", .submissionPending)
     case .choice(.statusPending(let changeset))?:
       return checkAgain(
         "The edit reached OpenStreetMap, but MapRoulette has not recorded the result yet. It was not sent again. "
@@ -404,22 +408,24 @@ enum TaskScreen: Sendable {
       if action == .skip { return .skipped(loaded, uncertain: true) }
       return checkAgain("The connection failed before MapRoulette confirmed the result. It was not sent again.", .unknown)
     case .choice(.invalidSubmission)?:
-      return answering("MapRoulette did not accept this submission. Nothing was recorded.")
+      return answering("Your answers weren't accepted. Nothing was saved. Try again, or skip this \(noun.one).")
     case .choice(.unsupportedTask)?:
       return .notAvailable(
         loaded, reason: "MapRoulette cannot process this task's questions. Complete it on the MapRoulette website.")
     case .lockedByOtherUser?: return .takenByOther(loaded)
     case .alreadyHoldingTask(let held, _, _, _)?: return .staleOwnLock(loaded, form, action, lockedTaskID: held)
     case .lockLost?:
-      return answering("Your lock on this task ended before the result was recorded. Nothing was recorded; you can try again.")
+      return answering("That took too long and wasn't saved. Please answer again.")
     case .invalidTransition?: return await notAccepted(loaded)
     case nil:
       switch error.kind {
       case .authentication:
         return answering(
-          "MapRoulette rejected the sign-in, so nothing was recorded. Choose again; if it keeps failing, sign in again.")
-      case .notFound: return .loadFailed("This task no longer exists.")
-      default: return answering(Self.writeError(error))
+          "Your sign-in wasn't accepted, so nothing was saved. Try again. If it keeps happening, sign in again.")
+      case .notFound: return .loadFailed("This \(noun.one) is no longer in the campaign.")
+      default:
+        if error.kind == .http { log.info("Write refused: HTTP \(error.status ?? 0, privacy: .public)") }
+        return answering(Self.writeError(error, noun))
       }
     }
   }
@@ -428,7 +434,7 @@ enum TaskScreen: Sendable {
     let fresh = (try? await ops.getTask(loaded.task.id)) ?? loaded.task
     return .notAvailable(
       LoadedTask(task: fresh, challenge: loaded.challenge),
-      reason: "MapRoulette did not accept this result. The task may already be completed or its challenge paused.")
+      reason: "This \(noun.one) can't be answered right now. Someone may have just checked it, or the campaign is paused.")
   }
 
   private func reread(_ loaded: LoadedTask, _ action: ChoiceAction, _ me: Int64, _ changesetID: Int64?) async
@@ -456,7 +462,7 @@ enum TaskScreen: Sendable {
       fresh = try await ops.getTask(pending.loaded.task.id)
     } catch {
       var failed = pending
-      failed.message = "The task could not be re-read. Check your connection and try again."
+      failed.message = "Couldn't check whether your answers were saved. Check your connection and try again."
       publish(.checkAgain(failed))
       return
     }
@@ -495,42 +501,41 @@ enum TaskScreen: Sendable {
     } else if pending.pending == .submissionPending {
       // Another submission is unfinished; resubmitting would only be refused again.
       next.message =
-        "Another submission for this task is still unfinished, so it cannot be answered now. Pick another task."
+        "Someone's answers for this \(noun.one) are still being saved. Pick another \(noun.one) for now."
       result = .checkAgain(next)
     } else if check == .notAppliedLockHeld {
       next.canResend = true
       next.message =
-        "Not recorded yet, and the task is still locked to you. Check again in a minute, or send the same submission again."
+        "Not saved yet. Check again in a minute, or send the same answers again."
       result = .checkAgain(next)
     } else if pending.action.editsOsm {
       // An edit may have reached OSM: only the identical submission can be resumed.
       next.canResend = true
-      next.message = "Not recorded. You can send the same submission again; MapRoulette does not upload an edit twice."
+      next.message = "Not saved. You can send the same answers again. They're never saved twice."
       result = .checkAgain(next)
     } else {
-      result = .answering(loaded, pending.form, notice: "Your earlier submission was not recorded. You can submit again.")
+      result = .answering(loaded, pending.form, notice: "Your earlier answers weren't saved. You can send them again.")
     }
     publish(result)
   }
 
-  private static func readError(_ error: any Error) -> String {
-    guard let error = error as? MapRouletteError else { return "Could not load the task. Please retry." }
+  private static func readError(_ error: any Error, _ noun: Noun) -> String {
+    guard let error = error as? MapRouletteError else { return "Couldn't load this \(noun.one). Try again." }
     switch error.kind {
-    case .notFound: return "Task not found."
-    case .network: return "Could not connect to MapRoulette. Check your connection and retry."
-    case .authentication: return "Your sign-in is no longer valid. Sign in again."
-    default: return "MapRoulette could not load the task. Please retry."
+    case .notFound: return "This \(noun.one) is no longer in the campaign."
+    case .network: return "Couldn't connect. Check your connection and try again."
+    case .authentication: return "Your sign-in has expired. Sign in again."
+    default: return "Couldn't load this \(noun.one). Try again."
     }
   }
 
-  private static func writeError(_ error: MapRouletteError) -> String {
+  private static func writeError(_ error: MapRouletteError, _ noun: Noun) -> String {
     switch error.kind {
-    case .network: "Could not connect to MapRoulette. Nothing was recorded. Check your connection and try again."
-    case .rateLimit: "MapRoulette is limiting requests. Nothing was recorded. Wait a moment and try again."
-    case .http:
-      "MapRoulette refused the request (HTTP \(error.status.map(String.init) ?? "?")). Nothing was recorded. The challenge may be paused."
-    case .permission: "MapRoulette refused the request. Nothing was recorded."
-    default: "MapRoulette returned an unexpected response. Nothing was recorded."
+    case .network: "Couldn't connect, so nothing was saved. Check your connection and try again."
+    case .rateLimit: "Too many tries at once. Nothing was saved. Wait a moment and try again."
+    case .http: "This campaign may be paused. Nothing was saved. Ask your organizer."
+    case .permission: "This couldn't be saved. Nothing was changed. Try again later."
+    default: "Something went wrong on our side. Nothing was saved. Try again."
     }
   }
 

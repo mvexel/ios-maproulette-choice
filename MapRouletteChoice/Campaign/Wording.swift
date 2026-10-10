@@ -52,13 +52,13 @@ enum Wording {
   }
   static let needsAccount = "To save answers you'll sign in with a free OpenStreetMap account."
 
-  /// A place's display name: its `name`, else "Stop 12345" from `ref`, else "Unnamed stop". The
+  /// A place's display name: its `name`, else "Stop 12345" from `ref`, else "Stop". The
   /// task name is often an OSM id ("node/123"), so it is shown only with OSM details.
   static func placeName(_ task: MapRouletteTask, _ noun: Noun) -> String {
     let properties = task.templateProperties()
     if let name = properties["name"]?.trimmingCharacters(in: .whitespaces), !name.isEmpty { return name }
     if let ref = properties["ref"]?.trimmingCharacters(in: .whitespaces), !ref.isEmpty { return "\(noun.One) \(ref)" }
-    return "Unnamed \(noun.one)"
+    return noun.One
   }
   static let done = "Done"
   static let showDetails = "Show OSM details"
@@ -66,8 +66,9 @@ enum Wording {
     "For organizers and experienced mappers: shows tag changes, task and element ids, changeset links and the deletion setting."
   static let answersArePublic =
     "Your answers are saved to OpenStreetMap, the free map anyone can use and improve. Edits are public and show your OpenStreetMap username."
-  static let locationStaysOnPhone =
-    "Your location is used on your phone to find the nearest ones. It is not uploaded."
+  static func locationStaysOnPhone(_ noun: Noun) -> String {
+    "Your location stays on your phone. We use it to find the nearest \(noun.many)."
+  }
 
   static func skip(_ noun: Noun) -> String { "Skip this \(noun.one)" }
   static func alreadyChecked(_ noun: Noun) -> String { "Someone already checked this \(noun.one). Thanks anyway!" }
@@ -79,7 +80,9 @@ enum Wording {
     "Someone else is checking this \(noun.one) right now. Try another one."
   }
   static func notSureCloses(_ noun: Noun) -> String {
-    "“\(notSureShort)” is fine. Those questions are left for a later visit."
+    // Partial answers close the place (SDK decision D7); it returns only if the organizer
+    // makes new tasks, so don't promise a later visit.
+    "That's fine. The organizer can send someone back to \(noun.many) with open questions."
   }
   static func nothingAnswered(_ noun: Noun) -> String {
     "You weren't sure about any question. You can skip this \(noun.one) instead."
@@ -97,6 +100,6 @@ enum Wording {
     "Nearest \(noun.one)" + (distance.map { " · \($0)" } ?? "")
   }
   static func progress(done: Int, total: Int, _ noun: Noun) -> String {
-    "\(done) of \(noun.count(total)) checked"
+    "The tally: \(done) of \(noun.count(total)) checked"
   }
 }

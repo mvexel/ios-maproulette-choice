@@ -14,6 +14,10 @@ import Testing
     #expect(CampaignLink.challenge(from: URL(string: "mrchoice://task/42")!) == nil)
     #expect(CampaignLink.challenge(from: URL(string: "http://example.org/challenge/7")!) == nil)
     #expect(CampaignLink.challenge(from: CampaignLink.url(123)) == 123)
+    #expect(CampaignLink.challenge(from: URL(string: "https://streettally.osm.lol/challenge/3")!) == 3)
+    #expect(CampaignLink.webURL(123, host: "streettally.osm.lol").absoluteString
+      == "https://streettally.osm.lol/challenge/123")
+    #expect(CampaignLink.challenge(from: CampaignLink.webURL(123)) == 123)
   }
 }
 
@@ -80,6 +84,20 @@ import Testing
     #expect(TaskLocation.distanceText(here, nil) == nil)
   }
 
+  @Test func directionUsesEightCompassPoints() {
+    let here = CLLocationCoordinate2D(latitude: 40.76, longitude: -111.89)
+    let northeast = CLLocationCoordinate2D(latitude: 40.761, longitude: -111.8887)
+    let west = CLLocationCoordinate2D(latitude: 40.76, longitude: -111.892)
+    #expect(TaskLocation.compass(TaskLocation.bearing(from: here, to: northeast)) == "northeast")
+    #expect(TaskLocation.compass(TaskLocation.bearing(from: here, to: west)) == "west")
+    #expect(TaskLocation.compass(359) == "north" && TaskLocation.compass(-90) == "west")
+    #expect(TaskLocation.rowText(here, west)?.hasSuffix(" · west") == true)
+    #expect(TaskLocation.fromYouText(here, northeast)?.hasSuffix(" northeast of you") == true)
+    #expect(TaskLocation.rowText(nil, west) == nil)
+    #expect(TaskLocation.directionText(here, west)?.hasSuffix(" west") == true)
+    #expect(Wording.next(.place, distance: TaskLocation.directionText(here, west)).hasPrefix("Next nearest place · "))
+  }
+
   @Test func offersOpenChoiceTaskAndNamesIt() async throws {
     let t = LocatedTask(try await makeTask())
     #expect(t.isOpen)
@@ -119,6 +137,6 @@ import Testing
     let stop = Noun(one: "stop", many: "stops")
     #expect(Wording.placeName(try task(["name": .string("300 S & Main")]), stop) == "300 S & Main")
     #expect(Wording.placeName(try task(["ref": .string("12345")]), stop) == "Stop 12345")
-    #expect(Wording.placeName(try task(["@id": .string("node/123")]), stop) == "Unnamed stop")
+    #expect(Wording.placeName(try task(["@id": .string("node/123")]), stop) == "Stop")
   }
 }

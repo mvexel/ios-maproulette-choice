@@ -19,11 +19,19 @@
 			remoteGlobalIDString = AA0000000000000000000501;
 			remoteInfo = MapRouletteChoice;
 		};
+		AA0000000000000000000402 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AA0000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AA0000000000000000000501;
+			remoteInfo = MapRouletteChoice;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		AA0000000000000000000601 /* MapRouletteChoice.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MapRouletteChoice.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA0000000000000000000602 /* MapRouletteChoiceTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MapRouletteChoiceTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA0000000000000000000605 /* MapRouletteChoiceUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MapRouletteChoiceUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA0000000000000000000603 /* App.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = App.xcconfig; sourceTree = "<group>"; };
 		AA0000000000000000000604 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -31,6 +39,7 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		AA0000000000000000000701 /* MapRouletteChoice */ = {isa = PBXFileSystemSynchronizedRootGroup; path = MapRouletteChoice; sourceTree = "<group>"; };
 		AA0000000000000000000702 /* MapRouletteChoiceTests */ = {isa = PBXFileSystemSynchronizedRootGroup; path = MapRouletteChoiceTests; sourceTree = "<group>"; };
+		AA0000000000000000000703 /* MapRouletteChoiceUITests */ = {isa = PBXFileSystemSynchronizedRootGroup; path = MapRouletteChoiceUITests; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -50,6 +59,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AA0000000000000000000803 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -59,6 +75,7 @@
 				AA0000000000000000000902 /* Config */,
 				AA0000000000000000000701 /* MapRouletteChoice */,
 				AA0000000000000000000702 /* MapRouletteChoiceTests */,
+				AA0000000000000000000703 /* MapRouletteChoiceUITests */,
 				AA0000000000000000000903 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -77,6 +94,7 @@
 			children = (
 				AA0000000000000000000601 /* MapRouletteChoice.app */,
 				AA0000000000000000000602 /* MapRouletteChoiceTests.xctest */,
+				AA0000000000000000000605 /* MapRouletteChoiceUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -129,6 +147,27 @@
 			productReference = AA0000000000000000000602 /* MapRouletteChoiceTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		AA0000000000000000000503 /* MapRouletteChoiceUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA0000000000000000001104 /* Build configuration list for PBXNativeTarget "MapRouletteChoiceUITests" */;
+			buildPhases = (
+				AA0000000000000000001005 /* Sources */,
+				AA0000000000000000000803 /* Frameworks */,
+				AA0000000000000000001006 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AA0000000000000000001202 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				AA0000000000000000000703 /* MapRouletteChoiceUITests */,
+			);
+			name = MapRouletteChoiceUITests;
+			productName = MapRouletteChoiceUITests;
+			productReference = AA0000000000000000000605 /* MapRouletteChoiceUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -143,6 +182,10 @@
 						CreatedOnToolsVersion = 27.0;
 					};
 					AA0000000000000000000502 = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = AA0000000000000000000501;
+					};
+					AA0000000000000000000503 = {
 						CreatedOnToolsVersion = 27.0;
 						TestTargetID = AA0000000000000000000501;
 					};
@@ -168,6 +211,7 @@
 			targets = (
 				AA0000000000000000000501 /* MapRouletteChoice */,
 				AA0000000000000000000502 /* MapRouletteChoiceTests */,
+				AA0000000000000000000503 /* MapRouletteChoiceUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -181,6 +225,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		AA0000000000000000001004 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA0000000000000000001006 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -204,6 +255,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AA0000000000000000001005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -211,6 +269,11 @@
 			isa = PBXTargetDependency;
 			target = AA0000000000000000000501 /* MapRouletteChoice */;
 			targetProxy = AA0000000000000000000401 /* PBXContainerItemProxy */;
+		};
+		AA0000000000000000001202 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = AA0000000000000000000501 /* MapRouletteChoice */;
+			targetProxy = AA0000000000000000000402 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -266,6 +329,7 @@
 		AA0000000000000000001303 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Config/MapRouletteChoice.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -290,6 +354,7 @@
 		AA0000000000000000001304 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Config/MapRouletteChoice.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -343,6 +408,36 @@
 			};
 			name = Release;
 		};
+		AA0000000000000000001307 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(APP_BUNDLE_IDENTIFIER)UITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = MapRouletteChoice;
+			};
+			name = Debug;
+		};
+		AA0000000000000000001308 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(APP_BUNDLE_IDENTIFIER)UITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = MapRouletteChoice;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -369,6 +464,15 @@
 			buildConfigurations = (
 				AA0000000000000000001305 /* Debug */,
 				AA0000000000000000001306 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AA0000000000000000001104 /* Build configuration list for PBXNativeTarget "MapRouletteChoiceUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA0000000000000000001307 /* Debug */,
+				AA0000000000000000001308 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
