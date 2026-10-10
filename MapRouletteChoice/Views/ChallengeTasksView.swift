@@ -84,7 +84,7 @@ struct ChallengeTasksView: View {
     .navigationTitle(challenge?.name ?? "Campaign")
     .navigationBarTitleDisplayMode(.inline)
     .navigationDestination(item: $selected) { selection in
-      TaskView(taskID: selection.id, candidates: selection.candidates, noun: noun)
+      TaskView(taskID: selection.id, candidates: selection.candidates, noun: noun, userLocation: origin)
     }
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
@@ -228,7 +228,7 @@ struct ChallengeTasksView: View {
         }
       }
       Spacer()
-      if let text = TaskLocation.distanceText(origin, task.coordinate) {
+      if let text = TaskLocation.rowText(origin, task.coordinate) {
         // Color.secondary, not .secondary: inside a button label the latter takes the accent tint.
         Text(text).font(.subheadline.monospacedDigit()).foregroundStyle(Color.secondary)
       }
@@ -277,7 +277,7 @@ struct ChallengeTasksView: View {
             Text(instruction).font(.subheadline).textSelection(.enabled)
           }
           Label(Wording.answersArePublic, systemImage: "map")
-          Label(Wording.locationStaysOnPhone, systemImage: "location")
+          Label(Wording.locationStaysOnPhone(noun), systemImage: "location")
           if !session.view.signedIn {
             Label(Wording.needsAccount, systemImage: "person.crop.circle")
           }
