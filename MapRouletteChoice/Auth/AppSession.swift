@@ -112,16 +112,19 @@ struct SessionClient: Sendable {
   }
 
   #if DEBUG
-    /// Screenshot/demo mode: an in-process mock backend, signed in as user 7. No network.
-    init(demo transport: any Transport) {
+    /// Screenshot/demo mode: an in-process mock backend, signed in as user 7 (or a guest). No network.
+    init(demo transport: any Transport, guest: Bool = false) {
       endpoints = try! AuthEndpoints(baseURL: "https://demo.invalid", clientID: "", allowLoopback: false)
       mapStyleURL = AppConfig.defaultStyle
       auth = nil
       demo = transport
-      guestsEnabled = false
-      view = SessionView(
-        signedIn: true, userID: 7, message: "Demo campaign. Nothing is saved.",
-        canWriteTasks: true, canEditOsm: true)
+      guestsEnabled = guest
+      view =
+        guest
+        ? SessionView(message: "Demo campaign. Nothing is saved.", guest: true)
+        : SessionView(
+          signedIn: true, userID: 7, message: "Demo campaign. Nothing is saved.",
+          canWriteTasks: true, canEditOsm: true)
       deletionSetting = false
     }
   #endif
@@ -227,8 +230,9 @@ struct SessionClient: Sendable {
   /// Makes this phone a guest before its first answer (registering once; later launches restore it).
   /// False when signed in, when this build or backend has no guests, or when registering failed.
   func ensureGuest() async -> Bool {
-    guard canAnswerAsGuest, let auth else { return false }
+    guard canAnswerAsGuest else { return false }
     if view.guest { return true }
+    guard let auth else { return false }
     do {
       _ = try await auth.startGuest()
       await sync(auth)
