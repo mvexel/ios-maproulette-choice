@@ -484,7 +484,7 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/mvexel/maproulette-mobile-sdk";
 			requirement = {
-				branch = "feat/display-name";
+				branch = main;
 				kind = branch;
 			};
 		};
