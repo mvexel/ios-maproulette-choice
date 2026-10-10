@@ -15,3 +15,9 @@ MAPROULETTE_ALLOW_LOOPBACK = NO
 MAP_STYLE_URL = https:/$()/tiles.openfreemap.org/styles/liberty
 
 APP_BUNDLE_IDENTIFIER = lol.osm.maproulette.choice
+
+// Asset catalog (MapRouletteChoice/Assets.xcassets): the Street Tally icon (A, tally gate, with
+// dark and tinted variants) and the brand colors. AccentColor is the text-safe amber, so it is
+// also the app's tint.
+ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon
+ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor
