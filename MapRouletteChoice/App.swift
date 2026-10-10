@@ -19,10 +19,13 @@ struct MapRouletteChoiceApp: App {
   @MainActor private static func makeSession() -> AppSession {
     #if DEBUG
       // `-demo`: an in-process mock campaign for screenshots and design review. No network.
-      // `-demoStops` uses the bus stop campaign, `-demoGuest` answers as a guest.
+      // `-demoStops` uses the bus stop campaign, `-demoGuest` answers as a guest, `-demoDraft`
+      // serves the campaign as an unpublished draft (for preview mode).
       let args = ProcessInfo.processInfo.arguments
       if args.contains("-demo") {
-        return AppSession(demo: DemoBackend(stops: args.contains("-demoStops")), guest: args.contains("-demoGuest"))
+        return AppSession(
+          demo: DemoBackend(stops: args.contains("-demoStops"), draft: args.contains("-demoDraft")),
+          guest: args.contains("-demoGuest"))
       }
     #endif
     return AppSession(config: .current)
@@ -44,6 +47,9 @@ struct MapRouletteChoiceApp: App {
 
 enum Route: Hashable {
   case challenge(ChallengeID)
+  /// A campaign link with `?preview=1` (design/preview-mode.md). `visit` is new for each open,
+  /// so opening the link again reloads the campaign.
+  case preview(ChallengeID, visit: UUID)
 }
 
 /// Counts task screens that may have changed a task; lists and maps reload when it changes.
@@ -63,6 +69,10 @@ struct RootView: View {
         .navigationDestination(for: Route.self) { route in
           switch route {
           case .challenge(let id): ChallengeTasksView(challengeID: id)
+          case .preview(let id, _):
+            // Exit returns to the picker; "Open it for real" reopens the campaign without preview.
+            ChallengeTasksView(
+              challengeID: id, preview: CampaignPreview(exit: { path = [] }, openForReal: { path = [.challenge(id)] }))
           }
         }
     }
@@ -73,6 +83,11 @@ struct RootView: View {
       #if DEBUG
         // Demo screenshot shortcuts open the demo campaign directly (see ChallengeTasksView).
         let args = ProcessInfo.processInfo.arguments
+        // `-demoPreview` opens the demo campaign as its preview link would (with `-demoDraft`).
+        if args.contains("-demo"), args.contains("-demoPreview") {
+          path = [.preview(try! ChallengeID(DemoBackend.challengeID), visit: UUID())]
+          return
+        }
         if args.contains("-demo"), args.contains(where: { ["-demoMap", "-demoList", "-demoTask"].contains($0) }) {
           path = [.challenge(try! ChallengeID(DemoBackend.challengeID))]
           return
@@ -85,7 +100,7 @@ struct RootView: View {
     .onOpenURL { url in
       guard let value = CampaignLink.challenge(from: url), let id = try? ChallengeID(value) else { return }
       restored = true
-      path = [.challenge(id)]
+      path = [CampaignLink.isPreview(url) ? .preview(id, visit: UUID()) : .challenge(id)]
     }
   }
 }

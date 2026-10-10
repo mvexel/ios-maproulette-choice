@@ -7,7 +7,9 @@
   /// campaign (challenge 3) with eight benches around Library Square, Salt Lake City: 186, 189
   /// and 190 already checked; 191 no longer needs checking (its tags changed on OSM).
   /// `-demoStops` swaps in "SLC Bus Stops" (same ids and states) around 1300 S 900 E, for App
-  /// Store screenshots. Guest calls (`-demoGuest`) keep answers in memory.
+  /// Store screenshots. Guest calls (`-demoGuest`) keep answers in memory. `-demoDraft` serves the
+  /// campaign as an unpublished draft (disabled, not tagged `mobile-survey-v1`) for preview mode;
+  /// the picker then lists nothing and only the preview link opens it.
   actor DemoBackend: Transport {
     static let challengeID: Int64 = 3
     static let taskIDs: [Int64] = Array(184...191)
@@ -20,10 +22,14 @@
       188: "900 E & Bryan Ave", 189: "Sugar House Park & Ride", 190: "900 E & Emerson Ave", 191: "1100 E & 1300 S",
     ]
     let stops: Bool
+    let draft: Bool
     private var pending: [Int64: Date] = [:]
     private var email = "none"
 
-    init(stops: Bool = false) { self.stops = stops }
+    init(stops: Bool = false, draft: Bool = false) {
+      self.stops = stops
+      self.draft = draft
+    }
     private var status: [Int64: Int] = Dictionary(uniqueKeysWithValues: DemoBackend.taskIDs.map { ($0, 0) })
       .merging([186: 1, 189: 1, 190: 1]) { $1 }
     private var completedBy: [Int64: Int64] = [186: 8, 189: 8, 190: 8]
@@ -116,6 +122,15 @@
     private func json(_ value: Any) -> Data { try! JSONSerialization.data(withJSONObject: value) }
 
     private var challenge: [String: Any] {
+      var o = published
+      if draft {
+        o["enabled"] = false
+        o["tags"] = [String]()
+      }
+      return o
+    }
+
+    private var published: [String: Any] {
       if stops {
         return [
           "id": Self.challengeID, "parent": 1, "name": "SLC Bus Stops",

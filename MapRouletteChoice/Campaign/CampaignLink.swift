@@ -5,10 +5,19 @@ import UIKit
 
 /// Links that open a campaign: `mrchoice://challenge/<id>`, and the same path on any https host
 /// (ready for universal links once a domain serves an apple-app-site-association file).
+/// `?preview=1` asks for preview mode (design/preview-mode.md §3), which only a draft honors.
 enum CampaignLink {
   static let scheme = "mrchoice"
 
-  static func url(_ challenge: Int64) -> URL { URL(string: "\(scheme)://challenge/\(challenge)")! }
+  static func url(_ challenge: Int64, preview: Bool = false) -> URL {
+    URL(string: "\(scheme)://challenge/\(challenge)" + (preview ? "?preview=1" : ""))!
+  }
+
+  /// Whether a campaign link asks for preview mode (`preview=1`).
+  static func isPreview(_ url: URL) -> Bool {
+    URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+      .contains { $0.name == "preview" && $0.value == "1" } == true
+  }
 
   /// The challenge id a link opens, or nil.
   static func challenge(from url: URL) -> Int64? {

@@ -39,6 +39,24 @@ struct ClientTaskOps: TaskOps {
   }
 }
 
+/// Preview mode's ops (design/preview-mode.md §2): reads pass through; every write is refused
+/// here, before the SDK, so a preview can't lock, skip or answer even if a screen asks it to.
+struct PreviewTaskOps: TaskOps {
+  let reads: any TaskOps
+
+  func choiceOutcomes(_ task: MapRouletteTask) -> [ChoiceOutcome] { reads.choiceOutcomes(task) }
+  func getTask(_ id: TaskID) async throws -> MapRouletteTask { try await reads.getTask(id) }
+  func getChallenge(_ task: MapRouletteTask) async throws -> Challenge { try await reads.getChallenge(task) }
+  func checkChoice(_ id: TaskID) async throws -> ChoiceEligibility { try await reads.checkChoice(id) }
+  func submitChoice(_ task: MapRouletteTask, _ submission: ChoiceSubmission) async throws -> ChoiceResult {
+    throw MapRouletteError(.permission)
+  }
+  func skipTask(_ id: TaskID) async throws { throw MapRouletteError(.permission) }
+  func submitPendingChoice(_ task: MapRouletteTask, _ submission: ChoiceSubmission) async throws -> PendingChoice {
+    throw MapRouletteError(.permission)
+  }
+}
+
 enum ChoiceAction: Equatable, Sendable {
   /// Question id → option id; questions left out are "Can't tell".
   case answers([String: String])
@@ -135,6 +153,8 @@ enum TaskScreen: Sendable {
   case notAvailable(LoadedTask, reason: String)
   /// Signed out or read-only: the questions without actions. No eligibility check is made.
   case preview(LoadedTask, ChoiceWork)
+  /// Campaign preview mode: what would have been sent. Nothing was.
+  case previewSaved(LoadedTask, ChoiceForm, ChoiceAction)
   /// Ineligible (stale) at open or submit. No actions.
   case noLongerNeeded(LoadedTask)
   /// The eligibility check failed (network, OSM unavailable, …): not actionable until a retry succeeds.
@@ -158,7 +178,8 @@ enum TaskScreen: Sendable {
     case .loading, .loadFailed: nil
     case .notAvailable(let l, _), .preview(let l, _), .noLongerNeeded(let l), .checkFailed(let l),
       .answering(let l, _, _), .submitting(let l, _, _), .skipped(let l, _), .takenByOther(let l),
-      .staleOwnLock(let l, _, _, _), .signInRequired(let l, _), .elementInUse(let l, _, _):
+      .staleOwnLock(let l, _, _, _), .signInRequired(let l, _), .elementInUse(let l, _, _),
+      .previewSaved(let l, _, _):
       l
     case .done(let d): d.loaded
     case .checkAgain(let c): c.loaded
@@ -178,6 +199,9 @@ enum TaskScreen: Sendable {
 
   @ObservationIgnored private let ops: any TaskOps
   @ObservationIgnored private let writer: Writer?
+  /// Campaign preview mode (design/preview-mode.md): every question is asked, with no eligibility
+  /// check, and nothing is ever sent. There is no writer and the ops refuse writes.
+  @ObservationIgnored let previewing: Bool
   @ObservationIgnored private var job: Task<Void, Never>?
   @ObservationIgnored private var discarded = false
   @ObservationIgnored private let log = Logger(subsystem: "lol.osm.maproulette.choice", category: "task")
@@ -185,10 +209,11 @@ enum TaskScreen: Sendable {
   /// What the campaign checks ("stop", "bench"), for participant messages.
   @ObservationIgnored private let noun: Noun
 
-  init(ops: any TaskOps, writer: Writer?, noun: Noun = .place) {
-    self.ops = ops
-    self.writer = writer
+  init(ops: any TaskOps, writer: Writer?, noun: Noun = .place, previewing: Bool = false) {
+    self.ops = previewing ? PreviewTaskOps(reads: ops) as any TaskOps : ops
+    self.writer = previewing ? nil : writer
     self.noun = noun
+    self.previewing = previewing
   }
 
   var busy: Bool {
@@ -199,7 +224,8 @@ enum TaskScreen: Sendable {
     }
   }
 
-  var canEditOsm: Bool { writer?.canEditOsm == true }
+  /// In preview, as if it could: the organizer sees every answer the campaign offers.
+  var canEditOsm: Bool { previewing || writer?.canEditOsm == true }
 
   /// Waits for the current operation, including a write that outlives `cancel()`. For tests.
   func idle() async { await job?.value }
@@ -231,6 +257,11 @@ enum TaskScreen: Sendable {
     guard task.mobileSupport() == .inPlace,
       let work = ChoiceWork(task.work())
     else { return .notAvailable(loaded, reason: TaskText.unavailableReason(task)) }
+    if previewing {
+      // Every question, every outcome: the draft is tried at a desk, not against current OSM.
+      return .answering(
+        loaded, Self.form(work, outcomes: ops.choiceOutcomes(task), deleteAllowed: true), notice: nil)
+    }
     guard writer != nil else { return .preview(loaded, work) }
     let eligibility: ChoiceEligibility
     do {
@@ -270,8 +301,10 @@ enum TaskScreen: Sendable {
 
   /// Whether `action` may be offered on `form`'s task for this writer.
   func offers(_ task: MapRouletteTask, _ form: ChoiceForm, _ action: ChoiceAction) -> Bool {
-    guard let writer else { return false }
-    if action.editsOsm && !writer.canEditOsm { return false }
+    if !previewing {
+      guard let writer else { return false }
+      if action.editsOsm && !writer.canEditOsm { return false }
+    }
     switch action {
     case .answers(let answers):
       return !answers.isEmpty
@@ -313,6 +346,13 @@ enum TaskScreen: Sendable {
   }
 
   private func submit(_ loaded: LoadedTask, _ form: ChoiceForm, _ action: ChoiceAction) {
+    if previewing {
+      // Nothing is sent, and nothing changed for maps and lists. A skip only moves on.
+      if !discarded {
+        state = action == .skip ? .skipped(loaded, uncertain: false) : .previewSaved(loaded, form, action)
+      }
+      return
+    }
     guard let writer, !discarded else { return }
     if writer.guest {
       saveForLater(loaded, form, action)
