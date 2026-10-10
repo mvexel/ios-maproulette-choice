@@ -19,7 +19,8 @@ final class ParticipantFlowUITests: XCTestCase {
     shot(app, "welcome")
     start.tap()
     allowLocationIfAsked(app)
-    XCTAssert(app.staticTexts["3 of 8 benches checked"].waitForExistence(timeout: 10))
+    let progress = app.staticTexts.containing(NSPredicate(format: "label CONTAINS '3 of 8 benches checked'")).firstMatch
+    XCTAssert(progress.waitForExistence(timeout: 10))
     shot(app, "campaign-map")
 
     app.buttons["List"].tap()
