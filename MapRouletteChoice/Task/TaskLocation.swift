@@ -93,6 +93,12 @@ enum TaskLocation {
     return "\(distance(meters(a, b))) · \(compass(bearing(from: a, to: b)))"
   }
 
+  /// "180 m northeast": distance and direction from `a` to `b`, for "Next nearest".
+  static func directionText(_ a: CLLocationCoordinate2D?, _ b: CLLocationCoordinate2D?) -> String? {
+    guard let a, let b else { return nil }
+    return "\(distance(meters(a, b))) \(compass(bearing(from: a, to: b)))"
+  }
+
   /// "130 m northeast of you", for the place header.
   static func fromYouText(_ you: CLLocationCoordinate2D?, _ place: CLLocationCoordinate2D?) -> String? {
     guard let you, let place else { return nil }

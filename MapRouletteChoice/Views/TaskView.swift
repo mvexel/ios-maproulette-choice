@@ -494,11 +494,11 @@ struct TaskView: View {
     backButton()
   }
 
-  /// Next nearest place (prominent), then back to the campaign.
+  /// Next nearest place (prominent), with distance and direction from this one, then back to the campaign.
   @ViewBuilder private func nextButtons(prominent: Bool = true) -> some View {
     if let next = nextPlace {
       bigButton(
-        Wording.next(noun, distance: TaskLocation.distanceText(here, next.coordinate)), prominent: prominent
+        Wording.next(noun, distance: TaskLocation.directionText(here, next.coordinate)), prominent: prominent
       ) { open(next) }
     } else {
       Text("That was the last \(noun.one) to check. Thank you!").foregroundStyle(.secondary)

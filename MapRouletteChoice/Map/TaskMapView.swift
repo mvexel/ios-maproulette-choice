@@ -78,7 +78,8 @@ struct TaskMapView: UIViewRepresentable {
       guard refit else { return }
       fitted = true
       if annotations.count == 1 {
-        map.setCenter(annotations[0].coordinate, zoomLevel: 17, animated: false)
+        // 16 keeps at least one named street in a small header (MapLibre zooms run a level closer).
+        map.setCenter(annotations[0].coordinate, zoomLevel: 16, animated: false)
       } else {
         map.showAnnotations(annotations, animated: true)
       }
