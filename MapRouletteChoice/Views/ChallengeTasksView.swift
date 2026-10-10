@@ -52,6 +52,10 @@ struct ChallengeTasksView: View {
   private var doneIDs: Set<Int64> {
     Set(tasks.filter { $0.isDone || campaigns.justDone.contains($0.id) }.map(\.id))
   }
+  /// A guest's saved answers: checked here, but not on the map until they finish signing up.
+  private var pendingIDs: Set<Int64> {
+    session.view.guest ? Set(tasks.filter { !$0.isDone && campaigns.justDone.contains($0.id) }.map(\.id)) : []
+  }
   private var open: [LocatedTask] {
     TaskLocation.sorted(tasks.filter { $0.isOpen && !campaigns.justDone.contains($0.id) }, from: origin)
   }
@@ -72,7 +76,8 @@ struct ChallengeTasksView: View {
       .padding(.horizontal)
       switch mode {
       case .map:
-        TaskMapView(styleURL: session.mapStyleURL, tasks: shown, done: doneIDs, noun: noun) { id in navigate(to: id) }
+        TaskMapView(
+          styleURL: session.mapStyleURL, tasks: shown, done: doneIDs, pending: pendingIDs, noun: noun) { id in navigate(to: id) }
           .background(Color(.secondarySystemBackground))
           .overlay {
             if tasks.isEmpty && request != nil { ProgressView("Loading…").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) }

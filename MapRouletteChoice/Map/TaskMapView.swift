@@ -2,13 +2,16 @@
 import CoreLocation
 import SwiftUI
 
-/// A MapLibre map (OpenFreeMap style by default) of a campaign's places. Places still to check are
-/// green dots; checked ones are grey with a tick. Tapping a dot shows its name; tapping the callout
-/// opens it. `done` marks finished tasks; `interactive` false gives a fixed preview map.
+/// A MapLibre map (OpenFreeMap style by default) of a campaign's places, with the brand pins
+/// (brand/pins): to check, checked, and saved but not on the map yet (`pending`, a guest's
+/// answers), each a different shape. Tapping a pin shows its name; tapping the callout opens it.
+/// `done` marks finished tasks; `interactive` false gives a fixed preview map.
 struct TaskMapView: UIViewRepresentable {
   let styleURL: URL
   let tasks: [LocatedTask]
   var done: Set<Int64> = []
+  /// Of `done`: saved for later (guest), not on the map yet.
+  var pending: Set<Int64> = []
   var noun = Noun.place
   var interactive = true
   let open: (Int64) -> Void
@@ -30,7 +33,7 @@ struct TaskMapView: UIViewRepresentable {
   func updateUIView(_ map: MLNMapView, context: Context) {
     context.coordinator.open = open
     if map.showsUserLocation != Self.locationAllowed { map.showsUserLocation = Self.locationAllowed }
-    context.coordinator.show(tasks, done: done, noun: noun, on: map)
+    context.coordinator.show(tasks, done: done, pending: pending, noun: noun, on: map)
   }
 
   private static var locationAllowed: Bool {
@@ -43,22 +46,25 @@ struct TaskMapView: UIViewRepresentable {
   final class TaskAnnotation: MLNPointAnnotation {
     var taskID: Int64 = 0
     var done = false
+    var pending = false
   }
 
   @MainActor final class Coordinator: NSObject, @preconcurrency MLNMapViewDelegate {
     var open: (Int64) -> Void
     private var shown: [Int64] = []
     private var shownDone: Set<Int64> = []
+    private var shownPending: Set<Int64> = []
     private var fitted = false
 
     init(open: @escaping (Int64) -> Void) { self.open = open }
 
-    func show(_ tasks: [LocatedTask], done: Set<Int64>, noun: Noun, on map: MLNMapView) {
+    func show(_ tasks: [LocatedTask], done: Set<Int64>, pending: Set<Int64>, noun: Noun, on map: MLNMapView) {
       let ids = tasks.map(\.id)
-      guard ids != shown || done != shownDone else { return }
+      guard ids != shown || done != shownDone || pending != shownPending else { return }
       let refit = ids != shown && !fitted
       shown = ids
       shownDone = done
+      shownPending = pending
       if let old = map.annotations?.filter({ $0 is TaskAnnotation }), !old.isEmpty {
         map.removeAnnotations(old)
       }
@@ -67,9 +73,10 @@ struct TaskMapView: UIViewRepresentable {
         let a = TaskAnnotation()
         a.taskID = task.id
         a.done = done.contains(task.id)
+        a.pending = a.done && pending.contains(task.id)
         a.coordinate = coordinate
         a.title = Wording.placeName(task.task, noun)
-        a.subtitle = a.done ? "Already checked" : "Tap to answer"
+        a.subtitle = a.pending ? "Saved, not on the map yet" : a.done ? "Already checked" : "Tap to answer"
         return a
       }
       guard !annotations.isEmpty else { return }
@@ -101,9 +108,9 @@ struct TaskMapView: UIViewRepresentable {
 
     func mapView(_ mapView: MLNMapView, imageFor annotation: any MLNAnnotation) -> MLNAnnotationImage? {
       guard let task = annotation as? TaskAnnotation else { return nil }
-      let id = task.done ? "done" : "todo"
-      if let image = mapView.dequeueReusableAnnotationImage(withIdentifier: id) { return image }
-      return MLNAnnotationImage(image: Self.dot(done: task.done), reuseIdentifier: id)
+      let name = task.pending ? "PinPending" : task.done ? "PinDone" : "PinTodo"
+      if let image = mapView.dequeueReusableAnnotationImage(withIdentifier: name) { return image }
+      return UIImage(named: name).map { MLNAnnotationImage(image: $0, reuseIdentifier: name) }
     }
 
     func mapView(_ mapView: MLNMapView, annotationCanShowCallout annotation: any MLNAnnotation) -> Bool {
@@ -114,31 +121,6 @@ struct TaskMapView: UIViewRepresentable {
       guard let task = annotation as? TaskAnnotation, !task.done else { return }
       mapView.deselectAnnotation(task, animated: false)
       open(task.taskID)
-    }
-
-    /// A 26 pt dot with a white ring; grey with a tick when done.
-    private static func dot(done: Bool) -> UIImage {
-      let size = CGSize(width: 26, height: 26)
-      return UIGraphicsImageRenderer(size: size).image { ctx in
-        let rect = CGRect(origin: .zero, size: size).insetBy(dx: 2, dy: 2)
-        let fill = done ? UIColor.systemGray : UIColor(red: 0x17 / 255, green: 0x6B / 255, blue: 0x52 / 255, alpha: 1)
-        fill.setFill()
-        UIColor.white.setStroke()
-        let circle = UIBezierPath(ovalIn: rect)
-        circle.lineWidth = 3
-        circle.fill()
-        circle.stroke()
-        if done {
-          let tick = UIBezierPath()
-          tick.move(to: CGPoint(x: 8, y: 13.5))
-          tick.addLine(to: CGPoint(x: 11.5, y: 17))
-          tick.addLine(to: CGPoint(x: 18, y: 9.5))
-          tick.lineWidth = 2.5
-          tick.lineCapStyle = .round
-          tick.stroke()
-        }
-        _ = ctx
-      }
     }
   }
 }
