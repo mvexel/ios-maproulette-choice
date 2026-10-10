@@ -53,13 +53,13 @@ enum Wording {
   }
   static let needsAccount = "To save answers you'll sign in with a free OpenStreetMap account."
 
-  /// A place's display name: its `name`, else "Stop 12345" from `ref`, else "Unnamed stop". The
+  /// A place's display name: its `name`, else "Stop 12345" from `ref`, else "Stop". The
   /// task name is often an OSM id ("node/123"), so it is shown only with OSM details.
   static func placeName(_ task: MapRouletteTask, _ noun: Noun) -> String {
     let properties = task.templateProperties()
     if let name = properties["name"]?.trimmingCharacters(in: .whitespaces), !name.isEmpty { return name }
     if let ref = properties["ref"]?.trimmingCharacters(in: .whitespaces), !ref.isEmpty { return "\(noun.One) \(ref)" }
-    return "Unnamed \(noun.one)"
+    return noun.One
   }
   static let done = "Done"
   static let showDetails = "Show OSM details"
@@ -70,8 +70,9 @@ enum Wording {
   /// Guests' answers reach OSM only after they finish signing up, under the username they pick then.
   static let guestAnswersArePublic =
     "Your answers go on OpenStreetMap, the free map anyone can use, when you finish on a computer. Map edits are public and show the username you choose then."
-  static let locationStaysOnPhone =
-    "Your location is used on your phone to find the nearest ones. It is not uploaded."
+  static func locationStaysOnPhone(_ noun: Noun) -> String {
+    "Your location stays on your phone. We use it to find the nearest \(noun.many)."
+  }
 
   static func skip(_ noun: Noun) -> String { "Skip this \(noun.one)" }
   static func alreadyChecked(_ noun: Noun) -> String { "Someone already checked this \(noun.one). Thanks anyway!" }
@@ -146,6 +147,6 @@ enum Wording {
     "Nearest \(noun.one)" + (distance.map { " · \($0)" } ?? "")
   }
   static func progress(done: Int, total: Int, _ noun: Noun) -> String {
-    "\(done) of \(noun.count(total)) checked"
+    "The tally: \(done) of \(noun.count(total)) checked"
   }
 }
