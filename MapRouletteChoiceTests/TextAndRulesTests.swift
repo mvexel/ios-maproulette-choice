@@ -86,6 +86,16 @@ import Testing
     #expect(AppSession.writesAllowed(origin: "http://127.0.0.1:9000", loopbackAllowed: true))
   }
 
+  @Test func stageAndProdWritesOnlyWhenTheBuildAllowsThem() {
+    for origin in ["https://mr-stage.osm.lol", "https://mr-prod.osm.lol"] {
+      #expect(!AppSession.writesAllowed(origin: origin, loopbackAllowed: false))
+      #expect(AppSession.writesAllowed(origin: origin, loopbackAllowed: false, liveAllowed: true))
+      #expect(AppSession.osmServers[origin] == TaskText.liveOSM)
+    }
+    #expect(!AppSession.writesAllowed(origin: "https://maproulette.org", loopbackAllowed: false, liveAllowed: true))
+    #expect(!AppSession.writesAllowed(origin: "https://mr-prod.osm.lol.evil", loopbackAllowed: false, liveAllowed: true))
+  }
+
   @Test func scopes() {
     #expect(AppSession.requestedScope(writesConfigured: true) == "tasks:read tasks:write osm:tagfix")
     #expect(AppSession.requestedScope(writesConfigured: false) == "tasks:read")

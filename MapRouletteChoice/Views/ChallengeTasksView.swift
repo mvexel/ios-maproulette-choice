@@ -84,7 +84,7 @@ struct ChallengeTasksView: View {
     .navigationTitle(challenge?.name ?? "Campaign")
     .navigationBarTitleDisplayMode(.inline)
     .navigationDestination(item: $selected) { selection in
-      TaskView(taskID: selection.id, candidates: selection.candidates, noun: noun)
+      TaskView(taskID: selection.id, candidates: selection.candidates, noun: noun, userLocation: origin)
     }
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
@@ -129,6 +129,8 @@ struct ChallengeTasksView: View {
       guard args.contains(where: { ["-demoMap", "-demoList", "-demoTask"].contains($0) }) else { return }
       sheet = nil
       campaigns.markWelcomeSeen(challengeID.value)
+      // Closing the welcome card would have asked for the location; distances need it.
+      if origin == nil { locate() }
       if args.contains("-demoList") { mode = .list }
       if let i = args.firstIndex(of: "-demoTask"), i + 1 < args.count, let id = Int64(args[i + 1]) {
         navigate(to: id)
@@ -226,7 +228,7 @@ struct ChallengeTasksView: View {
         }
       }
       Spacer()
-      if let text = TaskLocation.distanceText(origin, task.coordinate) {
+      if let text = TaskLocation.rowText(origin, task.coordinate) {
         // Color.secondary, not .secondary: inside a button label the latter takes the accent tint.
         Text(text).font(.subheadline.monospacedDigit()).foregroundStyle(Color.secondary)
       }
@@ -275,7 +277,7 @@ struct ChallengeTasksView: View {
             Text(instruction).font(.subheadline).textSelection(.enabled)
           }
           Label(session.canAnswerAsGuest ? Wording.guestAnswersArePublic : Wording.answersArePublic, systemImage: "map")
-          Label(Wording.locationStaysOnPhone, systemImage: "location")
+          Label(Wording.locationStaysOnPhone(noun), systemImage: "location")
           if session.canAnswerAsGuest {
             Label(AppSession.noAccountNeeded(noun), systemImage: "person.crop.circle")
           } else if !session.view.signedIn {
@@ -297,7 +299,7 @@ struct ChallengeTasksView: View {
   }
 
   private var share: some View {
-    let url = CampaignLink.url(challengeID.value)
+    let url = CampaignLink.webURL(challengeID.value)
     return NavigationStack {
       VStack(spacing: 20) {
         Text("Scan to open this campaign in the app").font(.headline).multilineTextAlignment(.center)

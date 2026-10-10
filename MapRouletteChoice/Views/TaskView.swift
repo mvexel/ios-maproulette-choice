@@ -19,6 +19,10 @@ struct TaskView: View {
   /// The campaign's open places, for "Next nearest".
   private let candidates: [LocatedTask]
   private let noun: Noun
+  /// The participant's position when the first place was opened from the campaign, for
+  /// "130 m northeast of you". Not live: after "Next nearest" they have moved, so it is hidden.
+  private let userLocation: CLLocationCoordinate2D?
+  private let firstTaskID: Int64
   /// Places opened in this screen; never offered again as next.
   @State private var visited: Set<Int64>
   @State private var controller: TaskWorkController?
@@ -34,11 +38,13 @@ struct TaskView: View {
   @State private var showProblems = false
   @State private var counted = false
 
-  init(taskID: Int64, candidates: [LocatedTask], noun: Noun) {
+  init(taskID: Int64, candidates: [LocatedTask], noun: Noun, userLocation: CLLocationCoordinate2D? = nil) {
     _taskID = State(initialValue: taskID)
     _visited = State(initialValue: [taskID])
     self.candidates = candidates
     self.noun = noun
+    self.userLocation = userLocation
+    firstTaskID = taskID
   }
 
   /// A confirmation bound to the controller that showed it: a dialog left open across an
@@ -255,7 +261,7 @@ struct TaskView: View {
     let task = loaded.task
     if let coordinate = TaskLocation.coordinate(task) {
       TaskMapView(
-        styleURL: session.mapStyleURL, tasks: [LocatedTask(task)], done: checked ? [task.id.value] : [],
+        styleURL: AppConfig.detailStyle, tasks: [LocatedTask(task)], done: checked ? [task.id.value] : [],
         noun: noun, interactive: false, open: { _ in }
       )
       .frame(height: 150)
@@ -265,6 +271,9 @@ struct TaskView: View {
     }
     VStack(alignment: .leading, spacing: 4) {
       Text(Wording.placeName(task, noun)).font(.title2.bold())
+      if task.id.value == firstTaskID, let whereText = TaskLocation.fromYouText(userLocation, TaskLocation.coordinate(task)) {
+        Text(whereText).font(.subheadline).foregroundStyle(.secondary)
+      }
       if showDetails {
         Text(verbatim: task.name).font(.footnote.monospaced()).foregroundStyle(.secondary)
         let element = ChoiceWork(task.work()).map { " · \(TaskText.element($0.element))" } ?? ""
@@ -317,7 +326,7 @@ struct TaskView: View {
     .accessibilityElement(children: .combine)
     Text(q.prompt).font(.title2.weight(.semibold))
     if let description = q.description, !description.isEmpty {
-      Text(description).foregroundStyle(.secondary)
+      Text(description).font(.body).foregroundStyle(.primary)
     }
     ForEach(q.options) { option in
       answerButton(
@@ -499,11 +508,11 @@ struct TaskView: View {
     backButton()
   }
 
-  /// Next nearest place (prominent), then back to the campaign.
+  /// Next nearest place (prominent), with distance and direction from this one, then back to the campaign.
   @ViewBuilder private func nextButtons(prominent: Bool = true) -> some View {
     if let next = nextPlace {
       bigButton(
-        Wording.next(noun, distance: TaskLocation.distanceText(here, next.coordinate)), prominent: prominent
+        Wording.next(noun, distance: TaskLocation.directionText(here, next.coordinate)), prominent: prominent
       ) { open(next) }
     } else {
       Text("That was the last \(noun.one) to check. Thank you!").foregroundStyle(.secondary)
@@ -553,7 +562,9 @@ struct TaskView: View {
           .fill(selected ? Color.accentColor.opacity(0.15) : Color(.secondarySystemBackground))
       )
       .overlay(
-        RoundedRectangle(cornerRadius: 14).stroke(selected ? Color.accentColor : .clear, lineWidth: 2)
+        // A visible edge even when unselected, so buttons hold up in glare.
+        RoundedRectangle(cornerRadius: 14)
+          .stroke(selected ? Color.accentColor : Color.secondary.opacity(0.5), lineWidth: selected ? 2 : 1.5)
       )
       .contentShape(RoundedRectangle(cornerRadius: 14))
     }

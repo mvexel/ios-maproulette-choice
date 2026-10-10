@@ -5,7 +5,7 @@ import SwiftUI
 struct MapRouletteChoiceApp: App {
   @State private var session: AppSession = Self.makeSession()
   @State private var refresh = TaskChanges()
-  @State private var campaigns = CampaignStore()
+  @State private var campaigns: CampaignStore = Self.makeCampaigns()
 
   var body: some Scene {
     WindowGroup {
@@ -22,6 +22,17 @@ struct MapRouletteChoiceApp: App {
       if ProcessInfo.processInfo.arguments.contains("-demo") { return AppSession(demo: DemoBackend()) }
     #endif
     return AppSession(config: .current)
+  }
+
+  @MainActor private static func makeCampaigns() -> CampaignStore {
+    #if DEBUG
+      // Demo runs start fresh (no last campaign, welcome cards unseen) and leave real state alone.
+      if ProcessInfo.processInfo.arguments.contains("-demo"), let demo = UserDefaults(suiteName: "demo") {
+        demo.removePersistentDomain(forName: "demo")
+        return CampaignStore(defaults: demo)
+      }
+    #endif
+    return CampaignStore()
   }
 }
 
@@ -53,6 +64,14 @@ struct RootView: View {
       // Reopen the last campaign once per launch; Back leads to the campaign list.
       guard !restored else { return }
       restored = true
+      #if DEBUG
+        // Demo screenshot shortcuts open the demo campaign directly (see ChallengeTasksView).
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("-demo"), args.contains(where: { ["-demoMap", "-demoList", "-demoTask"].contains($0) }) {
+          path = [.challenge(try! ChallengeID(DemoBackend.challengeID))]
+          return
+        }
+      #endif
       if path.isEmpty, let last = campaigns.lastCampaign, let id = try? ChallengeID(last) {
         path = [.challenge(id)]
       }
