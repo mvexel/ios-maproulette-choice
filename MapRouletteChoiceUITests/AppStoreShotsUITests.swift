@@ -2,7 +2,7 @@ import XCTest
 
 /// App Store raw captures (brand/appstore README, slots 1–6): the "SLC Bus Stops" demo campaign
 /// answered as a guest. With SCREENSHOT_DIR set, writes welcome, map, question, notsure, saved and
-/// progress PNGs there, plus putonmap and wrong for design review.
+/// progress PNGs there, plus putonmap, wrong, review, daysummary, closing and stale for design review.
 final class AppStoreShotsUITests: XCTestCase {
   override func setUp() {
     continueAfterFailure = false
@@ -69,6 +69,63 @@ final class AppStoreShotsUITests: XCTestCase {
     wrong.tap()
     sleep(1)
     shot(app, "wrong")
+  }
+
+  /// Answer every question, check the answers, save, send the link, then "I'm done for today".
+  @MainActor func testReviewAndDaySummary() throws {
+    let app = launch("-demoTask", "185")
+    allowLocationIfAsked(app)
+    XCTAssert(app.staticTexts["Is there a shelter with a roof?"].waitForExistence(timeout: 10))
+    answer(app, "Yes")
+    XCTAssert(app.staticTexts["Is there a bench or seat?"].waitForExistence(timeout: 5))
+    answer(app, "Yes")
+    XCTAssert(app.staticTexts["Is the waiting area lit at night?"].waitForExistence(timeout: 5))
+    answer(app, "No")
+    XCTAssert(app.staticTexts["Check your answers"].waitForExistence(timeout: 5))
+    sleep(1)
+    shot(app, "review")
+
+    XCTAssert(app.buttons["Done"].waitForExistence(timeout: 5))
+    app.buttons["Done"].tap()
+    XCTAssert(text(app, "Saved.").waitForExistence(timeout: 10))
+    // Give an email on the "put them on the map" card, so the day summary shows (not the card).
+    let email = app.textFields["Email address"]
+    XCTAssert(email.waitForExistence(timeout: 5))
+    email.tap()
+    email.typeText("sam@example.org")
+    // The card's button, not the banner's under the sheet.
+    app.collectionViews.buttons["Send me the link"].firstMatch.tap()
+    XCTAssert(text(app, "Sent to sam@example.org").waitForExistence(timeout: 5))
+    app.navigationBars["Your answers are saved"].buttons["Done"].tap()
+
+    let back = app.buttons["Back to all stops"]
+    XCTAssert(back.waitForExistence(timeout: 5))
+    back.tap()
+    let doneForToday = app.buttons["I'm done for today"]
+    XCTAssert(doneForToday.waitForExistence(timeout: 10))
+    doneForToday.tap()
+    XCTAssert(app.staticTexts["Nice work today."].waitForExistence(timeout: 5))
+    sleep(1)
+    shot(app, "daysummary")
+  }
+
+  /// `-demoClosing`: saved answers in their last days turn the banner amber.
+  @MainActor func testClosingBanner() throws {
+    let app = launch("-demoMap", "-demoClosing")
+    XCTAssert(text(app, "will be removed on").waitForExistence(timeout: 10))
+    allowLocationIfAsked(app)
+    waitForLocation(app)
+    sleep(3)  // map tiles
+    shot(app, "closing")
+  }
+
+  /// 191 no longer needs checking (its tags changed on OSM): the stale screen.
+  @MainActor func testPlaceThatNoLongerNeedsChecking() throws {
+    let app = launch("-demoTask", "191")
+    allowLocationIfAsked(app)
+    XCTAssert(app.buttons["Back to all stops"].waitForExistence(timeout: 10))
+    sleep(2)  // header map tiles
+    shot(app, "stale")
   }
 
   // MARK: Helpers

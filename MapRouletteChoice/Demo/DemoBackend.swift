@@ -7,7 +7,8 @@
   /// campaign (challenge 3) with eight benches around Library Square, Salt Lake City: 186, 189
   /// and 190 already checked; 191 no longer needs checking (its tags changed on OSM).
   /// `-demoStops` swaps in "SLC Bus Stops" (same ids and states) around 1300 S 900 E, for App
-  /// Store screenshots. Guest calls (`-demoGuest`) keep answers in memory.
+  /// Store screenshots. Guest calls (`-demoGuest`) keep answers in memory. `-demoClosing` starts
+  /// the guest with two saved answers (184, 188) that expire in about 2 days, for the amber banner.
   actor DemoBackend: Transport {
     static let challengeID: Int64 = 3
     static let taskIDs: [Int64] = Array(184...191)
@@ -22,8 +23,17 @@
     let stops: Bool
     private var pending: [Int64: Date] = [:]
     private var email = "none"
+    /// When the guest's saved answers are removed.
+    private var expiresAt = Date().addingTimeInterval(14 * 86400)
 
-    init(stops: Bool = false) { self.stops = stops }
+    init(stops: Bool = false, closing: Bool = false) {
+      self.stops = stops
+      if closing {
+        let now = Date()
+        pending = [184: now.addingTimeInterval(-12 * 86400), 188: now.addingTimeInterval(-12 * 86400)]
+        expiresAt = now.addingTimeInterval(2 * 86400)
+      }
+    }
     private var status: [Int64: Int] = Dictionary(uniqueKeysWithValues: DemoBackend.taskIDs.map { ($0, 0) })
       .merging([186: 1, 189: 1, 190: 1]) { $1 }
     private var completedBy: [Int64: Int64] = [186: 8, 189: 8, 190: 8]
@@ -103,7 +113,7 @@
     private var guestStatus: [String: Any] {
       [
         "guestId": "demo-guest", "state": "active", "email": email, "pending": pending.count, "published": 0,
-        "expiresAt": stamp(Date().addingTimeInterval(14 * 86400)),
+        "expiresAt": stamp(expiresAt),
       ]
     }
 
