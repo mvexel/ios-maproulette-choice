@@ -6,6 +6,8 @@ struct AppConfig: Sendable {
   let baseURL: String
   let clientID: String
   let allowLoopback: Bool
+  /// Lets the stage and prod backends (which edit the real OpenStreetMap) receive task writes.
+  var allowLiveWrites = false
   let mapStyleURL: URL
 
   static let defaultStyle = URL(string: "https://tiles.openfreemap.org/styles/liberty")!
@@ -22,6 +24,7 @@ struct AppConfig: Sendable {
     #endif
     return AppConfig(
       baseURL: value("MRBaseURL"), clientID: value("MROAuthClientID"), allowLoopback: loopback,
+      allowLiveWrites: value("MRAllowLiveWrites") == "YES",
       mapStyleURL: URL(string: value("MRMapStyleURL")) ?? defaultStyle)
   }
 }
@@ -41,6 +44,7 @@ struct AuthEndpoints: Sendable {
   let origin: String
   let clientID: String
   let loopbackAllowed: Bool
+  let liveWritesAllowed: Bool
   private let scheme: String, host: String, port: Int?
 
   var enabled: Bool { !clientID.isEmpty }
@@ -50,7 +54,7 @@ struct AuthEndpoints: Sendable {
   var revoke: URL { URL(string: origin + "/oauth/mobile/revoke")! }
   var storageBinding: String { "\(origin)|\(clientID)" }
 
-  init(baseURL: String, clientID: String, allowLoopback: Bool) throws {
+  init(baseURL: String, clientID: String, allowLoopback: Bool, allowLiveWrites: Bool = false) throws {
     guard let c = URLComponents(string: baseURL), let scheme = c.scheme?.lowercased(),
       let host = c.host?.lowercased(), !host.isEmpty, c.user == nil, c.password == nil,
       c.query == nil, c.fragment == nil, c.path.isEmpty || c.path == "/"
@@ -66,6 +70,7 @@ struct AuthEndpoints: Sendable {
     self.port = c.port
     self.clientID = clientID
     self.loopbackAllowed = allowLoopback
+    self.liveWritesAllowed = allowLiveWrites
     origin = "\(scheme)://\(host)" + (c.port.map { ":\($0)" } ?? "")
   }
 
