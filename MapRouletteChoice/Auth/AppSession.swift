@@ -236,8 +236,14 @@ struct SessionClient: Sendable {
   /// card to show a plain message.
   func sendFinishLink(to email: String) async throws {
     let status = try await newClient().client.setGuestEmail(email)
-    if view.guest { guestStatus = status }
+    if view.guest {
+      guestStatus = status
+      lastLinkEmail = email
+    }
   }
+
+  /// The address the link went to in this launch, for "Resend the link". Kept in memory only.
+  private(set) var lastLinkEmail: String?
 
   /// Deletes the guest's email and saved answers on the server, then forgets the guest here.
   /// Answers already on the map stay.
@@ -246,6 +252,7 @@ struct SessionClient: Sendable {
     try await newClient().client.deleteGuest()
     try? await auth.forgetGuest()
     guestStatus = nil
+    lastLinkEmail = nil
     await sync(auth)
     publish(signedOutMessage())
   }

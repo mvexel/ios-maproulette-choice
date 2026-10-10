@@ -42,7 +42,7 @@ struct ChallengeTasksView: View {
   @State private var sheet: Sheet?
 
   enum Sheet: String, Identifiable {
-    case welcome, share, putOnMap
+    case welcome, share, putOnMap, daySummary
     var id: Self { self }
   }
 
@@ -99,6 +99,9 @@ struct ChallengeTasksView: View {
       switch which {
       case .welcome: welcome
       case .putOnMap: PutOnMapCard()
+      case .daySummary:
+        DaySummaryCard(
+          checkedToday: campaigns.checkedToday(challengeID.value), done: doneIDs.count, total: shown.count, noun: noun)
       case .share: share
       }
     }
@@ -172,6 +175,7 @@ struct ChallengeTasksView: View {
           Text(Wording.savedExpired).font(.subheadline).foregroundStyle(.secondary)
         } else if saved.pendingCount > 0 {
           savedBanner(saved)
+          Button(Wording.doneForToday) { sheet = .daySummary }.font(.subheadline)
         }
       }
       if let nearest = open.first {

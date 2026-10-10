@@ -114,6 +114,15 @@ enum Wording {
     "\(noun.count(count)) saved, not on the map yet."
       + (until.map { " Finish on a computer by \($0.formatted(.dateTime.month(.abbreviated).day()))." } ?? "")
   }
+  /// Deferred sign-up §1.4 summary: "You checked 14 stops. The tally: 212 of 410."
+  static func daySummary(_ checked: Int, done: Int, total: Int, _ noun: Noun) -> String {
+    "You checked \(noun.count(checked)). The tally: \(done) of \(total)."
+  }
+  static func daySummarySaved(until: Date?) -> String {
+    (until.map { "They're saved until \($0.formatted(.dateTime.month(.wide).day()))." } ?? "They're saved for now.")
+      + " Open the email we sent to put them on the map. It takes about 3 minutes on a computer."
+  }
+  static let doneForToday = "I'm done for today"
   /// Deferred sign-up §1.6, in the last 3 days.
   static func savedClosing(_ count: Int, _ noun: Noun, on date: Date) -> String {
     "\(count) saved \(count == 1 ? noun.one : noun.many) will be removed on "
