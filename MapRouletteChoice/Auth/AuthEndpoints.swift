@@ -34,7 +34,7 @@ struct AuthEndpoints: Sendable {
   static let callbackScheme: String = {
     let value = (Bundle.main.infoDictionary?["MROAuthCallbackScheme"] as? String)?
       .trimmingCharacters(in: .whitespaces) ?? ""
-    return value.isEmpty || value.hasPrefix("$(") ? "org.maproulette.example" : value
+    return value.isEmpty || value.hasPrefix("$(") ? "lol.osm.maproulette.choice" : value
   }()
   static let redirect = "\(callbackScheme):/oauth2redirect"
 

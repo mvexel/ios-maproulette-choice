@@ -153,9 +153,11 @@ import Testing
     #expect(e.permitsConnection(URL(string: "https://mr-api.osm.lol/oauth/mobile/token")!))
     #expect(!e.permitsConnection(URL(string: "https://mr-api.osm.lol:444/oauth/mobile/token")!))
     #expect(!e.permitsConnection(URL(string: "https://evil.example/oauth/mobile/token")!))
-    #expect(e.acceptsCallback(URL(string: "org.maproulette.example:/oauth2redirect?code=a&state=b")!))
-    #expect(!e.acceptsCallback(URL(string: "org.maproulette.example:/other?code=a")!))
-    #expect(!e.acceptsCallback(URL(string: "org.maproulette.example:/oauth2redirect#x")!))
+    let scheme = AuthEndpoints.callbackScheme
+    #expect(AuthEndpoints.redirect == "\(scheme):/oauth2redirect")
+    #expect(e.acceptsCallback(URL(string: "\(scheme):/oauth2redirect?code=a&state=b")!))
+    #expect(!e.acceptsCallback(URL(string: "\(scheme):/other?code=a")!))
+    #expect(!e.acceptsCallback(URL(string: "\(scheme):/oauth2redirect#x")!))
     #expect(!e.acceptsCallback(URL(string: "org.evil:/oauth2redirect?code=a")!))
   }
 

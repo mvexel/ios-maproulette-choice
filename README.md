@@ -41,8 +41,8 @@ For a physical device, set your team under Signing & Capabilities (keep `DEVELOP
 | Setting | Default | |
 | --- | --- | --- |
 | `MAPROULETTE_BASE_URL` | `https://mr-api.osm.lol` | Backend API origin. The dev deployment; edits development OSM. Planned rename: `mr-dev.osm.lol` (also allowed). |
-| `MAPROULETTE_OAUTH_CLIENT_ID` | `maproulette-ios-example` | Native OAuth client registered on the backend. Planned: `maproulette-ios-choice`. |
-| `MAPROULETTE_OAUTH_CALLBACK_SCHEME` | `org.maproulette.example` | Callback is `<scheme>:/oauth2redirect`. Planned: `lol.osm.maproulette.choice`. |
+| `MAPROULETTE_OAUTH_CLIENT_ID` | `maproulette-ios-choice` | Native OAuth client registered on the backend (scopes `tasks:read tasks:write osm:tagfix`). Registered on dev; stage/prod need it too. |
+| `MAPROULETTE_OAUTH_CALLBACK_SCHEME` | `lol.osm.maproulette.choice` | Callback is `<scheme>:/oauth2redirect`. |
 | `MAP_STYLE_URL` | `https://tiles.openfreemap.org/styles/liberty` | Any MapLibre style URL. |
 | `APP_BUNDLE_IDENTIFIER` | `lol.osm.maproulette.choice` | |
 
