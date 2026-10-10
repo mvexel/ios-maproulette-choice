@@ -209,7 +209,7 @@ struct ChallengeTasksView: View {
       )
       .font(.subheadline.weight(.semibold))
       Spacer()
-      Button(saved.email == .none ? "Send me the link" : "Resend link") { sheet = .putOnMap }
+      Button(saved.email == .none ? "Send me the link" : "Resend the link") { sheet = .putOnMap }
         .font(.subheadline)
     }
     .padding(10)
