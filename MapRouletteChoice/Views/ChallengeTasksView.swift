@@ -71,6 +71,10 @@ struct ChallengeTasksView: View {
       switch mode {
       case .map:
         TaskMapView(styleURL: session.mapStyleURL, tasks: shown, done: doneIDs, noun: noun) { id in navigate(to: id) }
+          .background(Color(.secondarySystemBackground))
+          .overlay {
+            if tasks.isEmpty && request != nil { ProgressView("Loading…").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) }
+          }
           .ignoresSafeArea(edges: .bottom)
       case .list: list
       }
