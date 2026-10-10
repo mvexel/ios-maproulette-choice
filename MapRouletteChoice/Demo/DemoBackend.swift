@@ -13,7 +13,9 @@
   actor DemoBackend: Transport {
     static let challengeID: Int64 = 3
     static let taskIDs: [Int64] = Array(184...191)
-    private static let me: Int64 = 7
+    /// The demo account: MapRoulette user 7, OpenStreetMap username "rosa_slc".
+    static let me: Int64 = 7
+    static let displayName = "rosa_slc"
     private static let benchNames: [Int64: String] = [
       184: "Library Square bench", 187: "Washington Square bench", 190: "Gallivan Plaza bench",
     ]

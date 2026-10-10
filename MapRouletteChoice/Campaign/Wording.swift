@@ -182,9 +182,12 @@ enum Wording {
   static let close = "Close"
   static let previewAlreadyPublished = "This campaign is published, so answers are saved for real."
   static func previewingAs(_ account: String) -> String { "You're previewing as \(account)." }
-  /// The signed-in account as preview names it. The session knows only the MapRoulette user id,
-  /// not the OpenStreetMap username.
-  static func account(_ userID: Int64?) -> String? { userID.map { "MapRoulette user \($0)" } }
+  /// The signed-in account as preview names it: the OpenStreetMap username (no "@"), else
+  /// "MapRoulette user 7" when the server didn't send one.
+  static func account(_ userID: Int64?, displayName: String? = nil) -> String? {
+    if let name = displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { return name }
+    return userID.map { "MapRoulette user \($0)" }
+  }
   static let donePreview = "Done (preview)"
   static let previewNotSaved = "Preview: not saved."
   /// `realLine`: what the saved screen says in the real campaign, quoted.
@@ -192,8 +195,10 @@ enum Wording {
   static func wouldSet(_ tags: String) -> String { "Would set: \(tags)" }
   static let previewNowPublished = "This campaign is now published."
   static let openForReal = "Open it for real"
+  /// An empty draft. `noun` is the campaign's own (`Noun.from`); a draft without places has no
+  /// identity guard to name them by, so it is usually the generic "places".
   static func previewNoPlaces(_ noun: Noun) -> String {
-    "No \(noun.many) yet. Add \(noun.many) in the admin, then pull down to refresh."
+    "No \(noun.many) yet. Add them in the admin, then pull down to refresh."
   }
   static func invalidSurvey(_ reason: String) -> String { "This question set can't be shown: \(reason)" }
   /// Why a draft's place can't be asked about, for `invalidSurvey`. The SDK doesn't say which part

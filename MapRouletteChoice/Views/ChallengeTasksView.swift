@@ -375,7 +375,7 @@ struct ChallengeTasksView: View {
       Text(signIn ? Wording.previewSignInTitle : Wording.previewNoAccessTitle)
         .font(.title2.bold())
         .accessibilityAddTraits(.isHeader)
-      Text(signIn ? Wording.previewSignInText : Wording.previewNoAccessText(Wording.account(session.view.userID)))
+      Text(signIn ? Wording.previewSignInText : Wording.previewNoAccessText(Wording.account(session.view.userID, displayName: session.view.displayName)))
       Button {
         signInForPreview()
       } label: {
@@ -435,7 +435,7 @@ struct ChallengeTasksView: View {
           Label(session.canAnswerAsGuest ? Wording.guestAnswersArePublic : Wording.answersArePublic, systemImage: "map")
           Label(Wording.locationStaysOnPhone(noun), systemImage: "location")
           if preview != nil {
-            if let account = Wording.account(session.view.userID) {
+            if let account = Wording.account(session.view.userID, displayName: session.view.displayName) {
               Label(Wording.previewingAs(account), systemImage: "person.crop.circle")
             }
           } else if session.canAnswerAsGuest {

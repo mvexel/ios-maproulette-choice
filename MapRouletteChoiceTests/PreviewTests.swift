@@ -161,3 +161,44 @@ import Testing
     #expect(store.lastCampaign == challenge.id.value)
   }
 }
+
+/// Preview copy (design/preview-mode.md §8).
+@MainActor @Suite struct PreviewWordingTests {
+  @Test func previewNamesTheOSMUsernameWithoutAnAt() {
+    let account = Wording.account(7, displayName: "rosa_slc")
+    #expect(account == "rosa_slc")
+    #expect(Wording.previewingAs(account!) == "You're previewing as rosa_slc.")
+    #expect(Wording.previewNoAccessText(account).hasSuffix("(now: rosa_slc)."))
+  }
+
+  @Test func withoutAUsernameItFallsBackToTheUserID() {
+    #expect(Wording.account(7) == "MapRoulette user 7")
+    #expect(Wording.account(7, displayName: nil) == "MapRoulette user 7")
+    #expect(Wording.account(7, displayName: "  ") == "MapRoulette user 7")
+    #expect(Wording.account(nil) == nil)
+    #expect(Wording.previewNoAccessText(nil).hasSuffix("signed in as the right account."))
+  }
+
+  @Test func theDemoAccountHasAUsername() {
+    #expect(DemoBackend.displayName == "rosa_slc")
+    let session = AppSession(demo: DemoBackend(draft: true))
+    #expect(session.view.userID == DemoBackend.me)
+    #expect(session.view.displayName == "rosa_slc")
+    #expect(Wording.account(session.view.userID, displayName: session.view.displayName) == "rosa_slc")
+  }
+
+  @Test func emptyDraftUsesTheCampaignNounElsePlaces() async throws {
+    // A draft with no places has no identity guard to name them by: the generic noun.
+    #expect(Noun.from([MapRouletteTask]()) == .place)
+    #expect(
+      Wording.previewNoPlaces(Noun.from([MapRouletteTask]()))
+        == "No places yet. Add them in the admin, then pull down to refresh.")
+    // When the campaign names its places, the copy uses that noun.
+    #expect(
+      Wording.previewNoPlaces(Noun.from(match: ["highway": "bus_stop"]))
+        == "No stops yet. Add them in the admin, then pull down to refresh.")
+    #expect(
+      Wording.previewNoPlaces(Noun.from([try await makeTask()]))
+        == "No benches yet. Add them in the admin, then pull down to refresh.")
+  }
+}
