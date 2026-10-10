@@ -6,7 +6,9 @@ on the [MapRoulette mobile SDK](https://github.com/mvexel/maproulette-mobile-sdk
 
 - **Pick a campaign**: lists the backend's choice challenges (`cooperativeType` 3) published for
   mobile (tag `mobile-survey-v1`, added by the admin's Publish), or
-  open one directly with `mrchoice://challenge/<id>` (Share campaign shows it as a QR code). The
+  open one directly with `https://streettally.osm.lol/challenge/<id>` (a universal link; Share
+  campaign shows it as a QR code) or `mrchoice://challenge/<id>`. The host is
+  `CAMPAIGN_LINK_HOST` in `Config/App.xcconfig` and must serve `apple-app-site-association`. The
   app reopens the last campaign on launch; a welcome card explains each campaign once.
 - **See its places** on a [MapLibre](https://maplibre.org) map with
   [OpenFreeMap](https://openfreemap.org) tiles or in a list sorted by distance, with checked places

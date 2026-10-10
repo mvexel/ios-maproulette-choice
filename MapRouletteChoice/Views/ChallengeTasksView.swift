@@ -297,7 +297,7 @@ struct ChallengeTasksView: View {
   }
 
   private var share: some View {
-    let url = CampaignLink.url(challengeID.value)
+    let url = CampaignLink.webURL(challengeID.value)
     return NavigationStack {
       VStack(spacing: 20) {
         Text("Scan to open this campaign in the app").font(.headline).multilineTextAlignment(.center)
