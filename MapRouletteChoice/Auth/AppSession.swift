@@ -432,7 +432,7 @@ struct SessionClient: Sendable {
       && (!granted.contains(tagfixScope) || granted.contains(writeScope))
   }
 
-  /// A writable build whose grant lacks task writes or OSM editing: "Sign in again to enable editing".
+  /// A writable build whose grant lacks task writes or OSM editing: "Sign in again to save answers".
   nonisolated static func needsReconsent(writesConfigured: Bool, granted: Set<String>) -> Bool {
     writesConfigured && !(granted.contains(writeScope) && granted.contains(tagfixScope))
   }

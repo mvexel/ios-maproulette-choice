@@ -148,7 +148,7 @@ struct ChallengePickerView: View {
         challenges = choice.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         others = all.count - choice.count
         truncated = cursor != nil
-        status = choice.isEmpty ? "No mapping campaigns yet." : ""
+        status = choice.isEmpty ? "No campaigns here yet. Got a campaign link or QR code from your organizer? Open it to jump straight in." : ""
       } catch is CancellationError {
         return
       } catch {
@@ -169,7 +169,7 @@ struct ChallengePickerView: View {
 
   private var signInLabel: String {
     if !session.view.signedIn { return "Sign in with OpenStreetMap" }
-    return needsReconsent ? "Sign in again to enable editing" : "Sign out"
+    return needsReconsent ? "Sign in again to save answers" : "Sign out"
   }
 
   private func accountAction() {
