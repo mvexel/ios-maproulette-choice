@@ -99,9 +99,14 @@ enum Wording {
     "To put them on the map, finish on a computer. It takes about 3 minutes. We'll email you a link."
   static let emailUse = "We only use your email to send this link and two reminders."
   static func linkSent(to email: String, until: Date?) -> String {
-    "Check your email later (\(email)). "
-      + (until.map { "The link works until \($0.formatted(date: .abbreviated, time: .omitted))." } ?? "")
+    "Sent to \(email). Check your email later." + (until.map { " The link works until \(day($0))." } ?? "")
   }
+  /// "Nov 30": the one date format for guest deadlines.
+  static func day(_ date: Date) -> String { date.formatted(.dateTime.month(.abbreviated).day()) }
+  static let enterEmailAgain = "Enter your email again and we'll send a new link."
+  static let signInPutsOnMap = "Sign in now and your saved answers go on the map right away."
+  /// Only a bad address is the participant's to fix (shown in red); the rest are calm.
+  static func isInputError(_ error: any Error) -> Bool { (error as? MapRouletteError)?.kind == .validation }
   static func linkFailed(_ error: any Error) -> String {
     switch (error as? MapRouletteError)?.kind {
     case .validation?: "That doesn't look like an email address."
@@ -113,21 +118,21 @@ enum Wording {
   }
   static func savedNotOnMap(_ count: Int, _ noun: Noun, until: Date?) -> String {
     "\(noun.count(count)) saved, not on the map yet."
-      + (until.map { " Finish on a computer by \($0.formatted(.dateTime.month(.abbreviated).day()))." } ?? "")
+      + (until.map { " Finish on a computer by \(day($0))." } ?? "")
   }
   /// Deferred sign-up §1.4 summary: "You checked 14 stops. The tally: 212 of 410."
   static func daySummary(_ checked: Int, done: Int, total: Int, _ noun: Noun) -> String {
     "You checked \(noun.count(checked)). The tally: \(done) of \(total)."
   }
   static func daySummarySaved(until: Date?) -> String {
-    (until.map { "They're saved until \($0.formatted(.dateTime.month(.wide).day()))." } ?? "They're saved for now.")
+    (until.map { "They're saved until \(day($0))." } ?? "They're saved for now.")
       + " Open the email we sent to put them on the map. It takes about 3 minutes on a computer."
   }
   static let doneForToday = "I'm done for today"
   /// Deferred sign-up §1.6, in the last 3 days.
   static func savedClosing(_ count: Int, _ noun: Noun, on date: Date) -> String {
     "\(count) saved \(count == 1 ? noun.one : noun.many) will be removed on "
-      + "\(date.formatted(.dateTime.month(.abbreviated).day())) unless you finish on a computer."
+      + "\(day(date)) unless you finish on a computer."
   }
   /// After the deadline: calm, no error tone (§1.6).
   static let savedExpired =
