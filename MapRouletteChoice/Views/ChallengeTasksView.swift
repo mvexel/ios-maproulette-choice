@@ -134,6 +134,8 @@ struct ChallengeTasksView: View {
       guard args.contains(where: { ["-demoMap", "-demoList", "-demoTask"].contains($0) }) else { return }
       sheet = nil
       campaigns.markWelcomeSeen(challengeID.value)
+      // Closing the welcome card would have asked for the location; distances need it.
+      if origin == nil { locate() }
       if args.contains("-demoList") { mode = .list }
       if let i = args.firstIndex(of: "-demoTask"), i + 1 < args.count, let id = Int64(args[i + 1]) {
         navigate(to: id)

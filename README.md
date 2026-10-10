@@ -36,18 +36,24 @@ For a physical device, set your team under Signing & Capabilities (keep `DEVELOP
 
 Demo mode (Debug builds): launch with `-demo` to use an in-process mock campaign of eight
 downtown Salt Lake City benches, signed in, with no network. Every screen, including questions,
-review and "Saved", is reachable without an account:
+review and "Saved", is reachable without an account. Each demo launch starts fresh (no last
+campaign, welcome card unseen) and leaves the real app state alone.
 
 ```sh
-xcrun simctl launch booted lol.osm.maproulette.choice -demo
-xcrun simctl openurl booted mrchoice://challenge/3              # the demo campaign
-xcrun simctl launch booted lol.osm.maproulette.choice -demo -demoMap         # its map
-xcrun simctl launch booted lol.osm.maproulette.choice -demo -demoList        # its list
+xcrun simctl launch booted lol.osm.maproulette.choice -demo                  # campaign picker
+xcrun simctl launch booted lol.osm.maproulette.choice -demo -demoMap         # campaign map
+xcrun simctl launch booted lol.osm.maproulette.choice -demo -demoList        # campaign list
 xcrun simctl launch booted lol.osm.maproulette.choice -demo -demoTask 185    # a place's first question
 ```
 
-`-demoMap`, `-demoList` and `-demoTask` apply when the demo campaign opens (the app reopens the last
-campaign) and skip its welcome card.
+`MapRouletteChoiceUITests` walks the demo from the picker to "Saved" and attaches a screenshot of
+each screen. To also write them as PNGs:
+
+```sh
+TEST_RUNNER_SCREENSHOT_DIR="$PWD/screens" xcodebuild -project MapRouletteChoice.xcodeproj \
+  -scheme MapRouletteChoice -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -only-testing:MapRouletteChoiceUITests test
+```
 
 ## Configuration
 
