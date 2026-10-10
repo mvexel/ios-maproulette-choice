@@ -8,6 +8,7 @@ enum TaskText {
   static let cantTell = "Can't tell"
   static let noLongerNeeded = "This one no longer needs answering."
   static let devOSM = "https://master.apis.dev.openstreetmap.org"
+  static let liveOSM = "https://www.openstreetmap.org"
 
   static func status(_ code: Int?) -> String {
     switch code {

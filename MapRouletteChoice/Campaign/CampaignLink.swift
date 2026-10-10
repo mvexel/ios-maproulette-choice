@@ -3,11 +3,17 @@ import CoreImage.CIFilterBuiltins
 import Foundation
 import UIKit
 
-/// Links that open a campaign: `mrchoice://challenge/<id>`, and the same path on any https host
-/// (ready for universal links once a domain serves an apple-app-site-association file).
-/// `?preview=1` asks for preview mode (design/preview-mode.md §3), which only a draft honors.
+/// Links that open a campaign: `https://streettally.osm.lol/challenge/<id>` (a universal link;
+/// without the app, the landing page), `mrchoice://challenge/<id>`, and the same path on any
+/// https host. `?preview=1` asks for preview mode (design/preview-mode.md §3), which only a draft honors.
 enum CampaignLink {
   static let scheme = "mrchoice"
+  /// The participant web host (`CAMPAIGN_LINK_HOST`), also the Associated Domains entry.
+  static let host: String = {
+    let value = (Bundle.main.infoDictionary?["MRCampaignLinkHost"] as? String)?
+      .trimmingCharacters(in: .whitespaces) ?? ""
+    return value.isEmpty || value.contains("$(") ? "streettally.osm.lol" : value
+  }()
 
   static func url(_ challenge: Int64, preview: Bool = false) -> URL {
     URL(string: "\(scheme)://challenge/\(challenge)" + (preview ? "?preview=1" : ""))!
@@ -17,6 +23,11 @@ enum CampaignLink {
   static func isPreview(_ url: URL) -> Bool {
     URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
       .contains { $0.name == "preview" && $0.value == "1" } == true
+  }
+
+  /// The link to share and print: opens the app where installed, the landing page elsewhere.
+  static func webURL(_ challenge: Int64, host: String = CampaignLink.host) -> URL {
+    URL(string: "https://\(host)/challenge/\(challenge)")!
   }
 
   /// The challenge id a link opens, or nil.

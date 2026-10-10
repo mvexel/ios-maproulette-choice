@@ -6,7 +6,9 @@ on the [MapRoulette mobile SDK](https://github.com/mvexel/maproulette-mobile-sdk
 
 - **Pick a campaign**: lists the backend's choice challenges (`cooperativeType` 3) published for
   mobile (tag `mobile-survey-v1`, added by the admin's Publish), or
-  open one directly with `mrchoice://challenge/<id>` (Share campaign shows it as a QR code). The
+  open one directly with `https://streettally.osm.lol/challenge/<id>` (a universal link; Share
+  campaign shows it as a QR code) or `mrchoice://challenge/<id>`. The host is
+  `CAMPAIGN_LINK_HOST` in `Config/App.xcconfig` and must serve `apple-app-site-association`. The
   app reopens the last campaign on launch; a welcome card explains each campaign once.
 - **See its places** on a [MapLibre](https://maplibre.org) map with
   [OpenFreeMap](https://openfreemap.org) tiles or in a list sorted by distance, with checked places
@@ -79,10 +81,18 @@ TEST_RUNNER_SCREENSHOT_DIR="$PWD/screens" xcodebuild -project MapRouletteChoice.
 | `MAPROULETTE_OAUTH_CLIENT_ID` | `maproulette-ios-choice` | Native OAuth client registered on the backend (scopes `tasks:read tasks:write osm:tagfix`). Registered on dev; stage/prod need it too. |
 | `MAPROULETTE_OAUTH_CALLBACK_SCHEME` | `lol.osm.maproulette.choice` | Callback is `<scheme>:/oauth2redirect`. |
 | `MAPROULETTE_GUESTS` | `NO` | `YES`: participants answer first; answers are saved on the server and go on the map once they finish signing up (deferred sign-up). Needs a backend with guests on. |
+| `MAPROULETTE_ALLOW_LIVE_WRITES` | `NO` | `YES` lets `mr-stage.osm.lol` / `mr-prod.osm.lol` (real OpenStreetMap) receive answers. |
 | `MAP_STYLE_URL` | `https://tiles.openfreemap.org/styles/positron` | Any MapLibre style URL. The map hides the style's POI and transit symbols so campaign pins are the only things to tap. |
 | `MAP_DETAIL_STYLE_URL` | `https://tiles.openfreemap.org/styles/liberty` | The small map above a task; same symbol hiding. |
 | `APP_BUNDLE_IDENTIFIER` | `lol.osm.maproulette.choice` | |
 
 Task writes (answers, skips) are sent only to `mr-api.osm.lol` / `mr-dev.osm.lol` (and loopback in
-Debug with `MAPROULETTE_ALLOW_LOOPBACK=YES`); other backends are read-only. See
-`AppSession.writeOrigins`.
+Debug with `MAPROULETTE_ALLOW_LOOPBACK=YES`), plus `mr-stage.osm.lol` / `mr-prod.osm.lol` when
+`MAPROULETTE_ALLOW_LIVE_WRITES=YES`; other backends are read-only. See `AppSession.writeOrigins`
+and `liveWriteOrigins`. A stage or prod pilot build:
+
+```sh
+xcodebuild ... MAPROULETTE_BASE_URL=https://mr-stage.osm.lol MAPROULETTE_ALLOW_LIVE_WRITES=YES
+```
+
+That backend must also have the `maproulette-ios-choice` OAuth client and accept writes.
