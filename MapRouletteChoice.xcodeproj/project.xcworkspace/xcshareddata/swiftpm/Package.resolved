@@ -1,0 +1,24 @@
+{
+  "originHash" : "ea603c2b32117fbd358ec44f6104711bf87e9b67984affc33a8720318cf5dff9",
+  "pins" : [
+    {
+      "identity" : "maplibre-gl-native-distribution",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/maplibre/maplibre-gl-native-distribution",
+      "state" : {
+        "revision" : "13e41ab3d77ff5113e7e5d4ee87803b1f81f5683",
+        "version" : "6.31.0"
+      }
+    },
+    {
+      "identity" : "maproulette-mobile-sdk",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mvexel/maproulette-mobile-sdk",
+      "state" : {
+        "branch" : "main",
+        "revision" : "6804a8c18dfa060128b953fca795ad97c675420f"
+      }
+    }
+  ],
+  "version" : 3
+}
