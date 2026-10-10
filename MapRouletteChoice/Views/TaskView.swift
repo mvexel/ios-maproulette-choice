@@ -335,7 +335,8 @@ struct TaskView: View {
   ) -> some View {
     VStack(alignment: .leading, spacing: 6) {
       Text("Question \(index + 1) of \(count)").font(.subheadline).foregroundStyle(.primary)
-      ProgressView(value: Double(index + 1), total: Double(count))
+      // "Question 1 of 3" says it; the bar would be a separate 4 pt element.
+      ProgressView(value: Double(index + 1), total: Double(count)).accessibilityHidden(true)
     }
     .accessibilityElement(children: .combine)
     Text(q.prompt).font(.title2.weight(.semibold))

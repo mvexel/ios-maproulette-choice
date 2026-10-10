@@ -23,7 +23,7 @@ struct TaskMapView: UIViewRepresentable {
   func makeCoordinator() -> Coordinator { Coordinator(open: open) }
 
   func makeUIView(context: Context) -> MLNMapView {
-    let map = MLNMapView(frame: .zero, styleURL: styleURL)
+    let map = interactive ? MLNMapView(frame: .zero, styleURL: styleURL) : QuietMapView(frame: .zero, styleURL: styleURL)
     map.delegate = context.coordinator
     // Turning this on makes MapLibre ask for location itself, so wait until the app has asked.
     map.showsUserLocation = Self.locationAllowed
@@ -35,6 +35,7 @@ struct TaskMapView: UIViewRepresentable {
       map.accessibilityHint = "Each pin is a place. The List view has the same places, nearest first."
     } else {
       // The preview's street names are drawn into the tiles; the SwiftUI side labels the map instead.
+      // QuietMapView also drops MapLibre's own elements (pin, puck, compass, attribution).
       map.accessibilityElementsHidden = true
     }
     map.isUserInteractionEnabled = interactive
@@ -139,6 +140,12 @@ struct TaskMapView: UIViewRepresentable {
 
     override var accessibilityHint: String? {
       get { pin.accessibilityHint }
+      set {}
+    }
+
+    /// MapLibre reports annotation views' frames in map coordinates; VoiceOver needs screen ones.
+    override var accessibilityFrame: CGRect {
+      get { UIAccessibility.convertToScreenCoordinates(bounds, in: self) }
       set {}
     }
 
@@ -263,4 +270,12 @@ struct TaskMapView: UIViewRepresentable {
       open(task.taskID)
     }
   }
+}
+
+/// The non-interactive header map: MapLibre lists its pins, puck, compass and attribution through
+/// its own accessibility container methods, which `accessibilityElementsHidden` doesn't stop.
+private final class QuietMapView: MLNMapView {
+  override func accessibilityElementCount() -> Int { 0 }
+  override func accessibilityElement(at index: Int) -> Any? { nil }
+  override func index(ofAccessibilityElement element: Any) -> Int { NSNotFound }
 }
