@@ -63,7 +63,8 @@ struct TaskView: View {
       }
       .padding()
     }
-    .navigationTitle(noun.One)
+    // The place name heads the screen; a title would repeat it.
+    .navigationTitle("")
     .navigationBarTitleDisplayMode(.inline)
     // Back is blocked while a write is in flight (normally a few seconds).
     .navigationBarBackButtonHidden(controller?.busy == true)
@@ -180,7 +181,7 @@ struct TaskView: View {
 
   @ViewBuilder private func content(_ c: TaskWorkController) -> some View {
     let state = c.state
-    if let loaded = state.loaded { header(loaded) }
+    if let loaded = state.loaded { header(loaded, checked: Self.showsChecked(state)) }
     if let switchNotice, !isLoading(state) { banner(switchNotice) }
     switch state {
     case .loading:
@@ -235,11 +236,20 @@ struct TaskView: View {
     }
   }
 
-  @ViewBuilder private func header(_ loaded: LoadedTask) -> some View {
+  /// The header map shows the place as checked once it no longer needs answering.
+  private static func showsChecked(_ state: TaskScreen) -> Bool {
+    switch state {
+    case .noLongerNeeded, .done: true
+    default: state.loaded.map { LocatedTask($0.task).isDone } ?? false
+    }
+  }
+
+  @ViewBuilder private func header(_ loaded: LoadedTask, checked: Bool) -> some View {
     let task = loaded.task
     if let coordinate = TaskLocation.coordinate(task) {
       TaskMapView(
-        styleURL: session.mapStyleURL, tasks: [LocatedTask(task)], interactive: false, open: { _ in }
+        styleURL: session.mapStyleURL, tasks: [LocatedTask(task)], done: checked ? [task.id.value] : [],
+        noun: noun, interactive: false, open: { _ in }
       )
       .frame(height: 150)
       .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -295,7 +305,7 @@ struct TaskView: View {
   ) -> some View {
     VStack(alignment: .leading, spacing: 6) {
       Text("Question \(index + 1) of \(count)").font(.subheadline).foregroundStyle(.secondary)
-      ProgressView(value: Double(index), total: Double(count))
+      ProgressView(value: Double(index + 1), total: Double(count))
     }
     .accessibilityElement(children: .combine)
     Text(q.prompt).font(.title2.weight(.semibold))

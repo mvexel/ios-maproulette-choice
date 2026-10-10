@@ -41,11 +41,13 @@ review and "Saved", is reachable without an account:
 ```sh
 xcrun simctl launch booted lol.osm.maproulette.choice -demo
 xcrun simctl openurl booted mrchoice://challenge/3              # the demo campaign
+xcrun simctl launch booted lol.osm.maproulette.choice -demo -demoMap         # its map
 xcrun simctl launch booted lol.osm.maproulette.choice -demo -demoList        # its list
 xcrun simctl launch booted lol.osm.maproulette.choice -demo -demoTask 185    # a place's first question
 ```
 
-`-demoList` and `-demoTask` apply when the demo campaign opens (the app reopens the last campaign).
+`-demoMap`, `-demoList` and `-demoTask` apply when the demo campaign opens (the app reopens the last
+campaign) and skip its welcome card.
 
 ## Configuration
 

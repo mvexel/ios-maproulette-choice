@@ -119,16 +119,18 @@ struct ChallengeTasksView: View {
   }
 
   #if DEBUG
-    /// Screenshot shortcuts, once per launch: `-demoList` shows the list; `-demoTask <id>` opens
-    /// that place (skipping the welcome card).
+    /// Screenshot shortcuts, once per launch: `-demoMap` shows the map, `-demoList` the list, and
+    /// `-demoTask <id>` opens that place. Each skips the welcome card.
     private static var demoRouted = false
     private func demoRoute() {
       guard !Self.demoRouted else { return }
       Self.demoRouted = true
       let args = ProcessInfo.processInfo.arguments
+      guard args.contains(where: { ["-demoMap", "-demoList", "-demoTask"].contains($0) }) else { return }
+      sheet = nil
+      campaigns.markWelcomeSeen(challengeID.value)
       if args.contains("-demoList") { mode = .list }
       if let i = args.firstIndex(of: "-demoTask"), i + 1 < args.count, let id = Int64(args[i + 1]) {
-        sheet = nil
         navigate(to: id)
       }
     }
@@ -217,7 +219,7 @@ struct ChallengeTasksView: View {
         Image(systemName: "checkmark.circle.fill").foregroundStyle(.secondary)
       }
       VStack(alignment: .leading, spacing: 2) {
-        Text(Wording.placeName(task.task, noun)).foregroundStyle(done ? .secondary : .primary)
+        Text(Wording.placeName(task.task, noun)).foregroundStyle(done ? Color.secondary : Color.primary)
         if showDetails {
           Text(verbatim: "\(task.task.name) · Task \(task.id) · \(TaskText.status(task.task.status?.code))")
             .font(.footnote).foregroundStyle(.secondary)
@@ -225,7 +227,8 @@ struct ChallengeTasksView: View {
       }
       Spacer()
       if let text = TaskLocation.distanceText(origin, task.coordinate) {
-        Text(text).font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+        // Color.secondary, not .secondary: inside a button label the latter takes the accent tint.
+        Text(text).font(.subheadline.monospacedDigit()).foregroundStyle(Color.secondary)
       }
     }
     .accessibilityElement(children: .combine)
