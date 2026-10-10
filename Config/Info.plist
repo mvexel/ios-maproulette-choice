@@ -21,6 +21,8 @@
 			</array>
 		</dict>
 	</array>
+	<key>MRGuests</key>
+	<string>$(MAPROULETTE_GUESTS)</string>
 	<key>MRMapStyleURL</key>
 	<string>$(MAP_STYLE_URL)</string>
 </dict>

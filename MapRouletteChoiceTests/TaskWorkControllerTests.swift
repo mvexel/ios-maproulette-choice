@@ -457,4 +457,66 @@ import Testing
         #"{"answers":{"backrest":"no"}}"#,
       ])
   }
+
+  // MARK: Guests (deferred sign-up)
+
+  @Test func guestAnswersAreSavedForLaterWithoutLocking() async throws {
+    let o = ops(try await makeTask())
+    let c = await controller(o, writer: .guestWriter)
+    c.select(question: "backrest", option: "yes")
+    c.perform(.answers(["backrest": "yes"]))
+    await c.idle()
+    let done = try #require(c.state.done)
+    #expect(done.savedForLater && !done.byOther && done.changesetID == nil)
+    // Checked like any participant, then one pending write: no start, no status write, no re-read.
+    #expect(o.calls == ["get", "challenge", "check", "pending"])
+    #expect(o.submissions == [.answers(["backrest": "yes"])])
+    #expect(c.changed)
+  }
+
+  @Test func guestSkipOnlyMovesOn() async throws {
+    let o = ops(try await makeTask())
+    let c = await controller(o, writer: .guestWriter)
+    c.perform(.skip)
+    await c.idle()
+    guard case .skipped(_, let uncertain) = c.state, !uncertain else { Issue.record("\(c.state.name)"); return }
+    #expect(o.calls == ["get", "challenge", "check"])
+  }
+
+  @Test func guestFailuresKeepTheAnswers() async throws {
+    let cases: [(MapRouletteError, String)] = [
+      (MapRouletteError(.network, problem: .outcomeUnknown), "connect"),
+      (MapRouletteError(.rateLimit, status: 429, reason: "pending_limit"), "on the map before"),
+      (MapRouletteError(.authentication, status: 401, reason: "invalid_token"), "Try again"),
+    ]
+    for (error, words) in cases {
+      let o = ops(try await makeTask())
+      o.pending = { _ in throw error }
+      let c = await controller(o, writer: .guestWriter)
+      c.select(question: "backrest", option: "yes")
+      c.perform(.answers(["backrest": "yes"]))
+      await c.idle()
+      let notice = try #require(c.state.answering?.2, "\(error)")
+      #expect(notice.contains(words), "\(error)")
+      #expect(try form(c).answers == ["backrest": "yes"])
+    }
+  }
+
+  @Test func guestAnswerForACompletedTaskIsNotAvailable() async throws {
+    let o = ops(try await makeTask(), try await makeTask(status: 1, completedBy: other))
+    o.pending = { _ in throw MapRouletteError(.conflict, status: 409, reason: "task_completed") }
+    let c = await controller(o, writer: .guestWriter)
+    c.perform(.answers(["backrest": "yes"]))
+    await c.idle()
+    guard case .notAvailable = c.state else { Issue.record("\(c.state.name)"); return }
+  }
+
+  @Test func guestIneligibleAnswerIsNoLongerNeeded() async throws {
+    let o = ops(try await makeTask())
+    o.pending = { _ in throw MapRouletteError(.conflict, problem: .choice(.taskIneligible(reason: .keyChanged))) }
+    let c = await controller(o, writer: .guestWriter)
+    c.perform(.answers(["backrest": "yes"]))
+    await c.idle()
+    guard case .noLongerNeeded = c.state else { Issue.record("\(c.state.name)"); return }
+  }
 }

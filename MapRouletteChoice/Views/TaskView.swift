@@ -88,9 +88,14 @@ struct TaskView: View {
   // MARK: Lifecycle
 
   private func start() {
-    generation = session.view.generation
-    replaceController()
-    controller?.load(try! TaskID(taskID))
+    Task {
+      // Registering a guest changes the session generation; do it before binding a controller.
+      if session.canAnswerAsGuest { _ = await session.ensureGuest() }
+      guard controller == nil else { return }
+      generation = session.view.generation
+      replaceController()
+      controller?.load(try! TaskID(taskID))
+    }
   }
 
   /// A controller is bound to one account's clients; results of a replaced one are never shown.
@@ -98,7 +103,8 @@ struct TaskView: View {
     let view = session.view
     let writer =
       session.writesConfigured && view.signedIn && view.canWriteTasks
-      ? view.userID.map { Writer(me: $0, canEditOsm: view.canEditOsm) } : nil
+      ? view.userID.map { Writer(me: $0, canEditOsm: view.canEditOsm) }
+      : session.writesConfigured && view.guest ? .guestWriter : nil
     controller = TaskWorkController(
       ops: ClientTaskOps(session.newClient().client), writer: writer, noun: noun)
   }
@@ -438,11 +444,18 @@ struct TaskView: View {
       Text(Wording.checkedByOtherFirst(noun)).font(.headline)
     } else {
       Label {
-        Text(Wording.saved(campaigns.checkedToday(d.loaded.challenge.id.value), noun))
+        Text(
+          d.savedForLater
+            ? Wording.savedForLater(campaigns.checkedToday(d.loaded.challenge.id.value), noun)
+            : Wording.saved(campaigns.checkedToday(d.loaded.challenge.id.value), noun))
       } icon: {
         Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
       }
       .font(.title3.weight(.semibold))
+      if d.savedForLater && campaigns.checkedToday(d.loaded.challenge.id.value) <= 3 {
+        // Only the first few times: by then the participant knows.
+        Text(Wording.savedForLaterNote).font(.footnote).foregroundStyle(.secondary)
+      }
     }
     if showDetails {
       Text(doneDetails(d)).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled)

@@ -86,6 +86,11 @@ enum Wording {
   static func nothingAnswered(_ noun: Noun) -> String {
     "You weren't sure about any question. You can skip this \(noun.one) instead."
   }
+  /// A guest's answers: saved, not on the map yet (deferred sign-up copy, never "on the map").
+  static func savedForLater(_ todayCount: Int, _ noun: Noun) -> String {
+    "Saved. That's \(noun.count(todayCount)) today."
+  }
+  static let savedForLaterNote = "Saved on our server. They go on the map when you finish on a computer."
   static func saved(_ todayCount: Int, _ noun: Noun) -> String {
     "Saved, thanks! That's \(noun.count(todayCount)) today."
   }

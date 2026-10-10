@@ -15,6 +15,8 @@ struct SessionView: Equatable, Sendable {
   var canWriteTasks = false
   /// The grant includes `osm:tagfix` (with `tasks:write`): choice answers and deletes may edit OSM.
   var canEditOsm = false
+  /// Not signed in, answering as a guest: answers are saved, and put on the map later.
+  var guest = false
 }
 
 struct SessionFailure: Error {}
@@ -58,6 +60,10 @@ struct SessionClient: Sendable {
   @ObservationIgnored private var scopes: Set<String> = []
   @ObservationIgnored private let log = Logger(subsystem: "lol.osm.maproulette.choice", category: "auth")
   @ObservationIgnored private let demo: (any Transport)?
+  /// This build lets participants answer before signing in (`MAPROULETTE_GUESTS`).
+  let guestsEnabled: Bool
+  /// The backend refused guests (e.g. turned off there); this launch falls back to signing in.
+  @ObservationIgnored private var guestsRefused = false
   private static let deletionKey = "allowElementDeletion"
   private static let keychainService = "lol.osm.maproulette.choice.auth"
 
@@ -85,6 +91,7 @@ struct SessionClient: Sendable {
     mapStyleURL = config.mapStyleURL
     self.endpoints = endpoints
     demo = nil
+    guestsEnabled = config.guests
     view = SessionView(message: "")
     deletionSetting = UserDefaults.standard.bool(forKey: Self.deletionKey)
     // AuthEndpoints validated the origin and client ID. Same binding and Keychain item as
@@ -111,6 +118,7 @@ struct SessionClient: Sendable {
       mapStyleURL = AppConfig.defaultStyle
       auth = nil
       demo = transport
+      guestsEnabled = false
       view = SessionView(
         signedIn: true, userID: 7, message: "Signed in as MapRoulette user 7 · demo backend, no network",
         canWriteTasks: true, canEditOsm: true)
@@ -130,7 +138,7 @@ struct SessionClient: Sendable {
     await sync(auth)
     switch result {
     case .signedIn: publish(signedInMessage(), detail: signedInDetail())
-    case .signedOut: publish(signedOutMessage())
+    case .guest, .signedOut: publish(signedOutMessage())
     case .refreshInterrupted: publish("Please sign in again.", detail: "A previous refresh was interrupted.")
     case .unreadable: publish("Please sign in again.", detail: "Saved sign-in could not be restored.")
     }
@@ -142,12 +150,14 @@ struct SessionClient: Sendable {
     view.generation = await auth.generation
     view.userID = account?.userID
     scopes = account?.scopes ?? []
+    view.guest = account == nil && (await auth.guest) != nil
   }
 
   nonisolated static let signInDidNotFinish = "Sign-in didn't finish. Please try again."
 
   private func signedOutMessage() -> String {
-    endpoints.enabled
+    if canAnswerAsGuest { return Self.noAccountNeeded }
+    return endpoints.enabled
       ? "You can look around without signing in. Sign in with OpenStreetMap to save answers."
       : "You can look around. Signing in isn't set up in this build."
   }
@@ -168,7 +178,40 @@ struct SessionClient: Sendable {
     let writable = signedIn && scopes.contains(Self.writeScope)
     view = SessionView(
       generation: view.generation, signedIn: signedIn, userID: view.userID, message: message, detail: detail,
-      canWriteTasks: writable, canEditOsm: writable && scopes.contains(Self.tagfixScope))
+      canWriteTasks: writable, canEditOsm: writable && scopes.contains(Self.tagfixScope),
+      guest: !signedIn && view.guest)
+  }
+
+  // MARK: Guests
+
+  nonisolated static let noAccountNeeded =
+    "No account needed to start. Answer first, and we'll help you put your answers on the map afterwards."
+
+  /// Signed out in a build that lets participants answer first, unless the backend refused guests.
+  var canAnswerAsGuest: Bool {
+    guestsEnabled && writesConfigured && !view.signedIn && !guestsRefused
+  }
+
+  /// Makes this phone a guest before its first answer (registering once; later launches restore it).
+  /// False when signed in, when this build or backend has no guests, or when registering failed.
+  func ensureGuest() async -> Bool {
+    guard canAnswerAsGuest, let auth else { return false }
+    if view.guest { return true }
+    do {
+      _ = try await auth.startGuest()
+      await sync(auth)
+      publish(signedOutMessage())
+      return view.guest
+    } catch let error as MapRouletteError where error.kind == .notFound || error.kind == .authentication {
+      // Guests are off on this backend, or this client may not use them: sign in instead.
+      guestsRefused = true
+      await sync(auth)
+      publish(signedOutMessage())
+      return false
+    } catch {
+      log.debug("Guest start failed: \(String(describing: type(of: error)), privacy: .public)")
+      return false
+    }
   }
 
   // MARK: Sign-in

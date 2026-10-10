@@ -380,7 +380,7 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/mvexel/maproulette-mobile-sdk";
 			requirement = {
-				branch = "feat/mobile-sign-in";
+				branch = "feat/guest-api";
 				kind = branch;
 			};
 		};

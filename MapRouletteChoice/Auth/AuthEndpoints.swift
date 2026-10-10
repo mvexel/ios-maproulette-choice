@@ -7,6 +7,8 @@ struct AppConfig: Sendable {
   let clientID: String
   let allowLoopback: Bool
   let mapStyleURL: URL
+  /// Answer without an account first (deferred sign-up); needs a backend with guests enabled.
+  var guests = false
 
   static let defaultStyle = URL(string: "https://tiles.openfreemap.org/styles/liberty")!
 
@@ -22,7 +24,7 @@ struct AppConfig: Sendable {
     #endif
     return AppConfig(
       baseURL: value("MRBaseURL"), clientID: value("MROAuthClientID"), allowLoopback: loopback,
-      mapStyleURL: URL(string: value("MRMapStyleURL")) ?? defaultStyle)
+      mapStyleURL: URL(string: value("MRMapStyleURL")) ?? defaultStyle, guests: value("MRGuests") == "YES")
   }
 }
 

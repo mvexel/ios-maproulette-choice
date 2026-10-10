@@ -12,6 +12,8 @@ protocol TaskOps: Sendable {
   func checkChoice(_ id: TaskID) async throws -> ChoiceEligibility
   func submitChoice(_ task: MapRouletteTask, _ submission: ChoiceSubmission) async throws -> ChoiceResult
   func skipTask(_ id: TaskID) async throws
+  /// A guest's answers, stored on the server until the guest puts them on the map.
+  func submitPendingChoice(_ task: MapRouletteTask, _ submission: ChoiceSubmission) async throws -> PendingChoice
 }
 
 /// Bound to one account's client: a controller never sends through a later account's client.
@@ -32,6 +34,9 @@ struct ClientTaskOps: TaskOps {
     try await client.submitChoice(task, submission)
   }
   func skipTask(_ id: TaskID) async throws { try await client.skipTask(id) }
+  func submitPendingChoice(_ task: MapRouletteTask, _ submission: ChoiceSubmission) async throws -> PendingChoice {
+    try await client.submitPendingChoice(task, submission)
+  }
 }
 
 enum ChoiceAction: Equatable, Sendable {
@@ -51,9 +56,13 @@ enum ChoiceAction: Equatable, Sendable {
 }
 
 /// `me` is the signed-in MapRoulette user id; `canEditOsm`: the grant includes `osm:tagfix`.
+/// A guest (`me` 0) saves answers on the server; they reach OSM once the guest finishes signing up.
 struct Writer: Sendable {
   let me: Int64
   let canEditOsm: Bool
+  var guest = false
+
+  static let guestWriter = Writer(me: 0, canEditOsm: true, guest: true)
 }
 
 /// The questions of a valid choice task.
@@ -103,6 +112,8 @@ enum TaskScreen: Sendable {
     var readFailed: Bool
     var byOther = false
     var checking = false
+    /// A guest's answers: saved on the server, not on the map yet. The task itself is unchanged.
+    var savedForLater = false
   }
   /// The submission may still land (unknown outcome, pending submission or status). Never resent
   /// automatically; the user re-reads with Check again. `canResend`: the user may send the
@@ -302,7 +313,12 @@ enum TaskScreen: Sendable {
   }
 
   private func submit(_ loaded: LoadedTask, _ form: ChoiceForm, _ action: ChoiceAction) {
-    guard let me = writer?.me, !discarded else { return }
+    guard let writer, !discarded else { return }
+    if writer.guest {
+      saveForLater(loaded, form, action)
+      return
+    }
+    let me = writer.me
     changed = true  // Before publishing: observers read it while rendering Submitting.
     state = .submitting(loaded, form, action)
     let ops = self.ops
@@ -321,6 +337,63 @@ enum TaskScreen: Sendable {
       }
       publish(next)
     }
+  }
+
+  /// A guest's submission: stored as a pending answer (never an OSM edit, never a lock). Skipping
+  /// only moves on. Resending after a failure is safe: the server keeps one answer per task.
+  private func saveForLater(_ loaded: LoadedTask, _ form: ChoiceForm, _ action: ChoiceAction) {
+    if action == .skip {
+      state = .skipped(loaded, uncertain: false)
+      return
+    }
+    changed = true
+    state = .submitting(loaded, form, action)
+    let ops = self.ops
+    job = Task {
+      let result = await Task.detached { () async -> Result<PendingChoice, any Error> in
+        do {
+          switch action {
+          case .answers(let answers): return .success(try await ops.submitPendingChoice(loaded.task, .answers(answers)))
+          case .outcome(let outcome): return .success(try await ops.submitPendingChoice(loaded.task, .outcome(outcome)))
+          case .skip: throw CancellationError()
+          }
+        } catch {
+          return .failure(error)
+        }
+      }.value
+      if Task.isCancelled || discarded { return }
+      switch result {
+      case .success:
+        publish(.done(.init(loaded: loaded, action: action, me: 0, changesetID: nil, readFailed: false, savedForLater: true)))
+      case .failure(let error):
+        publish(await failedForLater(loaded, form, action, error))
+      }
+    }
+  }
+
+  private func failedForLater(_ loaded: LoadedTask, _ form: ChoiceForm, _ action: ChoiceAction, _ error: any Error)
+    async -> TaskScreen
+  {
+    guard let error = error as? MapRouletteError else {
+      return .answering(loaded, form, notice: "Couldn't save your answers. Try again.")
+    }
+    switch (error.kind, error.reason) {
+    case (_, "task_completed"?): return await notAccepted(loaded)
+    case (.rateLimit, "pending_limit"?):
+      return .answering(
+        loaded, form,
+        notice: "You've saved a lot of \(noun.many). Put them on the map before saving more.")
+    case (.permission, "challenge_not_published"?):
+      return .notAvailable(loaded, reason: "This campaign isn't open for answers yet.")
+    case (.authentication, _):
+      return .answering(loaded, form, notice: "Couldn't save your answers. Try again in a moment.")
+    default: break
+    }
+    // The network may have dropped after the server stored it; sending again replaces it.
+    if error.problem == .outcomeUnknown || error.kind == .network {
+      return .answering(loaded, form, notice: "Couldn't connect. Check your connection and try again.")
+    }
+    return await failed(loaded, form, action, error)
   }
 
   /// Manual re-check after an uncertain result or a failed post-write read. Never resends.
