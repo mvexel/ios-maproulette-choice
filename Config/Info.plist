@@ -6,6 +6,8 @@
 	<string>$(MAPROULETTE_BASE_URL)</string>
 	<key>MROAuthClientID</key>
 	<string>$(MAPROULETTE_OAUTH_CLIENT_ID)</string>
+	<key>MROAuthCallbackScheme</key>
+	<string>$(MAPROULETTE_OAUTH_CALLBACK_SCHEME)</string>
 	<key>MRAllowLoopback</key>
 	<string>$(MAPROULETTE_ALLOW_LOOPBACK)</string>
 	<key>CFBundleURLTypes</key>

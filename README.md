@@ -4,7 +4,8 @@ A small SwiftUI app for answering MapRoulette **multiple-choice challenges** on 
 [mobile-enabled MapRoulette backend](https://github.com/mvexel/maproulette-mobile-backend), built
 on the [MapRoulette mobile SDK](https://github.com/mvexel/maproulette-mobile-sdk).
 
-- **Pick a campaign**: lists the backend's challenges whose `cooperativeType` is 3 (choice), or
+- **Pick a campaign**: lists the backend's choice challenges (`cooperativeType` 3) published for
+  mobile (tag `mobile-survey-v1`; all choice challenges while none carries the tag), or
   open one directly with `mrchoice://challenge/<id>` (Share campaign shows it as a QR code). The
   app reopens the last campaign on launch; a welcome card explains each campaign once.
 - **See its places** on a [MapLibre](https://maplibre.org) map with
@@ -40,7 +41,8 @@ For a physical device, set your team under Signing & Capabilities (keep `DEVELOP
 | Setting | Default | |
 | --- | --- | --- |
 | `MAPROULETTE_BASE_URL` | `https://mr-api.osm.lol` | Backend API origin. The dev deployment; edits development OSM. Planned rename: `mr-dev.osm.lol` (also allowed). |
-| `MAPROULETTE_OAUTH_CLIENT_ID` | `maproulette-ios-example` | Native OAuth client registered on the backend with callback `org.maproulette.example:/oauth2redirect`. |
+| `MAPROULETTE_OAUTH_CLIENT_ID` | `maproulette-ios-example` | Native OAuth client registered on the backend. Planned: `maproulette-ios-choice`. |
+| `MAPROULETTE_OAUTH_CALLBACK_SCHEME` | `org.maproulette.example` | Callback is `<scheme>:/oauth2redirect`. Planned: `lol.osm.maproulette.choice`. |
 | `MAP_STYLE_URL` | `https://tiles.openfreemap.org/styles/liberty` | Any MapLibre style URL. |
 | `APP_BUNDLE_IDENTIFIER` | `lol.osm.maproulette.choice` | |
 

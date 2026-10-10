@@ -6,9 +6,12 @@
 // The mobile-enabled MapRoulette API origin. mr-api.osm.lol is the dev deployment (development
 // OSM); it is planned to be renamed to mr-dev.osm.lol.
 MAPROULETTE_BASE_URL = https:/$()/mr-api.osm.lol
-// A native client registered on that backend with callback org.maproulette.example:/oauth2redirect.
-// The SDK example's client works until this app has its own registration.
+// A native client registered on that backend, and the scheme of its callback
+// (<scheme>:/oauth2redirect). The SDK example's client works until this app's own is registered:
+//   MAPROULETTE_OAUTH_CLIENT_ID = maproulette-ios-choice
+//   MAPROULETTE_OAUTH_CALLBACK_SCHEME = lol.osm.maproulette.choice
 MAPROULETTE_OAUTH_CLIENT_ID = maproulette-ios-example
+MAPROULETTE_OAUTH_CALLBACK_SCHEME = org.maproulette.example
 MAPROULETTE_ALLOW_LOOPBACK = NO
 // The OpenFreeMap (or any MapLibre) style for the task map.
 MAP_STYLE_URL = https:/$()/tiles.openfreemap.org/styles/liberty

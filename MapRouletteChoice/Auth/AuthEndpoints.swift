@@ -30,8 +30,13 @@ struct AppConfig: Sendable {
 struct AuthEndpoints: Sendable {
   struct InvalidConfiguration: Error {}
 
-  static let redirect = "org.maproulette.example:/oauth2redirect"
-  static let callbackScheme = "org.maproulette.example"
+  /// The native callback registered for `MAPROULETTE_OAUTH_CLIENT_ID` (`MROAuthCallbackScheme`).
+  static let callbackScheme: String = {
+    let value = (Bundle.main.infoDictionary?["MROAuthCallbackScheme"] as? String)?
+      .trimmingCharacters(in: .whitespaces) ?? ""
+    return value.isEmpty || value.hasPrefix("$(") ? "org.maproulette.example" : value
+  }()
+  static let redirect = "\(callbackScheme):/oauth2redirect"
 
   let origin: String
   let clientID: String

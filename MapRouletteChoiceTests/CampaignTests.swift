@@ -88,3 +88,20 @@ import Testing
     #expect(Noun.from([t.task]).one == "bench")
   }
 }
+
+@Suite struct PublishedTests {
+  private func challenge(_ id: Int64, type: Int?, tags: [String]? = nil, archived: Bool? = nil) throws -> Challenge {
+    Challenge(
+      id: try ChallengeID(id), projectID: try ProjectID(1), name: "c\(id)", tags: tags, archived: archived,
+      cooperativeType: type)
+  }
+
+  @Test func prefersTaggedChoiceChallenges() throws {
+    let untagged = try challenge(1, type: 3)
+    let tagged = try challenge(2, type: 3, tags: ["mobile-survey-v1"])
+    let other = try challenge(3, type: 1, tags: ["mobile-survey-v1"])
+    let archived = try challenge(4, type: 3, archived: true)
+    #expect(ChallengePickerView.published([untagged, other, archived]).map(\.id.value) == [1])
+    #expect(ChallengePickerView.published([untagged, tagged, other]).map(\.id.value) == [2])
+  }
+}

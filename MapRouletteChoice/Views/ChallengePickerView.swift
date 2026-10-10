@@ -22,6 +22,16 @@ struct ChallengePickerView: View {
   private static let maxPages = 5
   /// `challenges.cooperative_type` for multiple-choice challenges.
   static let choiceType = 3
+  /// The tag the admin's "Publish" adds (`maproulette-mobile-admin` SurveyBuilder).
+  static let publishedTag = "mobile-survey-v1"
+
+  /// Choice challenges that are published for mobile. Until any challenge carries the publish
+  /// tag (older ones predate it), every unarchived choice challenge counts as published.
+  nonisolated static func published(_ all: [Challenge]) -> [Challenge] {
+    let choice = all.filter { $0.cooperativeType == choiceType && $0.archived != true }
+    let tagged = choice.filter { $0.tags?.contains(publishedTag) == true }
+    return tagged.isEmpty ? choice : tagged
+  }
 
   var body: some View {
     @Bindable var session = session
@@ -129,7 +139,7 @@ struct ChallengePickerView: View {
           pages += 1
         } while cursor != nil && pages < Self.maxPages
         try Task.checkCancellation()
-        let choice = all.filter { $0.cooperativeType == Self.choiceType && $0.archived != true }
+        let choice = Self.published(all)
         challenges = choice.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         others = all.count - choice.count
         truncated = cursor != nil
