@@ -10,6 +10,8 @@
 	<string>$(MAPROULETTE_OAUTH_CALLBACK_SCHEME)</string>
 	<key>MRAllowLoopback</key>
 	<string>$(MAPROULETTE_ALLOW_LOOPBACK)</string>
+	<key>MRAllowLiveWrites</key>
+	<string>$(MAPROULETTE_ALLOW_LIVE_WRITES)</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

@@ -105,7 +105,8 @@ struct TaskView: View {
     let writer =
       session.writesConfigured && view.signedIn && view.canWriteTasks
       ? view.userID.map { Writer(me: $0, canEditOsm: view.canEditOsm) } : nil
-    controller = TaskWorkController(ops: ClientTaskOps(session.newClient().client), writer: writer)
+    controller = TaskWorkController(
+      ops: ClientTaskOps(session.newClient().client), writer: writer, noun: noun)
   }
 
   /// Account switch or sign-out: discard the old account's state and any late result.
@@ -584,7 +585,8 @@ struct TaskView: View {
     }
     confirmation = Confirmation(
       title: "Send the same answers again?",
-      message: "This finishes the earlier attempt. The same edit is never saved twice.\n\n\(summary)",
+      message: "This finishes your earlier try. Your answers are never saved twice."
+        + (showDetails ? "\n\n\(summary)" : ""),
       confirm: "Send again", owner: owner, run: { $0.resendSame() })
   }
 
