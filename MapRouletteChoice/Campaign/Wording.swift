@@ -67,6 +67,9 @@ enum Wording {
     "For organizers and experienced mappers: shows tag changes, task and element ids, changeset links and the deletion setting."
   static let answersArePublic =
     "Your answers are saved to OpenStreetMap, the free map anyone can use and improve. Edits are public and show your OpenStreetMap username."
+  /// Guests' answers reach OSM only after they finish signing up, under the username they pick then.
+  static let guestAnswersArePublic =
+    "Your answers go on OpenStreetMap, the free map anyone can use, when you finish on a computer. Map edits are public and show the username you choose then."
   static let locationStaysOnPhone =
     "Your location is used on your phone to find the nearest ones. It is not uploaded."
 
