@@ -18,6 +18,7 @@ final class AppStoreShotsUITests: XCTestCase {
     start.tap()
     allowLocationIfAsked(app)
     XCTAssert(text(app, "3 of 8 stops checked").waitForExistence(timeout: 10))
+    waitForLocation(app)
     sleep(3)  // map tiles
     shot(app, "map")
   }
@@ -56,6 +57,7 @@ final class AppStoreShotsUITests: XCTestCase {
     XCTAssert(back.waitForExistence(timeout: 5))
     back.tap()
     XCTAssert(text(app, "of 8 stops checked").waitForExistence(timeout: 10))
+    waitForLocation(app)
     sleep(3)
     shot(app, "progress")
   }
@@ -76,6 +78,13 @@ final class AppStoreShotsUITests: XCTestCase {
     app.launchArguments = ["-demo", "-demoStops", "-demoGuest"] + arguments
     app.launch()
     return app
+  }
+
+  /// The first location fix is slow in the simulator: wait until "Nearest stop · 120 m" shows a
+  /// distance (and the map its dot). Shots go ahead without it after 30 s.
+  @MainActor private func waitForLocation(_ app: XCUIApplication) {
+    let withDistance = app.buttons.containing(NSPredicate(format: "label BEGINSWITH 'Nearest stop ·'")).firstMatch
+    _ = withDistance.waitForExistence(timeout: 30)
   }
 
   private func text(_ app: XCUIApplication, _ fragment: String) -> XCUIElement {
