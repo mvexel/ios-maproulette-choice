@@ -277,13 +277,16 @@ struct TaskView: View {
       )
       .frame(height: 150)
       .clipShape(RoundedRectangle(cornerRadius: 12))
-      .accessibilityLabel("Map showing where this \(noun.one) is")
+      // One element: the tiles' street names aren't readable text.
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel("Map of \(Wording.placeName(task, noun))")
+      .accessibilityAddTraits(.isImage)
       .id(coordinate.latitude + coordinate.longitude)
     }
     VStack(alignment: .leading, spacing: 4) {
       Text(Wording.placeName(task, noun)).font(.title2.bold())
       if task.id.value == firstTaskID, let whereText = TaskLocation.fromYouText(userLocation, TaskLocation.coordinate(task)) {
-        Text(whereText).font(.subheadline).foregroundStyle(.secondary)
+        Text(whereText).font(.subheadline).foregroundStyle(.primary)
       }
       if showDetails {
         Text(verbatim: task.name).font(.footnote.monospaced()).foregroundStyle(.secondary)
@@ -331,7 +334,7 @@ struct TaskView: View {
     _ c: TaskWorkController, _ form: ChoiceForm, _ q: ChoiceQuestion, index: Int, of count: Int
   ) -> some View {
     VStack(alignment: .leading, spacing: 6) {
-      Text("Question \(index + 1) of \(count)").font(.subheadline).foregroundStyle(.secondary)
+      Text("Question \(index + 1) of \(count)").font(.subheadline).foregroundStyle(.primary)
       ProgressView(value: Double(index + 1), total: Double(count))
     }
     .accessibilityElement(children: .combine)

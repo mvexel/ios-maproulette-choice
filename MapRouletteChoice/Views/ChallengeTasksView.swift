@@ -80,7 +80,8 @@ struct ChallengeTasksView: View {
       switch mode {
       case .map:
         TaskMapView(
-          styleURL: session.mapStyleURL, tasks: shown, done: doneIDs, pending: pendingIDs, noun: noun) { id in navigate(to: id) }
+          styleURL: session.mapStyleURL, tasks: shown, done: doneIDs, pending: pendingIDs,
+          origin: origin, noun: noun) { id in navigate(to: id) }
           .background(Color(.secondarySystemBackground))
           .overlay {
             if tasks.isEmpty && request != nil { ProgressView("Loading…").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) }
@@ -170,14 +171,15 @@ struct ChallengeTasksView: View {
         // Side by side until accessibility sizes, then stacked so neither line truncates.
         let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading)) : AnyLayout(HStackLayout())
         layout {
-          Text(Wording.progress(done: done, total: total, noun))
+          Text(Wording.progress(done: done, total: total, noun)).foregroundStyle(.primary)
           if !typeSize.isAccessibilitySize { Spacer() }
-          if today > 0 { Text("You've checked \(today) today") }
+          if today > 0 { Text("You've checked \(today) today").foregroundStyle(.secondary) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .font(.subheadline)
-        .foregroundStyle(.secondary)
+        // The tally above reads the same count; the bar alone is a 4 pt sliver.
         ProgressView(value: Double(done), total: Double(max(total, 1)))
+          .accessibilityHidden(true)
       } else {
         HStack {
           if request != nil { ProgressView() }
@@ -197,10 +199,12 @@ struct ChallengeTasksView: View {
         Button {
           navigate(to: nearest.id)
         } label: {
-          Label(
-            Wording.nearest(noun, distance: TaskLocation.distanceText(origin, nearest.coordinate)),
-            systemImage: "location.north.circle.fill"
-          )
+          // The icon alone reads "Orient To Phone".
+          Label {
+            Text(Wording.nearest(noun, distance: TaskLocation.distanceText(origin, nearest.coordinate)))
+          } icon: {
+            Image(systemName: "location.north.circle.fill").accessibilityHidden(true)
+          }
           .frame(maxWidth: .infinity, minHeight: 44)
         }
         .buttonStyle(.borderedProminent)

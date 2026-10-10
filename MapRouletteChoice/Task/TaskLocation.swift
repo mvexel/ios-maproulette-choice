@@ -70,6 +70,24 @@ enum TaskLocation {
     }.map(\.element)
   }
 
+  /// The order map pins are added in, which is the order VoiceOver reads them: nearest first
+  /// from `origin`; without one, top to bottom (north to south), then west to east. Tasks
+  /// without a location go last; ties keep task id order.
+  static func mapOrder(_ tasks: [LocatedTask], from origin: CLLocationCoordinate2D?) -> [LocatedTask] {
+    let byID = sorted(tasks, from: origin)
+    guard origin == nil else { return byID }
+    return byID.enumerated().sorted { a, b in
+      switch (a.element.coordinate, b.element.coordinate) {
+      case (let x?, let y?):
+        x.latitude != y.latitude
+          ? x.latitude > y.latitude : x.longitude != y.longitude ? x.longitude < y.longitude : a.offset < b.offset
+      case (.some, nil): true
+      case (nil, .some): false
+      case (nil, nil): a.offset < b.offset
+      }
+    }.map(\.element)
+  }
+
   /// The nearest open task to `origin` that is not in `excluding`; by id when `origin` is nil.
   static func nearest(from origin: CLLocationCoordinate2D?, in tasks: [LocatedTask], excluding: Set<Int64>)
     -> LocatedTask?
