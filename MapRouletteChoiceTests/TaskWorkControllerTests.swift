@@ -374,7 +374,8 @@ import Testing
       let o = ops(try await makeTask())
       o.submit = { _ in throw error }
       let c = await answered(o)
-      #expect(try #require(c.state.answering?.2).lowercased().contains("nothing was recorded"), "\(error)")
+      let notice = try #require(c.state.answering?.2).lowercased()
+      #expect(notice.contains("nothing was saved") || notice.contains("wasn't saved"), "\(error)")
       #expect(try form(c).answers == ["backrest": "yes"])
     }
   }
@@ -387,7 +388,7 @@ import Testing
       return
     }
     #expect(loaded.task.status?.code == 1)
-    #expect(reason.contains("did not accept"))
+    #expect(reason.contains("can't be answered right now"))
   }
 
   @Test func unknownSkipIsNeverResent() async throws {
