@@ -19,8 +19,10 @@ struct TaskView: View {
   /// The campaign's open places, for "Next nearest".
   private let candidates: [LocatedTask]
   private let noun: Noun
-  /// The participant's position when the place was opened, for "130 m northeast of you".
+  /// The participant's position when the first place was opened from the campaign, for
+  /// "130 m northeast of you". Not live: after "Next nearest" they have moved, so it is hidden.
   private let userLocation: CLLocationCoordinate2D?
+  private let firstTaskID: Int64
   /// Places opened in this screen; never offered again as next.
   @State private var visited: Set<Int64>
   @State private var controller: TaskWorkController?
@@ -42,6 +44,7 @@ struct TaskView: View {
     self.candidates = candidates
     self.noun = noun
     self.userLocation = userLocation
+    firstTaskID = taskID
   }
 
   /// A confirmation bound to the controller that showed it: a dialog left open across an
@@ -261,7 +264,7 @@ struct TaskView: View {
     }
     VStack(alignment: .leading, spacing: 4) {
       Text(Wording.placeName(task, noun)).font(.title2.bold())
-      if let whereText = TaskLocation.fromYouText(userLocation, TaskLocation.coordinate(task)) {
+      if task.id.value == firstTaskID, let whereText = TaskLocation.fromYouText(userLocation, TaskLocation.coordinate(task)) {
         Text(whereText).font(.subheadline).foregroundStyle(.secondary)
       }
       if showDetails {
