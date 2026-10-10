@@ -118,6 +118,22 @@ struct ChallengeTasksView: View {
     .onChange(of: changes.version) { load() }
   }
 
+  #if DEBUG
+    /// Screenshot shortcuts, once per launch: `-demoList` shows the list; `-demoTask <id>` opens
+    /// that place (skipping the welcome card).
+    private static var demoRouted = false
+    private func demoRoute() {
+      guard !Self.demoRouted else { return }
+      Self.demoRouted = true
+      let args = ProcessInfo.processInfo.arguments
+      if args.contains("-demoList") { mode = .list }
+      if let i = args.firstIndex(of: "-demoTask"), i + 1 < args.count, let id = Int64(args[i + 1]) {
+        sheet = nil
+        navigate(to: id)
+      }
+    }
+  #endif
+
   private func navigate(to id: Int64) {
     selected = Selection(id: id, candidates: tasks.filter(\.isOpen))
   }
@@ -348,6 +364,9 @@ struct ChallengeTasksView: View {
         truncated = cursor != nil
         status = located.contains(where: { $0.isOpen || $0.isDone }) ? "" : "Nothing to check in this campaign yet."
         if !campaigns.hasSeenWelcome(challengeID.value) && sheet == nil { sheet = .welcome }
+        #if DEBUG
+          demoRoute()
+        #endif
       } catch is CancellationError {
         return
       } catch {
