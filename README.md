@@ -34,6 +34,14 @@ xcodebuild -project MapRouletteChoice.xcodeproj -scheme MapRouletteChoice \
 
 For a physical device, set your team under Signing & Capabilities (keep `DEVELOPMENT_TEAM` local).
 
+Demo mode (Debug builds): launch with `-demo` to use an in-process mock campaign of eight
+downtown Salt Lake City benches, signed in, with no network. Every screen, including questions,
+review and "Saved", is reachable without an account:
+
+```sh
+xcrun simctl launch booted lol.osm.maproulette.choice -demo
+```
+
 ## Configuration
 
 `Config/App.xcconfig` (public values, no secrets), overridable on the `xcodebuild` command line:

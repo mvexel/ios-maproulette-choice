@@ -3,7 +3,7 @@ import SwiftUI
 
 @main
 struct MapRouletteChoiceApp: App {
-  @State private var session = AppSession(config: .current)
+  @State private var session: AppSession = Self.makeSession()
   @State private var refresh = TaskChanges()
   @State private var campaigns = CampaignStore()
 
@@ -14,6 +14,14 @@ struct MapRouletteChoiceApp: App {
         .environment(refresh)
         .environment(campaigns)
     }
+  }
+
+  @MainActor private static func makeSession() -> AppSession {
+    #if DEBUG
+      // `-demo`: an in-process mock campaign for screenshots and design review. No network.
+      if ProcessInfo.processInfo.arguments.contains("-demo") { return AppSession(demo: DemoBackend()) }
+    #endif
+    return AppSession(config: .current)
   }
 }
 
