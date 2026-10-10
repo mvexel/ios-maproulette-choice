@@ -137,7 +137,7 @@ struct SessionClient: Sendable {
     await sync(auth)
     switch result {
     case .signedIn: publish(signedInMessage(), detail: signedInDetail())
-    case .signedOut: publish(signedOutMessage())
+    case .guest, .signedOut: publish(signedOutMessage())
     case .refreshInterrupted: publish("Please sign in again.", detail: "A previous refresh was interrupted.")
     case .unreadable: publish("Please sign in again.", detail: "Saved sign-in could not be restored.")
     }
