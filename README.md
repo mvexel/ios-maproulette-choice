@@ -4,11 +4,17 @@ A small SwiftUI app for answering MapRoulette **multiple-choice challenges** on 
 [mobile-enabled MapRoulette backend](https://github.com/mvexel/maproulette-mobile-backend), built
 on the [MapRoulette mobile SDK](https://github.com/mvexel/maproulette-mobile-sdk).
 
-- **Pick a challenge**: lists the backend's challenges whose `cooperativeType` is 3 (choice).
-- **See its tasks** as a list sorted by distance from you, or on a
-  [MapLibre](https://maplibre.org) map with [OpenFreeMap](https://openfreemap.org) tiles.
-- **Answer** the challenge's questions. Each option shows its exact tag change; the backend
-  checks the element against live OSM, then applies the answers as one changeset.
+- **Pick a campaign**: lists the backend's challenges whose `cooperativeType` is 3 (choice), or
+  open one directly with `mrchoice://challenge/<id>` (Share campaign shows it as a QR code). The
+  app reopens the last campaign on launch; a welcome card explains each campaign once.
+- **See its places** on a [MapLibre](https://maplibre.org) map with
+  [OpenFreeMap](https://openfreemap.org) tiles or in a list sorted by distance, with checked places
+  greyed out, campaign progress, today's count, and the nearest place one tap away.
+- **Answer** one question per screen with large buttons and "I'm not sure", review, then Done.
+  The backend checks the element against live OSM and applies the answers as one changeset.
+  "Something's wrong here" holds the challenge's outcomes, "Too hard to tell" and Skip.
+- **Show OSM details** (Settings, off by default) reveals tag changes, task and element ids,
+  changeset links and the "Allow deleting OSM elements" setting.
 
 The sign-in, task-answering screen and their tests are adapted from the SDK's `ios-example`
 (Apache 2.0, same author).

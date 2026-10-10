@@ -1,0 +1,89 @@
+import MapRoulette
+
+/// What a campaign's tasks are called on screen ("stop", "bench"), derived from the identity tag
+/// the challenge's payload guards on (`match`). Falls back to "place".
+struct Noun: Hashable, Sendable {
+  let one: String
+  let many: String
+
+  static let place = Noun(one: "place", many: "places")
+
+  /// Known identity tags, most specific first.
+  private static let known: [(key: String, value: String, noun: Noun)] = [
+    ("highway", "bus_stop", Noun(one: "stop", many: "stops")),
+    ("public_transport", "platform", Noun(one: "stop", many: "stops")),
+    ("railway", "platform", Noun(one: "platform", many: "platforms")),
+    ("amenity", "bench", Noun(one: "bench", many: "benches")),
+    ("amenity", "bicycle_parking", Noun(one: "bike rack", many: "bike racks")),
+    ("amenity", "waste_basket", Noun(one: "trash can", many: "trash cans")),
+    ("amenity", "drinking_water", Noun(one: "water fountain", many: "water fountains")),
+    ("amenity", "toilets", Noun(one: "restroom", many: "restrooms")),
+    ("amenity", "shelter", Noun(one: "shelter", many: "shelters")),
+    ("leisure", "playground", Noun(one: "playground", many: "playgrounds")),
+    ("leisure", "park", Noun(one: "park", many: "parks")),
+  ]
+
+  static func from(match: [String: String]) -> Noun {
+    known.first { match[$0.key] == $0.value }?.noun ?? .place
+  }
+
+  /// The noun for a campaign: from the first choice task's identity guard.
+  static func from(_ tasks: [MapRouletteTask]) -> Noun {
+    for task in tasks {
+      if case .choice(_, let match, _, _) = task.work() { return from(match: match) }
+    }
+    return .place
+  }
+
+  /// "1 stop", "7 stops".
+  func count(_ n: Int) -> String { "\(n) \(n == 1 ? one : many)" }
+  var One: String { one.prefix(1).uppercased() + one.dropFirst() }
+}
+
+/// Participant-facing copy (docs: /mnt/project-files/design/personas-and-design.md §4). Expert
+/// wording stays in `TaskText` and shows only with "Show OSM details".
+enum Wording {
+  static let notSure = "I'm not sure"
+  static let notSureShort = "Not sure"
+  static let somethingWrong = "Something's wrong here"
+  static let tooHard = "Too hard to tell"
+  static let done = "Done"
+  static let showDetails = "Show OSM details"
+  static let showDetailsFooter =
+    "For organizers and experienced mappers: shows tag changes, task and element ids, changeset links and the deletion setting."
+  static let answersArePublic =
+    "Your answers are saved to OpenStreetMap, the free map anyone can use and improve. Edits are public and show your OpenStreetMap username."
+  static let locationStaysOnPhone =
+    "Your location is used on your phone to find the nearest ones. It is not uploaded."
+
+  static func skip(_ noun: Noun) -> String { "Skip this \(noun.one)" }
+  static func alreadyChecked(_ noun: Noun) -> String { "Someone already checked this \(noun.one). Thanks anyway!" }
+  static func cannotAnswer(_ noun: Noun) -> String { "This \(noun.one) can't be answered in the app." }
+  static func checkFailed(_ noun: Noun) -> String {
+    "Couldn't check this \(noun.one) right now. Check your connection and try again."
+  }
+  static func takenByOther(_ noun: Noun) -> String {
+    "Someone else is checking this \(noun.one) right now. Try another one."
+  }
+  static func notSureCloses(_ noun: Noun) -> String {
+    "Questions marked “\(notSureShort)” won't be asked again for this \(noun.one)."
+  }
+  static func nothingAnswered(_ noun: Noun) -> String {
+    "You weren't sure about any question. You can skip this \(noun.one) instead."
+  }
+  static func saved(_ todayCount: Int, _ noun: Noun) -> String {
+    "Saved, thanks! That's \(noun.count(todayCount)) today."
+  }
+  static func checkedByOtherFirst(_ noun: Noun) -> String {
+    "Someone else checked this \(noun.one) first, so your answers weren't saved."
+  }
+  static func next(_ noun: Noun, distance: String?) -> String {
+    "Next nearest \(noun.one)" + (distance.map { " · \($0)" } ?? "")
+  }
+  static func nearest(_ noun: Noun, distance: String?) -> String {
+    "Nearest \(noun.one)" + (distance.map { " · \($0)" } ?? "")
+  }
+  static func progress(done: Int, total: Int, _ noun: Noun) -> String {
+    "\(done) of \(noun.count(total)) checked"
+  }
+}

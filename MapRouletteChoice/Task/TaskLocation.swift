@@ -1,11 +1,15 @@
 import CoreLocation
 import MapRoulette
 
-/// A task the app can answer in place, with where it is.
+/// A challenge task with where it is.
 struct LocatedTask: Identifiable, Hashable {
   let task: MapRouletteTask
   let coordinate: CLLocationCoordinate2D?
   var id: Int64 { task.id.value }
+  /// Answerable in place: a valid, open, unbundled choice task.
+  var isOpen: Bool { task.mobileSupport() == .inPlace }
+  /// Already checked: fixed, not an issue or already fixed.
+  var isDone: Bool { task.status.map { [1, 2, 5].contains($0.code) } ?? false }
 
   init(_ task: MapRouletteTask) {
     self.task = task
@@ -64,6 +68,23 @@ enum TaskLocation {
       case (nil, nil): a.offset < b.offset
       }
     }.map(\.element)
+  }
+
+  /// The nearest open task to `origin` that is not in `excluding`; by id when `origin` is nil.
+  static func nearest(from origin: CLLocationCoordinate2D?, in tasks: [LocatedTask], excluding: Set<Int64>)
+    -> LocatedTask?
+  {
+    sorted(tasks.filter { $0.isOpen && !excluding.contains($0.id) }, from: origin).first
+  }
+
+  static func meters(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D) -> CLLocationDistance {
+    CLLocation(latitude: a.latitude, longitude: a.longitude).distance(from: CLLocation(latitude: b.latitude, longitude: b.longitude))
+  }
+
+  /// "120 m" between two optional points, or nil.
+  static func distanceText(_ a: CLLocationCoordinate2D?, _ b: CLLocationCoordinate2D?) -> String? {
+    guard let a, let b else { return nil }
+    return distance(meters(a, b))
   }
 
   static func distance(_ meters: CLLocationDistance) -> String {

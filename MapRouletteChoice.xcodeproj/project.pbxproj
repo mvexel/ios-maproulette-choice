@@ -271,7 +271,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "MR Choice";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Your location sorts tasks by distance and centers the map.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Used on your phone to find the nearest places to check. Your location is not uploaded.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -295,7 +295,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "MR Choice";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Your location sorts tasks by distance and centers the map.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Used on your phone to find the nearest places to check. Your location is not uploaded.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";

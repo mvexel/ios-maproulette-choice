@@ -2,7 +2,7 @@ import AuthenticationServices
 import MapRoulette
 import SwiftUI
 
-/// Account, then the backend's multiple-choice challenges to pick from.
+/// Account, the backend's mapping campaigns (multiple-choice challenges), and settings.
 struct ChallengePickerView: View {
   @Environment(AppSession.self) private var session
   @Environment(\.webAuthenticationSession) private var webAuth
@@ -11,11 +11,12 @@ struct ChallengePickerView: View {
   @State private var challenges: [Challenge] = []
   @State private var others = 0
   @State private var truncated = false
-  @State private var status = "Loading challenges…"
+  @State private var status = "Loading campaigns…"
   @State private var failed = false
   @State private var request: Task<Void, Never>?
   @State private var signingIn = false
   @State private var search = ""
+  @AppStorage(SettingsKey.showOSMDetails) private var showDetails = false
 
   /// Pages of 100 to read before stopping; enough for a pilot backend.
   private static let maxPages = 5
@@ -30,16 +31,8 @@ struct ChallengePickerView: View {
           .accessibilityAddTraits(.updatesFrequently)
         Button(signInLabel) { accountAction() }
           .disabled(!session.signInAvailable || signingIn)
-        if session.writesConfigured {
-          Toggle("Allow deleting OSM elements", isOn: $session.allowElementDeletion)
-        }
       } header: {
         Text("Account")
-      } footer: {
-        if session.writesConfigured {
-          let server = session.osmServer.map(TaskText.host) ?? "the backend's OpenStreetMap server"
-          Text(verbatim: "Off (default): a “gone” answer is recorded as Not an issue. On: it deletes the element on \(server).")
-        }
       }
       Section {
         if challenges.isEmpty {
@@ -60,21 +53,40 @@ struct ChallengePickerView: View {
           }
         }
       } header: {
-        Text("Multiple-choice challenges")
+        Text("Mapping campaigns")
       } footer: {
-        if !challenges.isEmpty {
+        if !challenges.isEmpty && showDetails {
           Text(footer)
         }
       }
+      Section {
+        Toggle(Wording.showDetails, isOn: $showDetails)
+        if showDetails && session.writesConfigured {
+          Toggle("Allow deleting OSM elements", isOn: $session.allowElementDeletion)
+        }
+      } header: {
+        Text("Settings")
+      } footer: {
+        if showDetails && session.writesConfigured {
+          let server = session.osmServer.map(TaskText.host) ?? "the backend's OpenStreetMap server"
+          Text(verbatim: "Off (default): a “gone” answer is recorded as Not an issue. On: it deletes the element on \(server).")
+        } else {
+          Text(Wording.showDetailsFooter)
+        }
+      }
     }
-    .navigationTitle("MapRoulette Choice")
-    .searchable(text: $search, prompt: "Filter challenges")
+    .navigationTitle("Mapping campaigns")
+    .searchable(text: $search, prompt: "Find a campaign")
     .refreshable { load(); await request?.value }
     .onAppear {
       if client == nil {
         client = session.newClient()
         load()
       }
+    }
+    .onChange(of: showDetails) {
+      // Deleting is an expert setting: hiding the details turns it off too.
+      if !showDetails { session.allowElementDeletion = false }
     }
     .onChange(of: session.view.generation) {
       client = session.newClient()
@@ -89,7 +101,7 @@ struct ChallengePickerView: View {
   }
 
   private var footer: String {
-    var parts = ["\(challenges.count) multiple-choice challenges."]
+    var parts = ["\(challenges.count) multiple-choice challenges (cooperativeType 3)."]
     if others > 0 { parts.append("\(others) other challenges are hidden: they cannot be answered here.") }
     if truncated { parts.append("Only the first \(Self.maxPages * 100) challenges were read.") }
     return parts.joined(separator: " ")
@@ -104,7 +116,7 @@ struct ChallengePickerView: View {
     guard let client = client?.client else { return }
     request?.cancel()
     failed = false
-    status = "Loading challenges…"
+    status = "Loading campaigns…"
     request = Task {
       do {
         var all: [Challenge] = []
@@ -121,7 +133,7 @@ struct ChallengePickerView: View {
         challenges = choice.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         others = all.count - choice.count
         truncated = cursor != nil
-        status = choice.isEmpty ? "No multiple-choice challenges on this backend yet." : ""
+        status = choice.isEmpty ? "No mapping campaigns yet." : ""
       } catch is CancellationError {
         return
       } catch {

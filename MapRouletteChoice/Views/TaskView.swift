@@ -1,27 +1,44 @@
 import AuthenticationServices
+import CoreLocation
 import MapRoulette
 import SwiftUI
 
-/// Multiple-choice task screen with late locking (docs/design/mobile-choice-challenges.md §7). Viewing never locks.
+/// One place, one question per screen, sized for the street (docs: personas-and-design.md §4).
+/// Late locking as in the SDK example (docs/design/mobile-choice-challenges.md §7): viewing never
+/// locks; saving locks, submits and releases. OSM detail (tags, ids, changesets) shows only with
+/// "Show OSM details".
 struct TaskView: View {
   @Environment(AppSession.self) private var session
   @Environment(TaskChanges.self) private var changes
+  @Environment(CampaignStore.self) private var campaigns
   @Environment(\.webAuthenticationSession) private var webAuth
   @Environment(\.dismiss) private var dismiss
+  @AppStorage(SettingsKey.showOSMDetails) private var showDetails = false
 
   @State private var taskID: Int64
-  /// Tasks from the list or map to offer as "Next task", in order; never includes `taskID`.
-  @State private var upcoming: [Int64]
+  /// The campaign's open places, for "Next nearest".
+  private let candidates: [LocatedTask]
+  private let noun: Noun
+  /// Places opened in this screen; never offered again as next.
+  @State private var visited: Set<Int64>
   @State private var controller: TaskWorkController?
   @State private var generation: Int?
   @State private var confirmation: Confirmation?
   /// Shown above the next screen after an account switch.
   @State private var switchNotice: String?
   @State private var reportedChange = false
+  /// The question on screen; `questions.count` is the review step.
+  @State private var step = 0
+  /// Questions answered "I'm not sure" (as opposed to not reached yet).
+  @State private var notSure: Set<String> = []
+  @State private var showProblems = false
+  @State private var counted = false
 
-  init(taskID: Int64, order: [Int64]) {
+  init(taskID: Int64, candidates: [LocatedTask], noun: Noun) {
     _taskID = State(initialValue: taskID)
-    _upcoming = State(initialValue: TaskText.nextTasks(order, current: taskID))
+    _visited = State(initialValue: [taskID])
+    self.candidates = candidates
+    self.noun = noun
   }
 
   /// A confirmation bound to the controller that showed it: a dialog left open across an
@@ -36,14 +53,17 @@ struct TaskView: View {
   }
 
   var body: some View {
-    Form {
-      if let controller {
-        content(controller)
-      } else {
-        ProgressView()
+    ScrollView {
+      VStack(alignment: .leading, spacing: 16) {
+        if let controller {
+          content(controller)
+        } else {
+          ProgressView().frame(maxWidth: .infinity)
+        }
       }
+      .padding()
     }
-    .navigationTitle(controller?.state.loaded?.task.name ?? "Task \(taskID)")
+    .navigationTitle(noun.One)
     .navigationBarTitleDisplayMode(.inline)
     // Back is blocked while a write is in flight (normally a few seconds).
     .navigationBarBackButtonHidden(controller?.busy == true)
@@ -61,6 +81,7 @@ struct TaskView: View {
     }
     .onChange(of: session.view.generation) { accountChanged() }
     .onChange(of: controller?.changed) { if controller?.changed == true { reportChange() } }
+    .onChange(of: finishedTaskID) { countFinished() }
   }
 
   // MARK: Lifecycle
@@ -90,29 +111,58 @@ struct TaskView: View {
     old.cancel()
     confirmation = nil
     replaceController()
-    // §7: the old account's in-flight write is cancelled; its result cannot be checked with the
-    // new account, so say so instead of implying nothing happened.
     switchNotice =
       (interrupted
-        ? "Your sign-in changed while a result was being recorded, so its outcome is unknown. Check the task status below. "
+        ? "Your sign-in changed while your answers were being saved, so we can't tell whether they were. "
         : "") + session.view.message
+    resetQuestions()
     controller?.load(try! TaskID(taskID))
   }
 
   private func reportChange() {
-    // Once per screen: lists and maps reload when the user returns.
+    // Once per place: lists and maps reload.
     if !reportedChange {
       reportedChange = true
       changes.taskChanged()
     }
   }
 
-  /// Opens the next task from the list or map in this screen.
-  private func openNext() {
-    guard let controller, !controller.busy, !upcoming.isEmpty else { return }
+  private func resetQuestions() {
+    step = 0
+    notSure = []
+  }
+
+  /// The task id once it is finished by this user (saved or recorded, not skipped).
+  private var finishedTaskID: Int64? {
+    guard case .done(let d) = controller?.state, !d.byOther else { return nil }
+    return d.loaded.task.id.value
+  }
+
+  private func countFinished() {
+    guard let id = finishedTaskID, !counted, case .done(let d) = controller?.state else { return }
+    counted = true
+    campaigns.recordChecked(d.loaded.challenge.id.value, task: id)
+  }
+
+  /// The current place's position: the loaded task's, else the campaign list's.
+  private var here: CLLocationCoordinate2D? {
+    if let task = controller?.state.loaded?.task, let c = TaskLocation.coordinate(task) { return c }
+    return candidates.first { $0.id == taskID }?.coordinate
+  }
+
+  private var nextPlace: LocatedTask? {
+    TaskLocation.nearest(from: here, in: candidates, excluding: visited.union(campaigns.justDone))
+  }
+
+  private func open(_ next: LocatedTask) {
+    guard let controller, !controller.busy else { return }
     switchNotice = nil
-    taskID = upcoming.removeFirst()
     if controller.changed { reportChange() }
+    taskID = next.id
+    visited.insert(next.id)
+    reportedChange = false
+    counted = false
+    resetQuestions()
     replaceController()
     self.controller?.load(try! TaskID(taskID))
   }
@@ -131,90 +181,92 @@ struct TaskView: View {
   @ViewBuilder private func content(_ c: TaskWorkController) -> some View {
     let state = c.state
     if let loaded = state.loaded { header(loaded) }
-    if let notice = notice(state) {
-      Section {
-        HStack(alignment: .firstTextBaseline) {
-          if showsProgress(state) { ProgressView() }
-          Text(notice).textSelection(.enabled)
-        }
-        .accessibilityAddTraits(.updatesFrequently)
-      }
-    } else if showsProgress(state) {
-      Section { ProgressView() }
-    }
-    stateBody(c, state)
-    if let loaded = state.loaded {
-      Section("Instructions") {
-        Text(TaskText.instruction(loaded.task, loaded.challenge)).textSelection(.enabled)
-      }
+    if let switchNotice, !isLoading(state) { banner(switchNotice) }
+    switch state {
+    case .loading:
+      HStack { ProgressView(); Text("Loading…") }
+    case .loadFailed(let message):
+      Text(message)
+      bigButton("Try again") { c.load(try! TaskID(taskID)) }
+      backButton()
+    case .notAvailable(_, let reason):
+      Text(Wording.cannotAnswer(noun)).font(.headline)
+      if showDetails { Text(reason).font(.footnote).foregroundStyle(.secondary) }
+      nextButtons()
+    case .preview(_, let work):
+      preview(work)
+    case .checkFailed:
+      Text(Wording.checkFailed(noun))
+      bigButton("Try again") { c.load(try! TaskID(taskID)) }
+      nextButtons(prominent: false)
+    case .noLongerNeeded:
+      Text(Wording.alreadyChecked(noun)).font(.headline)
+      nextButtons()
+    case .answering(let loaded, let form, let notice):
+      if let notice { banner(notice) }
+      answering(c, loaded, form)
+    case .submitting:
+      HStack { ProgressView(); Text("Saving…") }.font(.headline)
+    case .done(let d):
+      done(c, d)
+    case .skipped(_, let uncertain):
+      Text(
+        uncertain
+          ? "The connection dropped before the skip was confirmed. It wasn't sent again."
+          : "Skipped. It stays open for someone else."
+      )
+      nextButtons()
+    case .takenByOther:
+      Text(Wording.takenByOther(noun))
+      nextButtons()
+    case .staleOwnLock(_, _, let action, let held):
+      Text("An earlier attempt is still open, so this couldn't be saved. Nothing was changed.")
+      if showDetails { Text(verbatim: "Locked task: \(held.value)").font(.footnote).foregroundStyle(.secondary) }
+      bigButton("Try again") { c.perform(action) }
+      backButton()
+    case .checkAgain(let pending):
+      checkAgain(c, pending)
+    case .signInRequired(_, let reason):
+      Text(reason)
+      bigButton("Sign in again") { signIn() }
+      backButton()
+    case .elementInUse(let loaded, let form, let outcome):
+      elementInUse(c, loaded, form, outcome)
     }
   }
 
   @ViewBuilder private func header(_ loaded: LoadedTask) -> some View {
     let task = loaded.task
-    Section {
-      VStack(alignment: .leading, spacing: 4) {
-        Text(task.name).font(.title3.bold())
+    if let coordinate = TaskLocation.coordinate(task) {
+      TaskMapView(
+        styleURL: session.mapStyleURL, tasks: [LocatedTask(task)], interactive: false, open: { _ in }
+      )
+      .frame(height: 150)
+      .clipShape(RoundedRectangle(cornerRadius: 12))
+      .accessibilityLabel("Map showing where this \(noun.one) is")
+      .id(coordinate.latitude + coordinate.longitude)
+    }
+    VStack(alignment: .leading, spacing: 4) {
+      Text(task.name).font(.title2.bold())
+      if showDetails {
         let element = ChoiceWork(task.work()).map { " · \(TaskText.element($0.element))" } ?? ""
         Text(verbatim: "Task \(task.id.value) · \(TaskText.status(task.status?.code))\(element)")
-          .font(.subheadline)
+          .font(.footnote.monospaced()).foregroundStyle(.secondary)
         Text(verbatim: "Challenge \(loaded.challenge.id.value): \(loaded.challenge.name)")
-          .font(.subheadline).foregroundStyle(.secondary)
+          .font(.footnote).foregroundStyle(.secondary)
       }
-      if let lockedBy = task.lockedBy {
-        Label(
-          lockedBy == session.view.userID
-            ? "This task is still locked to you from an earlier attempt."
-            : "Someone is working on this task right now. You can still continue, but they may finish first.",
-          systemImage: "lock"
-        )
-        .listRowBackground(Color.yellow.opacity(0.2))
-      }
+    }
+    if let lockedBy = task.lockedBy, lockedBy != session.view.userID {
+      banner("Someone else may be checking this \(noun.one) right now. You can still answer.")
     }
   }
 
-  private func showsProgress(_ state: TaskScreen) -> Bool {
-    switch state {
-    case .loading, .submitting: true
-    case .done(let d): d.checking
-    case .checkAgain(let c): c.checking
-    default: false
-    }
-  }
-
-  private func notice(_ state: TaskScreen) -> String? {
-    var text: String?
-    switch state {
-    case .loading: text = "Loading task…"
-    case .loadFailed(let message): text = message
-    case .notAvailable(_, let reason): text = "Not available on mobile. \(reason)"
-    case .preview: text = nil
-    case .checkFailed:
-      text =
-        "Couldn't check this right now. The app checks OpenStreetMap before a task can be answered; check your connection and retry."
-    case .noLongerNeeded: text = TaskText.noLongerNeeded
-    case .answering(_, _, let notice): text = notice
-    case .submitting(_, _, let action):
-      text = action.editsOsm ? "Uploading to OpenStreetMap and recording the result…" : "Recording “\(label(action))”…"
-    case .done(let d): text = doneText(d)
-    case .skipped(_, let uncertain):
-      text =
-        uncertain
-        ? "The connection failed before MapRoulette confirmed the skip. It was not sent again; the task may or may not count as skipped."
-        : "Skipped. The task stays open for others."
-    case .takenByOther: text = "Someone else is working on this task. Pick another one."
-    case .staleOwnLock(_, _, _, let held):
-      text = "A previous attempt on task \(held.value) is still open, so this task could not be started. Nothing was recorded."
-    case .checkAgain(let c):
-      text = c.checking ? "Checking result…" : c.message + (c.changesetID.map { "\nOpenStreetMap changeset \($0)." } ?? "")
-    case .signInRequired(_, let reason): text = reason
-    case .elementInUse(_, let form, _):
-      text = "\(TaskText.element(form.work.element)) is part of a way or relation in OpenStreetMap, so it was not deleted. Nothing was changed."
-    }
-    if let switchNotice, !isLoading(state) {
-      return [switchNotice, text].compactMap { $0 }.joined(separator: "\n")
-    }
-    return text
+  private func banner(_ text: String) -> some View {
+    Text(text)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(12)
+      .background(Color.yellow.opacity(0.2), in: RoundedRectangle(cornerRadius: 10))
+      .accessibilityAddTraits(.updatesFrequently)
   }
 
   private func isLoading(_ state: TaskScreen) -> Bool {
@@ -222,231 +274,274 @@ struct TaskView: View {
     return false
   }
 
-  @ViewBuilder private func stateBody(_ c: TaskWorkController, _ state: TaskScreen) -> some View {
-    switch state {
-    case .loading: EmptyView()
-    case .loadFailed:
-      Section {
-        Button("Retry") { c.load(try! TaskID(taskID)) }
-        Button("Back") { dismiss() }
-      }
-    case .notAvailable, .takenByOther, .skipped:
-      Section { Button("Back to tasks") { dismiss() } }
-    case .preview(_, let work):
-      questionCards(c, work, form: nil, enabled: false)
-      signInPrompt()
-    case .checkFailed:
-      Section {
-        Button("Retry") { c.load(try! TaskID(taskID)) }
-        if !upcoming.isEmpty { Button("Next task") { openNext() } }
-        Button("Back to tasks") { dismiss() }
-      }
-    case .noLongerNeeded:
-      Section {
-        if !upcoming.isEmpty { Button("Next task") { openNext() } }
-        Button("Back to tasks") { dismiss() }
-      }
-    case .answering(let loaded, let form, _):
-      choiceActions(c, loaded, form, submitting: nil)
-    case .submitting(let loaded, let form, let action):
-      choiceActions(c, loaded, form, submitting: action)
-    case .done(let d):
-      Section {
-        if !d.byOther, let id = d.changesetID { changesetLink(id) }
-        if d.readFailed { Button("Check again") { c.recheck() }.disabled(d.checking) }
-        Button("Back to tasks") { dismiss() }
-      }
-    case .staleOwnLock(let loaded, let form, let action, _):
-      Section {
-        Button(String("Retry “\(label(action))”")) { confirm(loaded, form, action) }
-        Button("Back to tasks") { dismiss() }
-      }
-    case .checkAgain(let pending):
-      if !pending.checking {
-        Section {
-          if let id = pending.changesetID { changesetLink(id) }
-          Button("Check again") { c.recheck() }
-          if pending.canResend { Button("Send the same submission again") { confirmResend(pending) } }
-          Button("Back to tasks") { dismiss() }
-        }
-      }
-    case .signInRequired:
-      Section {
-        Button("Sign in again to enable editing") { signIn() }
-        Text(session.accountHint).font(.footnote).foregroundStyle(.secondary)
-        Button("Back to tasks") { dismiss() }
-      }
-    case .elementInUse(let loaded, let form, let outcome):
-      Section {
-        if let plain = TaskWorkController.withoutDeletion(outcome), let me = session.view.userID {
-          Button {
-            confirmation = Confirmation(
-              title: "Send “\(outcome.label)” without deleting?",
-              message: TaskText.outcomeSummary(
-                plain, element: form.work.element, taskID: loaded.task.id.value, me: me,
-                osmServer: session.osmServer, notDeletable: true),
-              confirm: "Confirm", owner: c, run: { $0.sendWithoutDeletion() })
-          } label: {
-            actionLabel(
-              "Send “\(outcome.label)” without deleting",
-              TaskText.outcomeExplanation(plain, element: form.work.element, notDeletable: true))
-          }
-        }
-        Button("Back to tasks") { dismiss() }
-      }
-    }
-  }
+  // MARK: Answering
 
-  @ViewBuilder private func signInPrompt() -> some View {
-    if session.writesConfigured {
-      Section {
-        Text(session.view.signedIn ? "Your sign-in can only read tasks." : "Sign in to answer this task.")
-        Button(session.view.signedIn ? "Sign in again to enable editing" : "Sign in") { signIn() }
-        Text(session.accountHint).font(.footnote).foregroundStyle(.secondary)
-      }
-    }
-  }
-
-  /// Question cards, Submit, then the task-level outcomes and Skip. Writable sessions only.
-  @ViewBuilder private func choiceActions(
-    _ c: TaskWorkController, _ loaded: LoadedTask, _ form: ChoiceForm, submitting: ChoiceAction?
-  ) -> some View {
-    let idle = submitting == nil
+  @ViewBuilder private func answering(_ c: TaskWorkController, _ loaded: LoadedTask, _ form: ChoiceForm) -> some View {
+    let questions = form.work.questions
     if !c.canEditOsm {
-      Section {
-        Text("This sign-in cannot edit OpenStreetMap, so answers cannot be uploaded. Outcomes that only record a result still work.")
-        Button("Sign in again to enable editing") { signIn() }.disabled(!idle)
-        Text(session.accountHint).font(.footnote).foregroundStyle(.secondary)
-      }
-    }
-    questionCards(c, form.work, form: form, enabled: idle)
-    Section {
-      Button {
-        guard case .answering(let l, let f, _) = c.state else { return }
-        confirm(l, f, .answers(f.answers))
-      } label: {
-        if case .answers = submitting {
-          HStack { ProgressView(); Text("Uploading…") }
-        } else {
-          Text("Submit answers").bold()
-        }
-      }
-      .disabled(!(idle && c.canEditOsm && !form.answers.isEmpty))
-    }
-    Section("Or, for the whole task:") {
-      let actions = form.outcomes.map(ChoiceAction.outcome) + [.skip]
-      ForEach(Array(actions.filter { c.offers(loaded.task, form, $0) }.enumerated()), id: \.offset) { _, action in
-        Button {
-          guard case .answering(let l, let f, _) = c.state else { return }
-          confirm(l, f, action)
-        } label: {
-          if action == submitting {
-            HStack { ProgressView(); Text("Recording…") }
-          } else {
-            actionLabel(label(action), explanation(form, action))
-          }
-        }
-        .disabled(!idle)
-      }
-    }
-  }
-
-  /// One card per question; `form` nil shows them read-only without a selection.
-  @ViewBuilder private func questionCards(
-    _ c: TaskWorkController, _ work: ChoiceWork, form: ChoiceForm?, enabled: Bool
-  ) -> some View {
-    ForEach(work.questions, id: \.id) { question in
-      Section {
-        ForEach(question.options, id: \.id) { option in
-          optionRow(
-            c, question: question.id, option: option.id, selected: form?.answers[question.id] == option.id,
-            selectable: form != nil, enabled: enabled
-          ) {
-            Text(option.label)
-            Text(TaskText.tagChange(option)).font(.footnote.monospaced()).foregroundStyle(.secondary)
-            if let description = option.description, !description.isEmpty {
-              Text(description).font(.footnote).foregroundStyle(.secondary)
-            }
-          }
-        }
-        if form != nil {
-          optionRow(
-            c, question: question.id, option: nil, selected: form?.answers[question.id] == nil, selectable: true,
-            enabled: enabled
-          ) { Text(TaskText.cantTell) }
-        }
-      } header: {
-        VStack(alignment: .leading, spacing: 2) {
-          Text(question.prompt).font(.headline).foregroundStyle(.primary).textCase(nil)
-          if let description = question.description, !description.isEmpty {
-            Text(description).font(.footnote).textCase(nil)
-          }
-        }
-      }
-    }
-  }
-
-  @ViewBuilder private func optionRow<Label: View>(
-    _ c: TaskWorkController, question: String, option: String?, selected: Bool, selectable: Bool, enabled: Bool,
-    @ViewBuilder label: () -> Label
-  ) -> some View {
-    let content = HStack {
-      VStack(alignment: .leading, spacing: 2) { label() }
-      Spacer()
-      if selectable {
-        Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-          .foregroundStyle(selected ? Color.accentColor : .secondary)
-      }
-    }
-    if selectable {
-      Button { c.select(question: question, option: option) } label: { content.contentShape(Rectangle()) }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
-        .accessibilityAddTraits(selected ? [.isSelected] : [])
+      Text("This sign-in can't save answers to OpenStreetMap.")
+      bigButton("Sign in again") { signIn() }
+    } else if step < questions.count {
+      question(c, form, questions[step], index: step, of: questions.count)
     } else {
-      content
+      review(c, loaded, form)
+    }
+    problems(c, loaded, form)
+  }
+
+  @ViewBuilder private func question(
+    _ c: TaskWorkController, _ form: ChoiceForm, _ q: ChoiceQuestion, index: Int, of count: Int
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text("Question \(index + 1) of \(count)").font(.subheadline).foregroundStyle(.secondary)
+      ProgressView(value: Double(index), total: Double(count))
+    }
+    .accessibilityElement(children: .combine)
+    Text(q.prompt).font(.title2.weight(.semibold))
+    if let description = q.description, !description.isEmpty {
+      Text(description).foregroundStyle(.secondary)
+    }
+    ForEach(q.options) { option in
+      answerButton(
+        option.label, detail: option.description,
+        tags: showDetails ? TaskText.tagChange(option) : nil,
+        selected: form.answers[q.id] == option.id
+      ) {
+        c.select(question: q.id, option: option.id)
+        notSure.remove(q.id)
+        advance()
+      }
+    }
+    answerButton(Wording.notSure, detail: nil, tags: nil, selected: notSure.contains(q.id)) {
+      c.select(question: q.id, option: nil)
+      notSure.insert(q.id)
+      advance()
+    }
+    if index > 0 {
+      Button("Previous question", systemImage: "chevron.left") { step = index - 1 }
     }
   }
 
-  private func actionLabel(_ title: String, _ detail: String) -> some View {
-    VStack(alignment: .leading, spacing: 2) {
-      Text(title)
-      if !detail.isEmpty { Text(detail).font(.footnote).foregroundStyle(.secondary) }
+  private func advance() {
+    withAnimation(.easeInOut(duration: 0.2)) { step += 1 }
+  }
+
+  @ViewBuilder private func review(_ c: TaskWorkController, _ loaded: LoadedTask, _ form: ChoiceForm) -> some View {
+    Text("Check your answers").font(.title2.weight(.semibold))
+    ForEach(Array(form.work.questions.enumerated()), id: \.element.id) { index, q in
+      Button {
+        step = index
+      } label: {
+        HStack {
+          VStack(alignment: .leading, spacing: 2) {
+            Text(q.prompt).foregroundStyle(.primary)
+            let answer = q.options.first { $0.id == form.answers[q.id] }
+            Text(answer?.label ?? Wording.notSureShort)
+              .font(.headline)
+              .foregroundStyle(answer == nil ? Color.secondary : Color.accentColor)
+            if showDetails, let answer { Text(TaskText.tagChange(answer)).font(.footnote.monospaced()).foregroundStyle(.secondary) }
+          }
+          Spacer()
+          Image(systemName: "pencil").foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+      }
+      .buttonStyle(.plain)
+      .accessibilityHint("Change this answer")
     }
+    if form.answers.isEmpty {
+      Text(Wording.nothingAnswered(noun))
+      if c.offers(loaded.task, form, .skip) {
+        bigButton(Wording.skip(noun)) { c.perform(.skip) }
+      }
+    } else {
+      if form.answers.count < form.work.questions.count {
+        Text(Wording.notSureCloses(noun)).font(.footnote).foregroundStyle(.secondary)
+      }
+      // Answering is the intent: no confirmation dialog for the normal case.
+      bigButton(Wording.done, prominent: true) { c.perform(.answers(form.answers)) }
+        .disabled(!c.offers(loaded.task, form, .answers(form.answers)))
+      if showDetails {
+        Text(TaskText.osmNotice(session.osmServer)).font(.footnote).foregroundStyle(.secondary)
+      }
+    }
+  }
+
+  /// "Something's wrong here": the challenge's outcomes, Too hard to tell, and Skip.
+  @ViewBuilder private func problems(_ c: TaskWorkController, _ loaded: LoadedTask, _ form: ChoiceForm) -> some View {
+    let outcomes = form.outcomes.filter { c.offers(loaded.task, form, .outcome($0)) }
+    let canSkip = c.offers(loaded.task, form, .skip)
+    if !outcomes.isEmpty || canSkip {
+      Divider().padding(.vertical, 4)
+      Button(Wording.somethingWrong, systemImage: "exclamationmark.bubble") { showProblems = true }
+        .frame(maxWidth: .infinity, minHeight: 44)
+        .confirmationDialog(Wording.somethingWrong, isPresented: $showProblems, titleVisibility: .visible) {
+          ForEach(outcomes.filter { $0.id != ChoiceOutcome.tooHardID }) { outcome in
+            Button(outcome.label) { choose(c, loaded, form, .outcome(outcome)) }
+          }
+          if let tooHard = outcomes.first(where: { $0.id == ChoiceOutcome.tooHardID }) {
+            Button(Wording.tooHard) { choose(c, loaded, form, .outcome(tooHard)) }
+          }
+          if canSkip { Button(Wording.skip(noun)) { c.perform(.skip) } }
+          Button("Cancel", role: .cancel) {}
+        }
+    }
+  }
+
+  /// Outcomes run directly, except a delete, which always confirms.
+  private func choose(_ c: TaskWorkController, _ loaded: LoadedTask, _ form: ChoiceForm, _ action: ChoiceAction) {
+    switchNotice = nil
+    if case .outcome(let outcome) = action, outcome.deletesElement, let me = session.view.userID {
+      confirmation = Confirmation(
+        title: "Delete it from OpenStreetMap?",
+        message: TaskText.outcomeSummary(
+          outcome, element: form.work.element, taskID: loaded.task.id.value, me: me, osmServer: session.osmServer,
+          notDeletable: form.notDeletable.contains(outcome.id)),
+        confirm: "Delete", owner: c, run: { $0.perform(action) })
+    } else {
+      c.perform(action)
+    }
+  }
+
+  @ViewBuilder private func preview(_ work: ChoiceWork) -> some View {
+    Text("Sign in to answer").font(.headline)
+    Text("You'll be asked \(work.questions.count == 1 ? "one question" : "\(work.questions.count) questions") about this \(noun.one):")
+    ForEach(work.questions) { q in
+      Label(q.prompt, systemImage: "questionmark.circle")
+    }
+    if session.writesConfigured {
+      bigButton(session.view.signedIn ? "Sign in again to answer" : "Sign in with OpenStreetMap", prominent: true) { signIn() }
+      Text(session.accountHint).font(.footnote).foregroundStyle(.secondary)
+    }
+    backButton()
+  }
+
+  // MARK: After saving
+
+  @ViewBuilder private func done(_ c: TaskWorkController, _ d: TaskScreen.Done) -> some View {
+    if d.byOther {
+      Text(Wording.checkedByOtherFirst(noun)).font(.headline)
+    } else {
+      Label {
+        Text(Wording.saved(campaigns.checkedToday(d.loaded.challenge.id.value), noun))
+      } icon: {
+        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+      }
+      .font(.title3.weight(.semibold))
+    }
+    if showDetails {
+      Text(doneDetails(d)).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled)
+      if !d.byOther, let id = d.changesetID { changesetLink(id) }
+    }
+    if d.readFailed && showDetails {
+      Button("Check status again") { c.recheck() }.disabled(d.checking)
+    }
+    nextButtons()
+  }
+
+  @ViewBuilder private func checkAgain(_ c: TaskWorkController, _ pending: TaskScreen.CheckAgain) -> some View {
+    if pending.checking {
+      HStack { ProgressView(); Text("Checking…") }
+    } else {
+      Text("We couldn't confirm your answers were saved. They weren't sent again.")
+      if showDetails {
+        Text(pending.message).font(.footnote).foregroundStyle(.secondary)
+        if let id = pending.changesetID { changesetLink(id) }
+      }
+      bigButton("Check again", prominent: true) { c.recheck() }
+      if pending.canResend { bigButton("Send the same answers again") { confirmResend(pending) } }
+      backButton()
+    }
+  }
+
+  @ViewBuilder private func elementInUse(
+    _ c: TaskWorkController, _ loaded: LoadedTask, _ form: ChoiceForm, _ outcome: ChoiceOutcome
+  ) -> some View {
+    Text("OpenStreetMap wouldn't delete this \(noun.one) because something else uses it. Nothing was changed.")
+    if let plain = TaskWorkController.withoutDeletion(outcome), let me = session.view.userID {
+      bigButton("Record “\(outcome.label)” without deleting") {
+        confirmation = Confirmation(
+          title: "Record “\(outcome.label)” without deleting?",
+          message: TaskText.outcomeSummary(
+            plain, element: form.work.element, taskID: loaded.task.id.value, me: me,
+            osmServer: session.osmServer, notDeletable: true),
+          confirm: "Confirm", owner: c, run: { $0.sendWithoutDeletion() })
+      }
+    }
+    backButton()
+  }
+
+  /// Next nearest place (prominent), then back to the campaign.
+  @ViewBuilder private func nextButtons(prominent: Bool = true) -> some View {
+    if let next = nextPlace {
+      bigButton(
+        Wording.next(noun, distance: TaskLocation.distanceText(here, next.coordinate)), prominent: prominent
+      ) { open(next) }
+    } else {
+      Text("No more \(noun.many) to check nearby. Thank you!").foregroundStyle(.secondary)
+    }
+    backButton()
+  }
+
+  private func backButton() -> some View {
+    Button("Back to the map") { dismiss() }.frame(maxWidth: .infinity, minHeight: 44)
+  }
+
+  // MARK: Controls
+
+  private func bigButton(_ title: String, prominent: Bool = false, action: @escaping () -> Void) -> some View {
+    Group {
+      if prominent {
+        Button(action: action) { bigLabel(title) }.buttonStyle(.borderedProminent)
+      } else {
+        Button(action: action) { bigLabel(title) }.buttonStyle(.bordered)
+      }
+    }
+  }
+
+  private func bigLabel(_ title: String) -> some View {
+    Text(title).font(.headline).multilineTextAlignment(.center).frame(maxWidth: .infinity, minHeight: 50)
+  }
+
+  /// A full-width answer: label, optional help, optional tag change (details only).
+  private func answerButton(
+    _ title: String, detail: String?, tags: String?, selected: Bool, action: @escaping () -> Void
+  ) -> some View {
+    Button(action: action) {
+      HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 4) {
+          Text(title).font(.title3.weight(.semibold)).foregroundStyle(.primary)
+          if let detail, !detail.isEmpty { Text(detail).font(.subheadline).foregroundStyle(.secondary) }
+          if let tags { Text(tags).font(.footnote.monospaced()).foregroundStyle(.secondary) }
+        }
+        Spacer(minLength: 0)
+        if selected { Image(systemName: "checkmark.circle.fill").font(.title2).foregroundStyle(Color.accentColor) }
+      }
+      .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+      .padding(.horizontal, 16)
+      .padding(.vertical, 8)
+      .background(
+        RoundedRectangle(cornerRadius: 14)
+          .fill(selected ? Color.accentColor.opacity(0.15) : Color(.secondarySystemBackground))
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: 14).stroke(selected ? Color.accentColor : .clear, lineWidth: 2)
+      )
+      .contentShape(RoundedRectangle(cornerRadius: 14))
+    }
+    .buttonStyle(.plain)
+    .accessibilityAddTraits(selected ? [.isSelected] : [])
   }
 
   @ViewBuilder private func changesetLink(_ id: Int64) -> some View {
     if let url = TaskText.changesetURL(session.osmServer, id) {
       let where_ = session.osmServer == TaskText.devOSM ? " on development OSM" : ""
-      Link(String("View changeset \(id)\(where_)"), destination: url)
+      Link(String("View changeset \(id)\(where_)"), destination: url).font(.footnote)
     }
   }
 
-  // MARK: Confirmations and wording
-
-  private func confirm(_ loaded: LoadedTask, _ form: ChoiceForm, _ action: ChoiceAction) {
-    guard let me = session.view.userID, let owner = controller else { return }
-    switchNotice = nil
-    let element = form.work.element
-    let id = loaded.task.id.value
-    let title: String, message: String
-    switch action {
-    case .answers:
-      (title, message) = ("Upload these answers?", TaskText.answersSummary(form, taskID: id, me: me, osmServer: session.osmServer))
-    case .outcome(let outcome):
-      (title, message) = (
-        "“\(outcome.label)”?",
-        TaskText.outcomeSummary(
-          outcome, element: element, taskID: id, me: me, osmServer: session.osmServer,
-          notDeletable: form.notDeletable.contains(outcome.id))
-      )
-    case .skip:
-      (title, message) = ("Skip this task?", TaskText.skipSummary(taskID: id, me: me))
-    }
-    confirmation = Confirmation(
-      title: title, message: message, confirm: action.editsOsm ? "Upload" : "Confirm", owner: owner,
-      run: { $0.perform(action) })
-  }
+  // MARK: Confirmations and details
 
   private func confirmResend(_ state: TaskScreen.CheckAgain) {
     guard let me = session.view.userID, let owner = controller else { return }
@@ -464,51 +559,21 @@ struct TaskView: View {
     case .skip: return
     }
     confirmation = Confirmation(
-      title: "Send the same submission again?",
-      message: "MapRoulette resumes an unfinished submission and never uploads the same edit twice.\n\n\(summary)",
+      title: "Send the same answers again?",
+      message: "This finishes the earlier attempt. The same edit is never saved twice.\n\n\(summary)",
       confirm: "Send again", owner: owner, run: { $0.resendSame() })
   }
 
-  private func doneText(_ d: TaskScreen.Done) -> String {
+  private func doneDetails(_ d: TaskScreen.Done) -> String {
     var lines: [String] = []
-    if d.byOther {
-      lines.append("Someone else already completed this task. Your “\(label(d.action))” was not recorded.")
-    } else {
-      switch d.action {
-      case .answers where d.changesetID == nil:
-        lines.append("Done. MapRoulette reported no OpenStreetMap changeset for your answers.")
-      case .answers: lines.append("Done. Your answers were uploaded to OpenStreetMap.")
-      case .outcome(let outcome) where outcome.deletesElement:
-        let element = ChoiceWork(d.loaded.task.work()).map { TaskText.element($0.element) } ?? "The element"
-        lines.append("Done. \(element) was deleted from OpenStreetMap.")
-      default: lines.append("Done. Recorded “\(label(d.action))”.")
-      }
-    }
     if d.readFailed {
       lines.append("The task could not be re-read to confirm its status.")
     } else {
-      lines.append("Current status: \(TaskText.status(d.loaded.task.status?.code)).")
+      lines.append("Status: \(TaskText.status(d.loaded.task.status?.code)).")
       lines.append(TaskText.completedBy(d.loaded.task.completedBy, me: d.me))
       if let review = TaskText.reviewStatus(d.loaded.task.reviewStatus) { lines.append("\(review).") }
     }
     if let id = d.changesetID { lines.append("OpenStreetMap changeset \(id).") }
     return lines.joined(separator: "\n")
-  }
-
-  private func label(_ action: ChoiceAction) -> String {
-    switch action {
-    case .answers: "Submit answers"
-    case .outcome(let outcome): outcome.label
-    case .skip: TaskText.skip
-    }
-  }
-
-  private func explanation(_ form: ChoiceForm, _ action: ChoiceAction) -> String {
-    switch action {
-    case .answers: ""
-    case .outcome(let outcome):
-      TaskText.outcomeExplanation(outcome, element: form.work.element, notDeletable: form.notDeletable.contains(outcome.id))
-    case .skip: TaskText.skipExplanation
-    }
   }
 }
