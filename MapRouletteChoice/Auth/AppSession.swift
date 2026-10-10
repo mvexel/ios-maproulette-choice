@@ -150,7 +150,8 @@ struct SessionClient: Sendable {
     view.generation = await auth.generation
     view.userID = account?.userID
     scopes = account?.scopes ?? []
-    view.guest = account == nil && (await auth.guest) != nil
+    let guest = await auth.guest
+    view.guest = account == nil && guest != nil
   }
 
   nonisolated static let signInDidNotFinish = "Sign-in didn't finish. Please try again."
