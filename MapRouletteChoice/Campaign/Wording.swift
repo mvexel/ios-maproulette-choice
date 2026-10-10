@@ -79,7 +79,9 @@ enum Wording {
     "Someone else is checking this \(noun.one) right now. Try another one."
   }
   static func notSureCloses(_ noun: Noun) -> String {
-    "“\(notSureShort)” is fine. Those questions are left for a later visit."
+    // Partial answers close the place (SDK decision D7); it returns only if the organizer
+    // makes new tasks, so don't promise a later visit.
+    "That's fine. The organizer can send someone back to \(noun.many) with open questions."
   }
   static func nothingAnswered(_ noun: Noun) -> String {
     "You weren't sure about any question. You can skip this \(noun.one) instead."
