@@ -24,6 +24,9 @@ struct TaskMapView: UIViewRepresentable {
     // Turning this on makes MapLibre ask for location itself, so wait until the app has asked.
     map.showsUserLocation = Self.locationAllowed
     map.compassViewPosition = .topRight
+    if interactive {
+      map.accessibilityHint = "Each pin is a place. The List view has the same places, nearest first."
+    }
     map.isUserInteractionEnabled = interactive
     // Salt Lake City until tasks load.
     map.setCenter(CLLocationCoordinate2D(latitude: 40.7608, longitude: -111.8910), zoomLevel: 11, animated: false)

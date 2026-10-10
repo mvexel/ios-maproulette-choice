@@ -164,16 +164,21 @@ struct ChallengeTasksView: View {
 
   // MARK: Summary
 
+  @Environment(\.dynamicTypeSize) private var typeSize
+
   @ViewBuilder private var summary: some View {
     VStack(spacing: 8) {
       if !shown.isEmpty {
         let done = doneIDs.count
         let today = campaigns.checkedToday(challengeID.value)
-        HStack {
+        // Side by side until accessibility sizes, then stacked so neither line truncates.
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading)) : AnyLayout(HStackLayout())
+        layout {
           Text(Wording.progress(done: done, total: total, noun))
-          Spacer()
+          if !typeSize.isAccessibilitySize { Spacer() }
           if today > 0 { Text("You've checked \(today) today") }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .font(.subheadline)
         .foregroundStyle(.secondary)
         ProgressView(value: Double(done), total: Double(max(total, 1)))
@@ -189,7 +194,7 @@ struct ChallengeTasksView: View {
           Text(Wording.savedExpired).font(.subheadline).foregroundStyle(.secondary)
         } else if saved.pendingCount > 0 {
           savedBanner(saved)
-          Button(Wording.doneForToday) { sheet = .daySummary }.font(.subheadline)
+          Button(Wording.doneForToday) { sheet = .daySummary }.font(.subheadline).frame(minHeight: 44)
         }
       }
       if let nearest = open.first {
@@ -215,17 +220,21 @@ struct ChallengeTasksView: View {
   /// last 3 days before they are removed (§1.6).
   private func savedBanner(_ saved: GuestStatus) -> some View {
     let closing = saved.expiresAt.timeIntervalSinceNow < 3 * 86400
-    return HStack(alignment: .firstTextBaseline) {
+    let stacked = typeSize.isAccessibilitySize
+    let layout = stacked ? AnyLayout(VStackLayout(alignment: .leading)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline))
+    return layout {
       Text(
         closing
           ? Wording.savedClosing(saved.pendingCount, noun, on: saved.expiresAt)
           : Wording.savedNotOnMap(saved.pendingCount, noun, until: saved.expiresAt)
       )
       .font(.subheadline.weight(.semibold))
-      Spacer()
+      if !stacked { Spacer() }
       Button(saved.email == .none ? "Send me the link" : "Resend the link") { sheet = .putOnMap }
         .font(.subheadline)
+        .frame(minHeight: 44)
     }
+    .frame(maxWidth: .infinity, alignment: .leading)
     .padding(10)
     .background(
       closing ? AnyShapeStyle(Color.orange.opacity(0.2)) : AnyShapeStyle(Color(.secondarySystemBackground)),
@@ -251,7 +260,7 @@ struct ChallengeTasksView: View {
       }
       if !checked.isEmpty {
         Section("Already checked") {
-          ForEach(checked) { task in row(task, done: true) }
+          ForEach(checked) { task in row(task, done: true, pending: pendingIDs.contains(task.id)) }
         }
       }
       if showDetails && (hidden > 0 || truncated) {
@@ -264,7 +273,7 @@ struct ChallengeTasksView: View {
     .refreshable { load(); await request?.value }
   }
 
-  private func row(_ task: LocatedTask, done: Bool) -> some View {
+  private func row(_ task: LocatedTask, done: Bool, pending: Bool = false) -> some View {
     HStack {
       if done {
         Image(systemName: "checkmark.circle.fill").foregroundStyle(.secondary)
@@ -280,10 +289,12 @@ struct ChallengeTasksView: View {
       if let text = TaskLocation.rowText(origin, task.coordinate) {
         // Color.secondary, not .secondary: inside a button label the latter takes the accent tint.
         Text(text).font(.subheadline.monospacedDigit()).foregroundStyle(Color.secondary)
+          // "130 m northeast", without VoiceOver reading the separator.
+          .accessibilityLabel(text.replacingOccurrences(of: " · ", with: " "))
       }
     }
     .accessibilityElement(children: .combine)
-    .accessibilityValue(done ? "Already checked" : "")
+    .accessibilityValue(pending ? "Saved, not on the map yet" : done ? "Already checked" : "")
   }
 
   private var detailsFooter: String {

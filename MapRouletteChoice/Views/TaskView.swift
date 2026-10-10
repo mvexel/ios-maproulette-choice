@@ -13,6 +13,9 @@ struct TaskView: View {
   @Environment(CampaignStore.self) private var campaigns
   @Environment(\.webAuthenticationSession) private var webAuth
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  /// VoiceOver moves to each new question's prompt.
+  @AccessibilityFocusState private var promptFocused: Bool
   @AppStorage(SettingsKey.showOSMDetails) private var showDetails = false
   @AppStorage(SettingsKey.putOnMapCardShown) private var putOnMapCardShown = false
   @State private var showPutOnMap = false
@@ -333,6 +336,8 @@ struct TaskView: View {
     }
     .accessibilityElement(children: .combine)
     Text(q.prompt).font(.title2.weight(.semibold))
+      .accessibilityAddTraits(.isHeader)
+      .accessibilityFocused($promptFocused)
     if let description = q.description, !description.isEmpty {
       Text(description).font(.body).foregroundStyle(.primary)
     }
@@ -354,11 +359,17 @@ struct TaskView: View {
     }
     if index > 0 {
       Button("Previous question", systemImage: "chevron.left") { step = index - 1 }
+        .frame(minHeight: 44)
     }
   }
 
   private func advance() {
-    withAnimation(.easeInOut(duration: 0.2)) { step += 1 }
+    if reduceMotion {
+      step += 1
+    } else {
+      withAnimation(.easeInOut(duration: 0.2)) { step += 1 }
+    }
+    promptFocused = true
   }
 
   @ViewBuilder private func review(_ c: TaskWorkController, _ loaded: LoadedTask, _ form: ChoiceForm) -> some View {
