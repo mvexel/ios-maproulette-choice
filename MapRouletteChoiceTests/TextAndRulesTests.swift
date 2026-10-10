@@ -178,6 +178,9 @@ import Testing
     let stops = Noun.from(match: ["highway": "bus_stop"])
     #expect(Wording.savedClosing(14, stops, on: Date()).hasPrefix("14 saved stops will be removed on "))
     #expect(Wording.savedClosing(1, stops, on: Date()).hasSuffix(" unless you finish on a computer."))
+  }
+}
+
 @Suite struct GuestLinkTextTests {
   @Test func linkSentCopy() {
     #expect(Wording.linkSent(to: "a@b.org", until: nil) == "Sent to a@b.org. Check your email later.")
