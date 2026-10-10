@@ -141,7 +141,8 @@ struct SessionClient: Sendable {
     await sync(auth)
     switch result {
     case .signedIn: publish(signedInMessage(), detail: signedInDetail())
-    case .guest, .signedOut: publish(signedOutMessage())
+    case .guest: if !(await upgradeIfClaimed(auth)) { publish(signedOutMessage()) }
+    case .signedOut: publish(signedOutMessage())
     case .refreshInterrupted: publish("Please sign in again.", detail: "A previous refresh was interrupted.")
     case .unreadable: publish("Please sign in again.", detail: "Saved sign-in could not be restored.")
     }
@@ -200,6 +201,29 @@ struct SessionClient: Sendable {
 
   /// The guest's saved answers and deadline, as last read; nil when not a guest or not read yet.
   private(set) var guestStatus: GuestStatus?
+
+  /// A guest whose answers were claimed on the web becomes that account (UX §1.5). Checked on
+  /// launch. Once claimed the guest token is refused, so a failed status read still tries.
+  private func upgradeIfClaimed(_ auth: MobileSignIn) async -> Bool {
+    let status = try? await newClient().client.getGuestStatus()
+    guard status == nil || status?.state == .claimed else {
+      guestStatus = status
+      return false
+    }
+    guard case .signedIn? = try? await auth.upgradeGuest() else { return false }
+    guestStatus = nil
+    await sync(auth)
+    publish(Self.claimedMessage(status), detail: signedInDetail())
+    return true
+  }
+
+  /// "You're signed in as rosa_slc. Your 12 answers are on the map. …"
+  nonisolated static func claimedMessage(_ status: GuestStatus?) -> String {
+    let who = status?.claimedAs.map { "You're signed in as \($0.displayName)." } ?? "You're signed in with OpenStreetMap."
+    let count = status?.publishedCount ?? 0
+    let onMap = count == 0 ? "" : count == 1 ? " Your answer is on the map." : " Your \(count) answers are on the map."
+    return who + onMap + " New answers go straight on the map from now on."
+  }
 
   /// Re-reads the guest's status (saved count, email state, deadline). Failures keep the last one.
   func refreshGuestStatus() async {

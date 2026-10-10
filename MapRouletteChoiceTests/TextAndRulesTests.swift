@@ -162,3 +162,15 @@ import Testing
   }
 
 }
+
+@Suite struct GuestUpgradeTextTests {
+  @Test func claimedMessageNamesAccountAndCount() {
+    let status = GuestStatus(
+      guestID: "g", state: .claimed, email: .verified, pendingCount: 0, publishedCount: 12,
+      expiresAt: Date(), claimedAs: ClaimedAccount(displayName: "rosa_slc", osmID: 1))
+    #expect(
+      AppSession.claimedMessage(status)
+        == "You're signed in as rosa_slc. Your 12 answers are on the map. New answers go straight on the map from now on.")
+    #expect(AppSession.claimedMessage(nil).hasPrefix("You're signed in with OpenStreetMap. New answers"))
+  }
+}
