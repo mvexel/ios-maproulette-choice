@@ -33,10 +33,14 @@ struct SessionClient: Sendable {
   /// Backends with a known OSM server. Staging edits development OSM, never the real map.
   nonisolated static let osmServers = [
     "https://mr-api.osm.lol": TaskText.devOSM, "https://mr-dev.osm.lol": TaskText.devOSM,
+    "https://mr-stage.osm.lol": TaskText.liveOSM, "https://mr-prod.osm.lol": TaskText.liveOSM,
   ]
   /// Deployments that may receive task writes: the dev backend under its current and planned
   /// names, both editing development OSM. Never maproulette.org.
   nonisolated static let writeOrigins: Set<String> = ["https://mr-api.osm.lol", "https://mr-dev.osm.lol"]
+  /// Stage and prod edit the real OpenStreetMap; they take writes only in builds that set
+  /// MAPROULETTE_ALLOW_LIVE_WRITES (off by default). Never maproulette.org.
+  nonisolated static let liveWriteOrigins: Set<String> = ["https://mr-stage.osm.lol", "https://mr-prod.osm.lol"]
 
   let endpoints: AuthEndpoints
   /// The MapLibre style for task maps.
@@ -65,7 +69,9 @@ struct SessionClient: Sendable {
   var writesConfigured: Bool {
     demo != nil
       || (signInAvailable
-        && Self.writesAllowed(origin: endpoints.origin, loopbackAllowed: endpoints.loopbackAllowed))
+        && Self.writesAllowed(
+          origin: endpoints.origin, loopbackAllowed: endpoints.loopbackAllowed,
+          liveAllowed: endpoints.liveWritesAllowed))
   }
   /// The OSM server this build's backend edits, for confirmations and changeset links.
   var osmServer: String? { demo != nil ? TaskText.devOSM : Self.osmServers[endpoints.origin] }
@@ -79,7 +85,8 @@ struct SessionClient: Sendable {
   init(config: AppConfig) {
     guard
       let endpoints = try? AuthEndpoints(
-        baseURL: config.baseURL, clientID: config.clientID, allowLoopback: config.allowLoopback)
+        baseURL: config.baseURL, clientID: config.clientID, allowLoopback: config.allowLoopback,
+        allowLiveWrites: config.allowLiveWrites)
     else { fatalError("Invalid MAPROULETTE_BASE_URL or MAPROULETTE_OAUTH_CLIENT_ID build setting") }
     mapStyleURL = config.mapStyleURL
     self.endpoints = endpoints
@@ -98,7 +105,7 @@ struct SessionClient: Sendable {
       store = KeychainStore(binding: "demo")
       demo = transport
       view = SessionView(
-        signedIn: true, userID: 7, message: "Signed in as MapRoulette user 7 · demo backend, no network",
+        signedIn: true, userID: 7, message: "Demo campaign. Nothing is saved.",
         canWriteTasks: true, canEditOsm: true)
       deletionSetting = false
     }
@@ -437,12 +444,13 @@ struct SessionClient: Sendable {
     writesConfigured && !(granted.contains(writeScope) && granted.contains(tagfixScope))
   }
 
-  /// Exact origin allowlist; loopback only in a debug build that enabled it for local testing.
-  nonisolated static func writesAllowed(origin: String, loopbackAllowed: Bool) -> Bool {
+  /// Exact origin allowlist; stage and prod only when the build enables live writes; loopback
+  /// only in a debug build that enabled it for local testing.
+  nonisolated static func writesAllowed(origin: String, loopbackAllowed: Bool, liveAllowed: Bool = false) -> Bool {
     guard let c = URLComponents(string: origin), c.user == nil, c.password == nil, c.path.isEmpty,
       c.query == nil, c.fragment == nil
     else { return false }
-    if writeOrigins.contains(origin) { return true }
+    if writeOrigins.contains(origin) || (liveAllowed && liveWriteOrigins.contains(origin)) { return true }
     return loopbackAllowed && c.scheme == "http" && (c.host == "127.0.0.1" || c.host == "localhost")
   }
 
