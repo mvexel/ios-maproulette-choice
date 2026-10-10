@@ -1,11 +1,11 @@
-# MapRoulette Choice (iOS)
+# Street Tally (iOS)
 
-A small SwiftUI app for answering MapRoulette **multiple-choice challenges** on the
+Street Tally (repo and bundle keep the MapRoulette Choice name) is a small SwiftUI app for answering MapRoulette **multiple-choice challenges** on the
 [mobile-enabled MapRoulette backend](https://github.com/mvexel/maproulette-mobile-backend), built
 on the [MapRoulette mobile SDK](https://github.com/mvexel/maproulette-mobile-sdk).
 
 - **Pick a campaign**: lists the backend's choice challenges (`cooperativeType` 3) published for
-  mobile (tag `mobile-survey-v1`; all choice challenges while none carries the tag), or
+  mobile (tag `mobile-survey-v1`, added by the admin's Publish), or
   open one directly with `mrchoice://challenge/<id>` (Share campaign shows it as a QR code). The
   app reopens the last campaign on launch; a welcome card explains each campaign once.
 - **See its places** on a [MapLibre](https://maplibre.org) map with

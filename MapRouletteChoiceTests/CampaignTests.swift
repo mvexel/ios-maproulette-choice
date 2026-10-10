@@ -96,12 +96,12 @@ import Testing
       cooperativeType: type)
   }
 
-  @Test func prefersTaggedChoiceChallenges() throws {
+  @Test func onlyTaggedChoiceChallenges() throws {
     let untagged = try challenge(1, type: 3)
     let tagged = try challenge(2, type: 3, tags: ["mobile-survey-v1"])
     let other = try challenge(3, type: 1, tags: ["mobile-survey-v1"])
     let archived = try challenge(4, type: 3, archived: true)
-    #expect(ChallengePickerView.published([untagged, other, archived]).map(\.id.value) == [1])
+    #expect(ChallengePickerView.published([untagged, other, archived]).isEmpty)
     #expect(ChallengePickerView.published([untagged, tagged, other]).map(\.id.value) == [2])
   }
 }

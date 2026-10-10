@@ -25,12 +25,11 @@ struct ChallengePickerView: View {
   /// The tag the admin's "Publish" adds (`maproulette-mobile-admin` SurveyBuilder).
   static let publishedTag = "mobile-survey-v1"
 
-  /// Choice challenges that are published for mobile. Until any challenge carries the publish
-  /// tag (older ones predate it), every unarchived choice challenge counts as published.
+  /// Unarchived choice challenges published for mobile (tagged `mobile-survey-v1`).
   nonisolated static func published(_ all: [Challenge]) -> [Challenge] {
-    let choice = all.filter { $0.cooperativeType == choiceType && $0.archived != true }
-    let tagged = choice.filter { $0.tags?.contains(publishedTag) == true }
-    return tagged.isEmpty ? choice : tagged
+    all.filter {
+      $0.cooperativeType == choiceType && $0.archived != true && $0.tags?.contains(publishedTag) == true
+    }
   }
 
   var body: some View {
@@ -91,7 +90,7 @@ struct ChallengePickerView: View {
         }
       }
     }
-    .navigationTitle("Mapping campaigns")
+    .navigationTitle("Street Tally")
     .searchable(text: $search, prompt: "Find a campaign")
     .refreshable { load(); await request?.value }
     .onAppear {
