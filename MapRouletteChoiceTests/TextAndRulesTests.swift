@@ -235,3 +235,29 @@ import Testing
     #expect([2, 31, 33, 97, 104, 156].map(Wording.roundedMeters) == [0, 30, 35, 95, 100, 160])
   }
 }
+
+@Suite struct PlaceSelectionTextTests {
+  @Test func noOriginOffersManualChoiceWithoutInventingDistance() {
+    let stops = Noun(one: "stop", many: "stops")
+    #expect(Wording.nearest(stops, distance: nil, hasOrigin: false) == "Choose a stop")
+    #expect(Wording.next(stops, distance: nil, hasOrigin: false) == "Choose another stop")
+    // A leftover distance cannot restore a nearest claim without a valid origin.
+    #expect(Wording.nearest(stops, distance: "100 m", hasOrigin: false) == "Choose a stop")
+    #expect(Wording.next(.place, distance: "100 m north", hasOrigin: false) == "Choose another place")
+  }
+
+  @Test func realOriginKeepsNearestCopyEvenWhenPlaceHasNoDistance() {
+    #expect(Wording.nearest(.place, distance: "100 m", hasOrigin: true) == "Nearest place · 100 m")
+    #expect(Wording.nearest(.place, distance: nil, hasOrigin: true) == "Nearest place")
+    #expect(Wording.next(.place, distance: "100 m north", hasOrigin: true) == "Next nearest place · 100 m north")
+    #expect(Wording.next(.place, distance: nil, hasOrigin: true) == "Next nearest place")
+  }
+
+  @Test func locationNotesExplainManualMapAndListSelection() {
+    let benches = Noun(one: "bench", many: "benches")
+    #expect(Wording.locationUnavailable(benches, isOff: true)
+      == "Location is off. Choose a bench on the map or in the list.")
+    #expect(Wording.locationUnavailable(.place, isOff: false)
+      == "Your location isn't available yet. Choose a place on the map or in the list.")
+  }
+}

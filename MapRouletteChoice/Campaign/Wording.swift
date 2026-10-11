@@ -155,7 +155,8 @@ enum Wording {
     date.formatted(.dateTime.month(.abbreviated).day()).replacingOccurrences(of: " ", with: "\u{00A0}")
   }
   static let enterEmailAgain = "Enter your email again and we'll send a new link."
-  static let signInPutsOnMap = "Sign in now and your saved answers go on the map right away."
+  static let signInPutsOnMap = "Use the finish link on a computer to connect your saved answers to your OpenStreetMap account."
+  static let existingAccountFinishLink = "Send yourself the link above, then open it on a computer and use your existing OpenStreetMap account. Signing in on this phone doesn't put these saved answers on the map."
   /// Only a bad address is the participant's to fix (shown in red); the rest are calm.
   static func isInputError(_ error: any Error) -> Bool { (error as? MapRouletteError)?.kind == .validation }
   /// The backend sends the link only once the guest has a saved answer (409 `nothing_saved`).
@@ -206,11 +207,17 @@ enum Wording {
   static func checkedByOtherFirst(_ noun: Noun) -> String {
     "Someone else checked this \(noun.one) first, so your answers weren't saved."
   }
-  static func next(_ noun: Noun, distance: String?) -> String {
-    "Next nearest \(noun.one)" + (distance.map { " · \($0)" } ?? "")
+  static func next(_ noun: Noun, distance: String?, hasOrigin: Bool) -> String {
+    guard hasOrigin else { return "Choose another \(noun.one)" }
+    return "Next nearest \(noun.one)" + (distance.map { " · \($0)" } ?? "")
   }
-  static func nearest(_ noun: Noun, distance: String?) -> String {
-    "Nearest \(noun.one)" + (distance.map { " · \($0)" } ?? "")
+  static func nearest(_ noun: Noun, distance: String?, hasOrigin: Bool) -> String {
+    guard hasOrigin else { return "Choose a \(noun.one)" }
+    return "Nearest \(noun.one)" + (distance.map { " · \($0)" } ?? "")
+  }
+  static func locationUnavailable(_ noun: Noun, isOff: Bool) -> String {
+    (isOff ? "Location is off." : "Your location isn't available yet.")
+      + " Choose a \(noun.one) on the map or in the list."
   }
   static func progress(done: Int, total: Int, _ noun: Noun) -> String {
     "The tally: \(done) of \(noun.count(total)) checked"

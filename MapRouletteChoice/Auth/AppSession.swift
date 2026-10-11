@@ -65,11 +65,25 @@ struct SessionClient: Sendable {
   /// The signed-in grant's scopes, mirrored from `auth` for messages and the write guard.
   @ObservationIgnored private var scopes: Set<String> = []
   @ObservationIgnored private let log = Logger(subsystem: "lol.osm.maproulette.choice", category: "auth")
+  @ObservationIgnored private var transport: any Transport = URLSessionTransport()
   @ObservationIgnored private let demo: (any Transport)?
   /// This build lets participants answer before signing in (`MAPROULETTE_GUESTS`).
   let guestsEnabled: Bool
   /// The backend refused guests (e.g. turned off there); this launch falls back to signing in.
   @ObservationIgnored private var guestsRefused = false
+  @ObservationIgnored private var restoration: Task<Void, Never>?
+  @ObservationIgnored private var registration: Task<Bool, Never>?
+  @ObservationIgnored private var guestAccess: (any CredentialStore)?
+  @ObservationIgnored private(set) var guestSaves = GuestSaveStore(storage: InMemoryCredentialStore())
+  private(set) var guestBinding: String?
+  private(set) var guestRecoveryUnavailable = false
+  nonisolated static let guestAccessUnavailable = "We couldn't restore this phone's saved-answer access. If you received a finish link, open it on a computer. Don't assume your earlier answers were removed."
+
+  var uncertainGuestSave: GuestSaveIntent? {
+    guard view.guest, let guestBinding, let intent = try? guestSaves.read(), intent.binding == guestBinding else { return nil }
+    return intent
+  }
+
   private static let deletionKey = "allowElementDeletion"
   private static let keychainService = "lol.osm.maproulette.choice.auth"
 
@@ -114,7 +128,10 @@ struct SessionClient: Sendable {
       auth = MobileSignIn(
         configuration: configuration,
         store: KeychainCredentialStore(service: Self.keychainService, binding: configuration.storageBinding))
-      Task { await restore() }
+      guestSaves = GuestSaveStore(storage: KeychainCredentialStore(
+        service: "lol.osm.maproulette.choice.guest-save", binding: configuration.storageBinding))
+      guestAccess = KeychainCredentialStore(service: "lol.osm.maproulette.choice.guest-access", binding: configuration.storageBinding)
+      restoration = Task { await restore() }
     } else {
       auth = nil
       publish(signedOutMessage())
@@ -122,6 +139,25 @@ struct SessionClient: Sendable {
   }
 
   #if DEBUG
+    /// In-process session tests exercise the real SDK without Keychain or network.
+    init(testConfig config: AppConfig, credentials: any CredentialStore,
+      guestAccess: any CredentialStore, guestSaves: GuestSaveStore, transport: any Transport) throws {
+      endpoints = try AuthEndpoints(baseURL: config.baseURL, clientID: config.clientID,
+        allowLoopback: config.allowLoopback, allowLiveWrites: config.allowLiveWrites)
+      mapStyleURL = config.mapStyleURL
+      demo = nil
+      guestsEnabled = config.guests
+      view = SessionView(message: "")
+      deletionSetting = false
+      self.transport = transport
+      self.guestAccess = guestAccess
+      self.guestSaves = guestSaves
+      let configuration = try MobileSignInConfiguration(environment: Self.environment(endpoints, writes: false),
+        clientID: endpoints.clientID, redirectURI: URL(string: AuthEndpoints.redirect)!)
+      auth = MobileSignIn(configuration: configuration, store: credentials, transport: transport)
+      restoration = Task { await restore() }
+    }
+
     /// Screenshot/demo mode: an in-process mock backend, signed in as user 7 (or a guest). No network.
     init(demo transport: any Transport, guest: Bool = false) {
       endpoints = try! AuthEndpoints(baseURL: "https://demo.invalid", clientID: "", allowLoopback: false)
@@ -137,6 +173,7 @@ struct SessionClient: Sendable {
           message: "Demo campaign. Nothing is saved.",
           canWriteTasks: true, canEditOsm: true)
       deletionSetting = false
+      if guest { guestBinding = "demo-guest" }
     }
   #endif
 
@@ -155,7 +192,10 @@ struct SessionClient: Sendable {
     case .guest: if !(await upgradeIfClaimed(auth)) { publish(signedOutMessage()) }
     case .signedOut: publish(signedOutMessage())
     case .refreshInterrupted: publish("Please sign in again.", detail: "A previous refresh was interrupted.")
-    case .unreadable: publish("Please sign in again.", detail: "Saved sign-in could not be restored.")
+    case .unreadable:
+      try? guestAccess?.write(Data("unreadable".utf8))
+      guestRecoveryUnavailable = true
+      publish(Self.guestAccessUnavailable, detail: "Saved sign-in could not be restored.")
     }
   }
 
@@ -167,12 +207,19 @@ struct SessionClient: Sendable {
     view.displayName = account?.displayName
     scopes = account?.scopes ?? []
     let guest = await auth.guest
-    view.guest = account == nil && guest != nil
+    guestBinding = guest.map { endpoints.origin + "\n" + endpoints.clientID + "\n" + $0.guestID }
+    do {
+      if let guest { try guestAccess?.write(Data(guest.guestID.utf8)) }
+      let establishedGuest = try guestAccess?.read() != nil
+      guestRecoveryUnavailable = account == nil && guest == nil && establishedGuest
+    } catch { guestRecoveryUnavailable = true }
+    view.guest = account == nil && guest != nil && !guestRecoveryUnavailable
   }
 
   nonisolated static let signInDidNotFinish = "Sign-in didn't finish. Please try again."
 
   private func signedOutMessage() -> String {
+    if guestRecoveryUnavailable { return Self.guestAccessUnavailable }
     if canAnswerAsGuest { return Self.noAccountNeeded() }
     return endpoints.enabled
       ? "You can look around without signing in. Sign in with OpenStreetMap to save answers."
@@ -209,7 +256,7 @@ struct SessionClient: Sendable {
 
   /// Signed out in a build that lets participants answer first, unless the backend refused guests.
   var canAnswerAsGuest: Bool {
-    guestsEnabled && writesConfigured && !view.signedIn && !guestsRefused
+    guestsEnabled && writesConfigured && !view.signedIn && !guestsRefused && !guestRecoveryUnavailable
   }
 
   /// The guest's saved answers and deadline, as last read; nil when not a guest or not read yet.
@@ -267,6 +314,8 @@ struct SessionClient: Sendable {
     guard view.guest, let auth else { return }
     try await newClient().client.deleteGuest()
     try? await auth.forgetGuest()
+    if let intent = try guestSaves.read() { try guestSaves.clear(intent) }
+    try guestAccess?.clear()
     guestStatus = nil
     lastLinkEmail = nil
     await sync(auth)
@@ -276,6 +325,16 @@ struct SessionClient: Sendable {
   /// Makes this phone a guest before its first answer (registering once; later launches restore it).
   /// False when signed in, when this build or backend has no guests, or when registering failed.
   func ensureGuest() async -> Bool {
+    await restoration?.value
+    if let registration { return await registration.value }
+    let job = Task { await registerGuest() }
+    registration = job
+    let result = await job.value
+    registration = nil
+    return result
+  }
+
+  private func registerGuest() async -> Bool {
     guard canAnswerAsGuest else { return false }
     if view.guest { return true }
     guard let auth else { return false }
@@ -357,7 +416,7 @@ struct SessionClient: Sendable {
   fileprivate func refreshFailed(_ expected: Int) async {
     guard let auth, view.generation == expected, await auth.account == nil else { return }
     await sync(auth)
-    publish("Please sign in again.", detail: "Refresh could not complete safely.")
+    publish(guestRecoveryUnavailable ? Self.guestAccessUnavailable : "Please sign in again.", detail: "Refresh could not complete safely.")
   }
 
   // MARK: Clients
@@ -377,7 +436,7 @@ struct SessionClient: Sendable {
             accessToken: { "demo" }))
       }
     #endif
-    let transport = GuardedTransport(session: self, expected: expected, inner: URLSessionTransport())
+    let transport = GuardedTransport(session: self, expected: expected, inner: transport)
     // The SDK sends writes only where this app's allowlist does (`writesConfigured`).
     let environment = Self.environment(endpoints, writes: writesConfigured)
     return SessionClient(
@@ -470,7 +529,7 @@ struct SessionClient: Sendable {
 private struct GuardedTransport: Transport {
   let session: AppSession
   let expected: Int
-  let inner: URLSessionTransport
+  let inner: any Transport
 
   func execute(_ request: HTTPRequest) async throws -> HTTPResponse {
     try await session.admit(request, expected)

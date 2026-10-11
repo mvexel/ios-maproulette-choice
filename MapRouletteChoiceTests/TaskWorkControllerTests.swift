@@ -16,7 +16,9 @@ import Testing
   }
 
   func controller(_ ops: FakeOps, writer: Writer? = Writer(me: me, canEditOsm: true)) async -> TaskWorkController {
-    let c = TaskWorkController(ops: ops, writer: writer)
+    var bound = writer
+    if bound?.guest == true { bound?.guestBinding = "test-guest" }
+    let c = TaskWorkController(ops: ops, writer: bound, guestSaves: GuestSaveStore(storage: InMemoryCredentialStore()))
     c.load(taskID)
     await c.idle()
     return c
@@ -485,9 +487,8 @@ import Testing
 
   @Test func guestFailuresKeepTheAnswers() async throws {
     let cases: [(MapRouletteError, String)] = [
-      (MapRouletteError(.network, problem: .outcomeUnknown), "connect"),
-      (MapRouletteError(.rateLimit, status: 429, reason: "pending_limit"), "Finish on a computer"),
-      (MapRouletteError(.authentication, status: 401, reason: "invalid_token"), "Try again"),
+      (MapRouletteError(.rateLimit, status: 429, reason: "pending_limit"), "computer"),
+      (MapRouletteError(.authentication, status: 401, reason: "invalid_token"), "Nothing was saved"),
     ]
     for (error, words) in cases {
       let o = ops(try await makeTask())
@@ -502,13 +503,13 @@ import Testing
     }
   }
 
-  @Test func guestAnswerForACompletedTaskIsNotAvailable() async throws {
+  @Test func guestAnswerForACompletedTaskIsNoLongerNeeded() async throws {
     let o = ops(try await makeTask(), try await makeTask(status: 1, completedBy: other))
     o.pending = { _ in throw MapRouletteError(.conflict, status: 409, reason: "task_completed") }
     let c = await controller(o, writer: .guestWriter)
     c.perform(.answers(["backrest": "yes"]))
     await c.idle()
-    guard case .notAvailable = c.state else { Issue.record("\(c.state.name)"); return }
+    guard case .noLongerNeeded = c.state else { Issue.record("\(c.state.name)"); return }
   }
 
   @Test func guestIneligibleAnswerIsNoLongerNeeded() async throws {

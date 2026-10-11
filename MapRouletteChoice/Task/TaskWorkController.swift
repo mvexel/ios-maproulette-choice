@@ -14,6 +14,11 @@ protocol TaskOps: Sendable {
   func skipTask(_ id: TaskID) async throws
   /// A guest's answers, stored on the server until the guest puts them on the map.
   func submitPendingChoice(_ task: MapRouletteTask, _ submission: ChoiceSubmission) async throws -> PendingChoice
+  func pendingReceipt(_ id: TaskID) async throws -> PendingChoice?
+}
+
+extension TaskOps {
+  func pendingReceipt(_ id: TaskID) async throws -> PendingChoice? { throw MapRouletteError(.permission) }
 }
 
 /// Bound to one account's client: a controller never sends through a later account's client.
@@ -36,6 +41,18 @@ struct ClientTaskOps: TaskOps {
   func skipTask(_ id: TaskID) async throws { try await client.skipTask(id) }
   func submitPendingChoice(_ task: MapRouletteTask, _ submission: ChoiceSubmission) async throws -> PendingChoice {
     try await client.submitPendingChoice(task, submission)
+  }
+  func pendingReceipt(_ id: TaskID) async throws -> PendingChoice? {
+    var cursor: PageCursor?
+    var visited: Set<PageCursor> = []
+    repeat {
+      try Task.checkCancellation()
+      let page = try await client.listPendingChoices(after: cursor)
+      if let receipt = page.items.first(where: { $0.taskID == id }) { return receipt }
+      cursor = page.next
+      if let cursor, !visited.insert(cursor).inserted { throw MapRouletteError(.protocolFailure) }
+    } while cursor != nil
+    return nil
   }
 }
 
@@ -101,6 +118,7 @@ struct Writer: Sendable {
   let me: Int64
   let canEditOsm: Bool
   var guest = false
+  var guestBinding: String?
 
   static let guestWriter = Writer(me: 0, canEditOsm: true, guest: true)
 }
@@ -176,6 +194,8 @@ enum TaskScreen: Sendable {
     var checking: Bool
     var pending: Pending = .unknown
     var canResend = false
+    var guest = false
+    var retryAt: Date?
   }
 
   case loading
@@ -230,6 +250,7 @@ enum TaskScreen: Sendable {
 
   @ObservationIgnored private let ops: any TaskOps
   @ObservationIgnored private let writer: Writer?
+  @ObservationIgnored private let guestSaves: GuestSaveStore?
   /// Campaign preview mode (design/preview-mode.md): every question is asked, with no eligibility
   /// check, and nothing is ever sent. There is no writer and the ops refuse writes.
   @ObservationIgnored let previewing: Bool
@@ -240,7 +261,8 @@ enum TaskScreen: Sendable {
   /// What the campaign checks ("stop", "bench"), for participant messages.
   @ObservationIgnored private let noun: Noun
 
-  init(ops: any TaskOps, writer: Writer?, noun: Noun = .place, previewing: Bool = false) {
+  init(ops: any TaskOps, writer: Writer?, noun: Noun = .place, previewing: Bool = false, guestSaves: GuestSaveStore? = nil) {
+    self.guestSaves = previewing ? nil : guestSaves
     self.ops = previewing ? PreviewTaskOps(reads: ops) as any TaskOps : ops
     self.writer = previewing ? nil : writer
     self.noun = noun
@@ -285,6 +307,19 @@ enum TaskScreen: Sendable {
 
   private func opened(_ loaded: LoadedTask) async -> TaskScreen {
     let task = loaded.task
+    if writer?.guest == true, let work = ChoiceWork(task.work()), let binding = writer?.guestBinding {
+      do {
+        if let intent = try guestSaves?.read(), intent.binding == binding,
+          intent.campaignID == task.challengeID.value, intent.taskID == task.id.value {
+          var form = Self.form(work, outcomes: ops.choiceOutcomes(task), deleteAllowed: false)
+          form.answers = intent.answers ?? [:]
+          guard let action = intent.action(form) else {
+            return .loadFailed("Your earlier save still needs recovery, but this survey has changed. Ask your organizer.")
+          }
+          return guestUnknown(loaded, form, action)
+        }
+      } catch { return .loadFailed("Couldn't restore your earlier save safely. If you received a finish link, open it on a computer.") }
+    }
     guard task.mobileSupport() == .inPlace,
       let work = ChoiceWork(task.work())
     else { return .notAvailable(loaded, reason: TaskText.unavailableReason(task)) }
@@ -368,10 +403,10 @@ enum TaskScreen: Sendable {
     submit(loaded, form, .outcome(plain))
   }
 
-  /// User-confirmed resend of the identical submission from Check again. The server's
-  /// idempotency resumes it (for example finishes a pending status) without a second OSM upload.
+  /// User-confirmed resend of the identical submission from Check again. Guest resends replace
+  /// the same guest/task row; signed-in resends resume the SDK's OSM submission contract.
   func resendSame() {
-    guard case .checkAgain(let current) = state, current.canResend, !current.checking, writer != nil else {
+    guard case .checkAgain(let current) = state, current.canResend, !current.checking, current.retryAt.map({ $0 <= Date() }) ?? true, writer != nil else {
       return
     }
     submit(current.loaded, current.form, current.action)
@@ -411,58 +446,111 @@ enum TaskScreen: Sendable {
     }
   }
 
-  /// A guest's submission: stored as a pending answer (never an OSM edit, never a lock). Skipping
-  /// only moves on. Resending after a failure is safe: the server keeps one answer per task.
+  private func intent(_ loaded: LoadedTask, _ action: ChoiceAction) -> GuestSaveIntent? {
+    guard let binding = writer?.guestBinding else { return nil }
+    return GuestSaveIntent(binding: binding, campaignID: loaded.task.challengeID.value, taskID: loaded.task.id.value, action: action)
+  }
+
+  private func guestUnknown(_ loaded: LoadedTask, _ form: ChoiceForm, _ action: ChoiceAction) -> TaskScreen {
+    .checkAgain(.init(loaded: loaded, form: form, action: action,
+      message: "The connection dropped, so we're not sure your answers were saved. Tap Check again to find out.",
+      checking: false, canResend: true, guest: true))
+  }
+
+  /// Commit the exact intent before POST. Only a fresh pending receipt for this task confirms it.
   private func saveForLater(_ loaded: LoadedTask, _ form: ChoiceForm, _ action: ChoiceAction) {
-    if action == .skip {
-      state = .skipped(loaded, uncertain: false)
+    if action == .skip { state = .skipped(loaded, uncertain: false); return }
+    guard let save = intent(loaded, action), let store = guestSaves else {
+      state = .answering(loaded, form, notice: "Couldn't keep this save safely on your phone. No answers were sent.")
       return
     }
-    changed = true
+    let earlier: Bool
+    do { earlier = try store.keep(save) }
+    catch {
+      state = .answering(loaded, form, notice: "Couldn't keep this save safely on your phone. No answers were sent. An earlier save may need recovery.")
+      return
+    }
     state = .submitting(loaded, form, action)
     let ops = self.ops
     job = Task {
       let result = await Task.detached { () async -> Result<PendingChoice, any Error> in
         do {
           guard let submission = action.submission else { throw CancellationError() }
-          return .success(try await ops.submitPendingChoice(loaded.task, submission))
-        } catch {
-          return .failure(error)
-        }
+          let receipt = try await ops.submitPendingChoice(loaded.task, submission)
+          guard receipt.taskID == loaded.task.id, receipt.state == .pending else { throw MapRouletteError(.protocolFailure) }
+          return .success(receipt)
+        } catch { return .failure(error) }
       }.value
+      // Cleanup belongs to the originating intent even if its controller is now discarded.
+      switch result {
+      case .success: try? store.clear(save)
+      case .failure(let error): if !earlier && Self.definiteGuestRefusal(error) { try? store.clear(save) }
+      }
       if Task.isCancelled || discarded { return }
       switch result {
       case .success:
+        changed = true
         publish(.done(.init(loaded: loaded, action: action, me: 0, changesetID: nil, readFailed: false, savedForLater: true)))
-      case .failure(let error):
-        publish(await failedForLater(loaded, form, action, error))
+      case .failure(let error): publish(failedForLater(loaded, form, action, error, earlier: earlier))
       }
     }
   }
 
-  private func failedForLater(_ loaded: LoadedTask, _ form: ChoiceForm, _ action: ChoiceAction, _ error: any Error)
-    async -> TaskScreen
-  {
-    guard let error = error as? MapRouletteError else {
-      return .answering(loaded, form, notice: "Couldn't save your answers. Try again.")
+  private static func definiteGuestRefusal(_ error: any Error) -> Bool {
+    guard let error = error as? MapRouletteError else { return false }
+    if ["task_completed", "pending_limit", "guest_claimed", "guest_expired", "challenge_not_published"].contains(error.reason ?? "") { return true }
+    if case .choice(.taskIneligible)? = error.problem { return true }
+    return error.kind == .authentication || error.kind == .validation
+  }
+
+  private func failedForLater(_ loaded: LoadedTask, _ form: ChoiceForm, _ action: ChoiceAction,
+    _ failure: any Error, earlier: Bool) -> TaskScreen {
+    let error = failure as? MapRouletteError
+    if !earlier && Self.definiteGuestRefusal(failure) {
+      if error?.reason == "task_completed" { return .noLongerNeeded(loaded) }
+      if case .choice(.taskIneligible)? = error?.problem { return .noLongerNeeded(loaded) }
+      if error?.reason == "challenge_not_published" { return .notAvailable(loaded, reason: "This campaign isn't open for answers yet.") }
+      return .answering(loaded, form, notice: error?.reason == "pending_limit"
+        ? "This save wasn't accepted. Nothing was saved. Finish your saved answers on a computer before saving more."
+        : "This save wasn't accepted. Nothing was saved. If you received a finish link, open it on a computer.")
     }
-    switch (error.kind, error.reason) {
-    case (_, "task_completed"?): return await notAccepted(loaded)
-    case (.rateLimit, "pending_limit"?):
-      return .answering(
-        loaded, form,
-        notice: "That's as many \(noun.many) as we can keep before they go on the map. Finish on a computer, or sign in with I already use OpenStreetMap to keep going.")
-    case (.permission, "challenge_not_published"?):
-      return .notAvailable(loaded, reason: "This campaign isn't open for answers yet.")
-    case (.authentication, _):
-      return .answering(loaded, form, notice: "Couldn't save your answers. Try again in a moment.")
-    default: break
+    guard case .checkAgain(var pending) = guestUnknown(loaded, form, action) else { preconditionFailure() }
+    if Self.definiteGuestRefusal(failure) {
+      pending.canResend = false
+      pending.message = "This save wasn't accepted, but your earlier try is still unconfirmed. If you received a finish link, open it on a computer."
+    } else if error?.kind == .rateLimit {
+      pending.retryAt = Self.retryDate(error?.retryAfter)
+      pending.canResend = false
+      pending.message = "Saving is busy. Wait a moment, then check again before resending."
     }
-    // The network may have dropped after the server stored it; sending again replaces it.
-    if error.problem == .outcomeUnknown || error.kind == .network {
-      return .answering(loaded, form, notice: "Couldn't connect. Check your connection and try again.")
+    return .checkAgain(pending)
+  }
+
+  private static func retryDate(_ value: String?) -> Date {
+    if let value, let seconds = Double(value), seconds.isFinite {
+      return Date().addingTimeInterval(max(1, seconds))
     }
-    return await failed(loaded, form, action, error)
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone(secondsFromGMT: 0)
+    formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+    return value.flatMap(formatter.date) ?? Date().addingTimeInterval(60)
+  }
+
+  private func verifyGuest(_ current: TaskScreen.CheckAgain) async {
+    var next = current
+    next.checking = true
+    state = .checkAgain(next)
+    do {
+      guard let save = intent(current.loaded, current.action), try guestSaves?.read() == save else { throw SessionFailure() }
+      let receipt = try await ops.pendingReceipt(current.loaded.task.id)
+      next.message = receipt?.taskID == current.loaded.task.id
+        ? "The server has a save for this \(noun.one), but we can't confirm these exact answers. Send the same answers again to confirm."
+        : "We couldn't find a receipt for these answers. You can send the same answers again."
+    } catch { next.message = "Couldn't check your saved answers. Check your connection and try again." }
+    next.checking = false
+    if let retryAt = next.retryAt, retryAt <= Date() { next.canResend = true; next.retryAt = nil }
+    publish(.checkAgain(next))
   }
 
   /// Manual re-check after an uncertain result or a failed post-write read. Never resends.
@@ -470,7 +558,10 @@ enum TaskScreen: Sendable {
     guard let me = writer?.me else { return }
     switch state {
     case .checkAgain(let current) where !current.checking:
-      job = Task { await verify(current, me) }
+      job = Task {
+        if current.guest { await verifyGuest(current) }
+        else { await verify(current, me) }
+      }
     case .done(var current) where current.readFailed && !current.checking:
       current.checking = true
       state = .done(current)

@@ -149,9 +149,10 @@ struct TaskView: View {
       preview != nil ? nil
       : session.writesConfigured && view.signedIn && view.canWriteTasks
         ? view.userID.map { Writer(me: $0, canEditOsm: view.canEditOsm) }
-      : session.writesConfigured && view.guest ? .guestWriter : nil
+      : session.writesConfigured && view.guest && session.guestBinding != nil
+        ? Writer(me: 0, canEditOsm: true, guest: true, guestBinding: session.guestBinding) : nil
     controller = TaskWorkController(
-      ops: ClientTaskOps(session.newClient().client), writer: writer, noun: noun, previewing: preview != nil)
+      ops: ClientTaskOps(session.newClient().client), writer: writer, noun: noun, previewing: preview != nil, guestSaves: session.guestSaves)
   }
 
   /// Account switch or sign-out: discard the old account's state and any late result.
@@ -709,8 +710,8 @@ struct TaskView: View {
     if pending.checking {
       HStack { ProgressView(); Text("Checking…") }
     } else {
-      Text("The connection dropped, so we're not sure your answers were saved. Tap Check again to find out. They weren't sent twice.")
-      if showDetails {
+      Text(pending.guest ? pending.message : "The connection dropped, so we're not sure your answers were saved. Tap Check again to find out.")
+      if showDetails && !pending.guest {
         Text(pending.message).font(.footnote).foregroundStyle(.secondary)
         if let id = pending.changesetID { changesetLink(id) }
       }
@@ -741,8 +742,11 @@ struct TaskView: View {
   @ViewBuilder private func nextButtons(prominent: Bool = true) -> some View {
     if let next = nextPlace {
       bigButton(
-        Wording.next(noun, distance: TaskLocation.directionText(here, next.coordinate)), prominent: prominent
-      ) { open(next) }
+        Wording.next(noun, distance: TaskLocation.directionText(here, next.coordinate), hasOrigin: here != nil), prominent: prominent
+      ) {
+        if here != nil { open(next) }
+        else { dismiss() }
+      }
     } else {
       Text("That was the last \(noun.one) to check. Thank you!").foregroundStyle(.secondary)
     }
@@ -811,7 +815,14 @@ struct TaskView: View {
   // MARK: Confirmations and details
 
   private func confirmResend(_ state: TaskScreen.CheckAgain) {
-    guard let me = session.view.userID, let owner = controller else { return }
+    guard let owner = controller else { return }
+    if state.guest {
+      confirmation = Confirmation(title: "Send the same answers again?",
+        message: "This sends the exact answers from your earlier try. The server keeps one saved answer per place for this phone. They will still need finishing on a computer.",
+        confirm: "Send again", owner: owner, run: { $0.resendSame() })
+      return
+    }
+    guard let me = session.view.userID else { return }
     let id = state.loaded.task.id.value
     let summary: String
     switch state.action {

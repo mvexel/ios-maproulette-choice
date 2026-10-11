@@ -1,4 +1,3 @@
-import AuthenticationServices
 import MapRoulette
 import SwiftUI
 
@@ -6,7 +5,6 @@ import SwiftUI
 /// Shown once after the first saved answer and from the campaign's saved-answers banner.
 struct PutOnMapCard: View {
   @Environment(AppSession.self) private var session
-  @Environment(\.webAuthenticationSession) private var webAuth
   @Environment(\.dismiss) private var dismiss
 
   /// The campaign's noun, for the "answer one first" line.
@@ -17,6 +15,7 @@ struct PutOnMapCard: View {
   @State private var sentTo: String?
   @State private var error: String?
   @State private var errorIsInput = false
+  @State private var existingAccount = false
 
   var body: some View {
     NavigationStack {
@@ -55,7 +54,8 @@ struct PutOnMapCard: View {
           }
         }
         Section {
-          Button("I already use OpenStreetMap") { signIn() }
+          Button("I already use OpenStreetMap") { existingAccount = true }
+          if existingAccount { Text(Wording.existingAccountFinishLink) }
         } footer: {
           Text(Wording.signInPutsOnMap)
         }
@@ -84,13 +84,4 @@ struct PutOnMapCard: View {
     }
   }
 
-  private func signIn() {
-    Task {
-      await session.signIn { url in
-        try await webAuth.authenticate(
-          using: url, callbackURLScheme: AuthEndpoints.callbackScheme, preferredBrowserSession: .ephemeral)
-      }
-      if session.view.signedIn { dismiss() }
-    }
-  }
 }

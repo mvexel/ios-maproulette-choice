@@ -80,6 +80,7 @@ enum Read {
   var check: () throws -> ChoiceEligibility = { ChoiceEligibility(eligible: true, deleteAllowed: true, reason: nil) }
   var submit: (ChoiceSubmission) async throws -> ChoiceResult = { _ in ChoiceResult(status: TaskStatus(code: 1), changesetID: 99) }
   var skip: () throws -> Void = {}
+  var receipt: (TaskID) async throws -> PendingChoice? = { _ in nil }
   var pending: (ChoiceSubmission) async throws -> PendingChoice = { _ in
     PendingChoice(taskID: taskID, state: .pending, answeredAt: Date())
   }
@@ -118,6 +119,10 @@ enum Read {
   func skipTask(_ id: TaskID) async throws {
     calls.append("skip")
     try skip()
+  }
+  func pendingReceipt(_ id: TaskID) async throws -> PendingChoice? {
+    calls.append("receipt")
+    return try await receipt(id)
   }
   func submitPendingChoice(_ task: MapRouletteTask, _ submission: ChoiceSubmission) async throws -> PendingChoice {
     calls.append("pending")
