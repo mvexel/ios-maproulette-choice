@@ -79,8 +79,18 @@ struct ChallengeTasksView: View {
     session.view.guest ? Set(tasks.filter { !$0.isDone && campaigns.justDone.contains($0.id) }.map(\.id)) : []
   }
   /// Open places; in preview also those whose questions don't parse, so the organizer sees why.
+  /// A guest gets only the places the server will hold answers for; the rest are left off the
+  /// map, the list and Nearest (they still count in the campaign's size).
   private func answerable(_ task: LocatedTask) -> Bool {
-    task.isOpen || (preview != nil && CampaignPreview.invalidSurvey(task.task))
+    if preview != nil && CampaignPreview.invalidSurvey(task.task) { return true }
+    return task.isOpen && (!asGuest || TaskWorkController.guestAnswerable(task.task))
+  }
+  /// Answering as a guest: already one, or about to become one on the first place opened.
+  private var asGuest: Bool { session.view.guest || session.canAnswerAsGuest }
+  /// A guest in a campaign whose open places all need an account.
+  private var guestShutOut: Bool {
+    preview == nil && asGuest && progress.open.isEmpty
+      && tasks.contains { $0.isOpen && !campaigns.justDone.contains($0.id) && !held.contains($0.id) }
   }
   private var doneIDs: Set<Int64> { progress.done }
   /// Reports from the server, and this device's since launch (design/not-here-moved.md §4).
@@ -232,12 +242,25 @@ struct ChallengeTasksView: View {
         // The tally above reads the same count; the bar alone is a 4 pt sliver.
         ProgressView(value: Double(done), total: Double(max(total, 1)))
           .accessibilityHidden(true)
-      } else if shown.isEmpty {
+      } else if shown.isEmpty && !guestShutOut {
         HStack {
           if request != nil { ProgressView() }
           Text(status).foregroundStyle(.secondary)
           if failed { Button("Retry") { load() } }
         }
+      }
+      if guestShutOut {
+        VStack(alignment: .leading, spacing: 8) {
+          Text(Wording.guestCampaignTitle(noun)).font(.headline)
+          Text(Wording.guestCampaignText(noun))
+          Button { signInForPreview() } label: {
+            Text("Sign in with OpenStreetMap").frame(maxWidth: .infinity, minHeight: 44)
+          }
+          .buttonStyle(.borderedProminent)
+          .disabled(!session.signInAvailable)
+          Text(session.accountHint).font(.footnote).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
       }
       if preview == nil, session.view.guest, let saved = session.guestStatus {
         if saved.state == .expired {
@@ -262,7 +285,7 @@ struct ChallengeTasksView: View {
           .frame(maxWidth: .infinity, minHeight: 44)
         }
         .buttonStyle(.borderedProminent)
-      } else if !shown.isEmpty {
+      } else if !shown.isEmpty && !guestShutOut {
         Text("All \(noun.many) are checked. Thank you!").font(.headline)
       }
     }
@@ -419,7 +442,8 @@ struct ChallengeTasksView: View {
     .padding()
   }
 
-  /// Sign-in (or a switch: the session signs out first). The new account reloads the campaign.
+  /// Sign-in (or a switch: the session signs out first), for preview and for guests. The new
+  /// account reloads the campaign.
   private func signInForPreview() {
     Task {
       await session.signIn { url in

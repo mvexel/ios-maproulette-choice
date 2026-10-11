@@ -47,6 +47,11 @@ enum Wording {
   static let notSure = "I'm not sure"
   static let notSureShort = "Not sure"
   static let somethingWrong = "Something's wrong here"
+  /// A guest in a campaign where every open place needs an account.
+  static func guestCampaignTitle(_ noun: Noun) -> String { "Sign in to check these \(noun.many)" }
+  static func guestCampaignText(_ noun: Noun) -> String {
+    "These \(noun.many) need an OpenStreetMap account. Any answers you've saved stay saved."
+  }
   /// A guest on a task that can't hold answers until sign-in.
   static func accountNeededTitle(_ noun: Noun) -> String { "Sign in to check this \(noun.one)" }
   static func accountNeeded(_ noun: Noun) -> String {
