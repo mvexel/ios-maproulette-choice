@@ -151,7 +151,10 @@ struct SessionClient: Sendable {
     let result = await auth.restore()
     await sync(auth)
     switch result {
-    case .signedIn: publish(signedInMessage(), detail: signedInDetail())
+    case .signedIn:
+      // A guest kept from a phone sign-in whose claim didn't finish: try again (same claim).
+      let claimed = await claimKeptGuest(auth)
+      publish(claimed.map(Wording.claimMessage) ?? signedInMessage(), detail: signedInDetail())
     case .guest: if !(await upgradeIfClaimed(auth)) { publish(signedOutMessage()) }
     case .signedOut: publish(signedOutMessage())
     case .refreshInterrupted: publish("Please sign in again.", detail: "A previous refresh was interrupted.")
@@ -238,6 +241,39 @@ struct SessionClient: Sendable {
     return who + onMap + " New answers go straight on the map from now on."
   }
 
+  /// What happened to a kept guest's saved answers after a phone sign-in (deferred sign-up B5).
+  enum ClaimOutcome: Equatable {
+    case started(pending: Int, waiting: Bool)
+    /// Unknown, expired, deleted or claimed by another account: the guest is gone.
+    case gone
+    /// The server's OpenStreetMap permission lapsed: sign in again.
+    case reauth
+    /// A network or server failure: the guest stays, and the next launch tries again.
+    case later
+  }
+
+  /// After a phone sign-in, puts the kept guest's saved answers on the map with this account.
+  /// Nil when there is nothing to claim or this sign-in can't edit OSM. Also run on launch for a
+  /// guest kept from a claim that didn't finish; the backend returns the same claim.
+  private func claimKeptGuest(_ auth: MobileSignIn) async -> ClaimOutcome? {
+    guard writesConfigured, await auth.guest != nil, await auth.account?.canEditOsm == true else { return nil }
+    let expected = view.generation
+    let transport = GuardedTransport(session: self, expected: expected, inner: URLSessionTransport())
+    defer { guestStatus = nil }
+    do {
+      let claim = try await auth.claimGuest(environment: Self.environment(endpoints, writes: true), transport: transport)
+      lastLinkEmail = nil
+      return .started(pending: claim.pendingCount, waiting: claim.state == .waiting)
+    } catch let error as MapRouletteError where error.kind == .notFound {
+      return .gone
+    } catch let error as MapRouletteError where error.reason == "osm_reauth_required" {
+      return .reauth
+    } catch {
+      log.debug("Claim failed: \(String(describing: type(of: error)), privacy: .public)")
+      return .later
+    }
+  }
+
   /// Re-reads the guest's status (saved count, email state, deadline). Failures keep the last one.
   func refreshGuestStatus() async {
     guard view.guest else {
@@ -314,7 +350,8 @@ struct SessionClient: Sendable {
         try await authenticate($0)
       }
       await sync(auth)
-      publish(signedInMessage(), detail: signedInDetail())
+      let claimed = await claimKeptGuest(auth)
+      publish(claimed.map(Wording.claimMessage) ?? signedInMessage(), detail: signedInDetail())
     } catch SignInFailure.superseded {
       return  // A newer sign-in or sign-out owns the view.
     } catch {

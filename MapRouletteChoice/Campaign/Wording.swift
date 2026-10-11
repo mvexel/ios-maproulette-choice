@@ -155,9 +155,26 @@ enum Wording {
     date.formatted(.dateTime.month(.abbreviated).day()).replacingOccurrences(of: " ", with: "\u{00A0}")
   }
   static let enterEmailAgain = "Enter your email again and we'll send a new link."
-  /// Phone sign-in doesn't claim saved answers yet (claim B5 not built); restore the old line when it does.
-  static let signInPutsOnMap =
-    "Sign in now and your next answers go straight on the map. The ones you already saved stay saved until you finish on a computer."
+  /// Phone sign-in claims the saved answers (B5), so the original line is true again
+  /// (design/copy-fixes-2026-10-11.md row 5).
+  static let signInPutsOnMap = "Sign in now and your saved answers go on the map right away."
+  /// After a phone sign-in with saved answers (B5). Draft copy for Iris.
+  static func claimMessage(_ outcome: AppSession.ClaimOutcome) -> String {
+    let signedIn = "Signed in with OpenStreetMap."
+    switch outcome {
+    case .started(let pending, let waiting):
+      guard pending > 0 else { return signedIn + " New answers go straight on the map." }
+      let answers = pending == 1 ? "Your saved answer" : "Your \(pending) saved answers"
+      let going = waiting ? "will go on the map shortly." : pending == 1 ? "is going on the map now." : "are going on the map now."
+      return "\(signedIn) \(answers) \(going)"
+    case .gone:
+      return signedIn + " We couldn't find your saved answers. They may have expired or been put on the map already."
+    case .reauth:
+      return signedIn + " Sign in again so we can put your saved answers on the map."
+    case .later:
+      return signedIn + " Your saved answers are safe. We'll put them on the map next time you open the app."
+    }
+  }
   /// Only a bad address is the participant's to fix (shown in red); the rest are calm.
   static func isInputError(_ error: any Error) -> Bool { (error as? MapRouletteError)?.kind == .validation }
   /// The backend sends the link only once the guest has a saved answer (409 `nothing_saved`).

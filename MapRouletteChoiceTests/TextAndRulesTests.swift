@@ -221,11 +221,26 @@ import Testing
     #expect(Wording.putOnMapIntro == "To put them on the map, finish on a computer. We can email you a link.")
     #expect(Wording.daySummarySaved(until: nil)
       == "They're saved for now. If we emailed you a link, open it on a computer to put them on the map.")
-    #expect(Wording.signInPutsOnMap == "Sign in now and your next answers go straight on the map. "
-      + "The ones you already saved stay saved until you finish on a computer.")
+    // Phone sign-in claims the saved answers (B5), so row 5's original line is back.
+    #expect(Wording.signInPutsOnMap == "Sign in now and your saved answers go on the map right away.")
     for text in [Wording.putOnMapIntro, Wording.daySummarySaved(until: Date()), Wording.signInPutsOnMap] {
       #expect(!text.contains("minutes"))
       #expect(!text.contains("email we sent"))
+    }
+  }
+
+  /// After a phone sign-in with saved answers (B5).
+  @Test func claimMessages() {
+    #expect(Wording.claimMessage(.started(pending: 3, waiting: false))
+      == "Signed in with OpenStreetMap. Your 3 saved answers are going on the map now.")
+    #expect(Wording.claimMessage(.started(pending: 1, waiting: false))
+      == "Signed in with OpenStreetMap. Your saved answer is going on the map now.")
+    #expect(Wording.claimMessage(.started(pending: 2, waiting: true))
+      == "Signed in with OpenStreetMap. Your 2 saved answers will go on the map shortly.")
+    #expect(Wording.claimMessage(.started(pending: 0, waiting: false))
+      == "Signed in with OpenStreetMap. New answers go straight on the map.")
+    for outcome in [AppSession.ClaimOutcome.gone, .reauth, .later] {
+      #expect(Wording.claimMessage(outcome).hasPrefix("Signed in with OpenStreetMap. "))
     }
   }
 
