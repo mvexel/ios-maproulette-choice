@@ -1,5 +1,6 @@
 @preconcurrency import MapLibre
 import CoreLocation
+import MapRoulette
 import SwiftUI
 
 /// A MapLibre map (OpenFreeMap style by default) of a campaign's places, with the brand pins
