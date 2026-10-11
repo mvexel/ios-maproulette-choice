@@ -48,9 +48,11 @@ enum Wording {
   static let notSureShort = "Not sure"
   static let somethingWrong = "Something's wrong here"
   /// A guest in a campaign where every open place needs an account.
-  static func guestCampaignTitle(_ noun: Noun) -> String { "Sign in to check these \(noun.many)" }
+  /// Shown only while open places remain (guest-vs-signed-in-review.md point 3); a complete
+  /// tally gets the normal all-checked line instead.
+  static let guestCampaignTitle = "Sign in to check the rest"
   static func guestCampaignText(_ noun: Noun) -> String {
-    "These \(noun.many) need an OpenStreetMap account. Any answers you've saved stay saved."
+    "The \(noun.many) still open in this campaign need an OpenStreetMap account. Any answers you've saved stay saved."
   }
   /// A guest on a task that can't hold answers until sign-in.
   static func accountNeededTitle(_ noun: Noun) -> String { "Sign in to check this \(noun.one)" }

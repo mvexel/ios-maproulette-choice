@@ -251,7 +251,7 @@ struct ChallengeTasksView: View {
       }
       if guestShutOut {
         VStack(alignment: .leading, spacing: 8) {
-          Text(Wording.guestCampaignTitle(noun)).font(.headline)
+          Text(Wording.guestCampaignTitle).font(.headline)
           Text(Wording.guestCampaignText(noun))
           Button { signInForPreview() } label: {
             Text("Sign in with OpenStreetMap").frame(maxWidth: .infinity, minHeight: 44)
