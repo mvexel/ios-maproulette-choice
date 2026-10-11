@@ -23,11 +23,18 @@ final class WoodbineUITests: XCTestCase {
     XCTAssert(text(app, "3 of 8 entrances checked").waitForExistence(timeout: 20))
     sleep(3)  // map tiles
     shot(app, "woodbine-campaign")
-    app.buttons["List"].tap()
+    // Under a full-suite run the first tap on the segmented control can be lost while the map
+    // is still settling, so tap again until List is selected.
+    let list = app.buttons["List"]
+    for _ in 0..<3 where !list.isSelected {
+      list.tap()
+      _ = list.wait(for: \.isSelected, toEqual: true, timeout: 3)
+    }
+    XCTAssert(list.isSelected, "List not selected")
     // A lazy list may not have built the section below the fold yet.
     let checked = app.staticTexts["Already checked"]
-    if !checked.waitForExistence(timeout: 10) { app.swipeUp() }
-    XCTAssert(checked.waitForExistence(timeout: 10))
+    for _ in 0..<3 where !checked.waitForExistence(timeout: 5) { app.swipeUp() }
+    XCTAssert(checked.waitForExistence(timeout: 5))
     shot(app, "woodbine-list")
   }
 
