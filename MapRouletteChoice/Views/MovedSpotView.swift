@@ -86,7 +86,13 @@ struct MovedSpotView: View {
         spot = coordinate
         source = .tap
       },
-      located: { coordinate in fix = coordinate }
+      located: { coordinate in
+        #if DEBUG
+          // `-demoHere` pins the fix; the simulator's own location would replace it.
+          if ProcessInfo.processInfo.arguments.contains("-demoHere") { return }
+        #endif
+        fix = coordinate
+      }
     )
     .clipShape(RoundedRectangle(cornerRadius: 12))
     .frame(maxHeight: .infinity)
