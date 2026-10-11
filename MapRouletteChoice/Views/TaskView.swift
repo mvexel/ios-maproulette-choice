@@ -310,8 +310,9 @@ struct TaskView: View {
       // account, so Next nearest leads.
       Text(Wording.accountNeededTitle(noun)).font(.headline)
       Text(Wording.accountNeeded(noun))
-      nextButton()
-      bigButton("Sign in with OpenStreetMap") { signIn() }
+      // No "That was the last one" here: nothing was checked.
+      if nextPlace != nil { nextButton() }
+      bigButton("Sign in with OpenStreetMap", prominent: nextPlace == nil) { signIn() }
       Text(session.accountHint).font(.footnote).foregroundStyle(.secondary)
       backButton()
     case .elementInUse(let loaded, let form, let outcome):
