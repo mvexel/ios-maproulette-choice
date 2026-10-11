@@ -24,6 +24,8 @@ struct TaskView: View {
   @State private var taskID: Int64
   /// The campaign's open places, for "Next nearest".
   private let candidates: [LocatedTask]
+  /// Places someone reported as not here or moved: never offered as next, and a banner on open.
+  private let reports: [Int64: TaskReport]
   private let noun: Noun
   /// The participant's position when the first place was opened from the campaign, for
   /// "130 m northeast of you". Not live: after "Next nearest" they have moved, so it is hidden.
@@ -45,14 +47,20 @@ struct TaskView: View {
   @State private var notSure: Set<String> = []
   @State private var showProblems = false
   @State private var counted = false
+  /// "It's not here" or "It's moved", once picked: its review replaces the questions.
+  @State private var report: ChoiceAction?
+  @State private var pickingSpot = false
+  /// The sheet row picked, run once the sheet is gone (an alert or a cover can't open over it).
+  @State private var afterProblems: (() -> Void)?
 
   init(
-    taskID: Int64, candidates: [LocatedTask], noun: Noun, userLocation: CLLocationCoordinate2D? = nil,
-    preview: CampaignPreview? = nil
+    taskID: Int64, candidates: [LocatedTask], reports: [Int64: TaskReport] = [:], noun: Noun,
+    userLocation: CLLocationCoordinate2D? = nil, preview: CampaignPreview? = nil
   ) {
     _taskID = State(initialValue: taskID)
     _visited = State(initialValue: [taskID])
     self.candidates = candidates
+    self.reports = reports
     self.noun = noun
     self.userLocation = userLocation
     firstTaskID = taskID
@@ -105,6 +113,19 @@ struct TaskView: View {
     .onChange(of: controller?.changed) { if controller?.changed == true { reportChange() } }
     .onChange(of: finishedTaskID) { countFinished() }
     .sheet(isPresented: $showPutOnMap) { PutOnMapCard(noun: noun) }
+    .sheet(isPresented: $showProblems, onDismiss: runAfterProblems) {
+      if let controller, case .answering(let loaded, let form, _) = controller.state {
+        problemsSheet(controller, loaded, form)
+      }
+    }
+    .fullScreenCover(isPresented: $pickingSpot) {
+      if let here {
+        MovedSpotView(mapped: here, noun: noun) { spot in
+          pickingSpot = false
+          report = .moved(spot)
+        }
+      }
+    }
   }
 
   // MARK: Lifecycle
@@ -162,6 +183,7 @@ struct TaskView: View {
   private func resetQuestions() {
     step = 0
     notSure = []
+    report = nil
   }
 
   /// The task id once it is finished by this user (saved or recorded, not skipped), or "saved"
@@ -192,8 +214,12 @@ struct TaskView: View {
     return candidates.first { $0.id == taskID }?.coordinate
   }
 
+  /// Reports from the campaign list and this device's since launch.
+  private var allReports: [Int64: TaskReport] { reports.merging(campaigns.justReported) { $1 } }
+
   private var nextPlace: LocatedTask? {
-    TaskLocation.nearest(from: here, in: candidates, excluding: visited.union(campaigns.justDone))
+    TaskLocation.nearest(
+      from: here, in: candidates, excluding: visited.union(campaigns.justDone).union(allReports.keys))
   }
 
   private func open(_ next: LocatedTask) {
@@ -222,7 +248,7 @@ struct TaskView: View {
 
   @ViewBuilder private func content(_ c: TaskWorkController) -> some View {
     let state = c.state
-    if let loaded = state.loaded { header(loaded, checked: Self.showsChecked(state)) }
+    if let loaded = state.loaded { header(loaded, checked: Self.showsChecked(state), movedTo: reviewedSpot(state)) }
     if let switchNotice, !isLoading(state) { banner(switchNotice) }
     switch state {
     case .loading:
@@ -287,16 +313,34 @@ struct TaskView: View {
   /// The header map shows the place as checked once it no longer needs answering.
   private static func showsChecked(_ state: TaskScreen) -> Bool {
     switch state {
+    // A report leaves the place open: it needs another look.
+    case .done(let d) where d.action.isReport: false
     case .noLongerNeeded, .done: true
     default: state.loaded.map { LocatedTask($0.task).isDone } ?? false
     }
   }
 
-  @ViewBuilder private func header(_ loaded: LoadedTask, checked: Bool) -> some View {
+  /// The spot being reviewed for "It's moved": the header map then draws it like the moved map.
+  private func reviewedSpot(_ state: TaskScreen) -> CLLocationCoordinate2D? {
+    guard case .answering = state, case .moved(let spot)? = report else { return nil }
+    return CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
+  }
+
+  @ViewBuilder private func header(_ loaded: LoadedTask, checked: Bool, movedTo: CLLocationCoordinate2D?) -> some View {
     let task = loaded.task
-    if let coordinate = TaskLocation.coordinate(task) {
+    if let coordinate = TaskLocation.coordinate(task), let movedTo {
+      // "On the map", the navy pin and the dashed line, as on the moved map (§3.2 step 4).
+      SpotMapView(mapped: coordinate, spot: movedTo, interactive: false)
+        .frame(height: 150)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Map of where the map has it and the spot you picked")
+        .accessibilityAddTraits(.isImage)
+        .id("\(movedTo.latitude),\(movedTo.longitude)")
+    } else if let coordinate = TaskLocation.coordinate(task) {
       TaskMapView(
         styleURL: AppConfig.detailStyle, tasks: [LocatedTask(task)], done: checked ? [task.id.value] : [],
+        reports: reports[task.id.value].map { [task.id.value: $0] } ?? [:],
         noun: noun, interactive: false, open: { _ in }
       )
       .frame(height: 150)
@@ -324,6 +368,24 @@ struct TaskView: View {
     if let lockedBy = task.lockedBy, lockedBy != session.view.userID {
       banner("Someone else may be checking this \(noun.one) right now. You can still answer.")
     }
+    // Someone else's report, from the campaign list (design/not-here-moved.md §4). The reporter
+    // sees their own saved line instead.
+    if !checked, campaigns.justReported[task.id.value] == nil,
+      let text = reportBanner(reports[task.id.value], at: TaskLocation.coordinate(task))
+    {
+      banner(text)
+    }
+  }
+
+  private func reportBanner(_ report: TaskReport?, at place: CLLocationCoordinate2D?) -> String? {
+    switch report {
+    case .notHere?: return Wording.someoneReportedNotHere(noun)
+    case .moved(let lat, let lon)?:
+      guard let place else { return nil }
+      return Wording.someoneReportedMoved(
+        TaskLocation.meters(place, CLLocationCoordinate2D(latitude: lat, longitude: lon)), noun)
+    case nil: return nil
+    }
   }
 
   private func banner(_ text: String) -> some View {
@@ -346,12 +408,52 @@ struct TaskView: View {
     if !c.canEditOsm {
       Text("This sign-in can't save answers to OpenStreetMap.")
       bigButton("Sign in again") { signIn() }
+    } else if let report {
+      reportReview(c, loaded, form, report)
     } else if step < questions.count {
       question(c, form, questions[step], index: step, of: questions.count)
     } else {
       review(c, loaded, form)
     }
-    problems(c, loaded, form)
+    if report == nil { problems(c, loaded, form) }
+  }
+
+  /// "Check your report" (§3.1, §3.2 step 4): what will be sent, then Done or Back. For a move,
+  /// the header map shows the spot.
+  @ViewBuilder private func reportReview(
+    _ c: TaskWorkController, _ loaded: LoadedTask, _ form: ChoiceForm, _ action: ChoiceAction
+  ) -> some View {
+    Text(Wording.checkReport).font(.title2.weight(.semibold)).accessibilityAddTraits(.isHeader)
+    VStack(alignment: .leading, spacing: 8) {
+      Text(Wording.reporting).font(.headline)
+      Text(reportLine(action) ?? "")
+    }
+    .accessibilityElement(children: .combine)
+    Text(action == .outcome(.notHere) ? Wording.reportNotHereNote : Wording.reportMovedNote)
+    bigButton(preview != nil ? Wording.donePreview : Wording.done, prominent: true) { c.perform(action) }
+      .disabled(!c.offers(loaded.task, form, action))
+    bigButton("Back") { report = nil }
+  }
+
+  /// "The stop isn't here." / "The stop has moved, about 30 m from where the map has it."
+  private func reportLine(_ action: ChoiceAction) -> String? {
+    switch action {
+    case .outcome(let outcome) where outcome == .notHere: return Wording.reportNotHere(noun)
+    case .moved(let spot):
+      guard let place = here else { return nil }
+      return Wording.reportMoved(
+        TaskLocation.meters(place, CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)), noun)
+    default: return nil
+    }
+  }
+
+  /// The saved line for a report, or nil for anything else.
+  private func reportedLine(_ action: ChoiceAction) -> String? {
+    switch action {
+    case .outcome(let outcome) where outcome == .notHere: Wording.reportedNotHere
+    case .moved: Wording.reportedMoved
+    default: nil
+    }
   }
 
   @ViewBuilder private func question(
@@ -444,28 +546,74 @@ struct TaskView: View {
     }
   }
 
-  /// "Something's wrong here": the challenge's outcomes, Too hard to tell, and Skip.
+  /// The "Something's wrong here" button; the sheet lists the choices.
   @ViewBuilder private func problems(_ c: TaskWorkController, _ loaded: LoadedTask, _ form: ChoiceForm) -> some View {
+    Divider().padding(.vertical, 4)
+    Button(Wording.somethingWrong, systemImage: "exclamationmark.bubble") { showProblems = true }
+      .frame(maxWidth: .infinity, minHeight: 44)
+  }
+
+  private func pick(_ action: @escaping () -> Void) {
+    afterProblems = action
+    showProblems = false
+  }
+
+  private func runAfterProblems() {
+    let action = afterProblems
+    afterProblems = nil
+    action?()
+  }
+
+  /// "Something's wrong here" (design/not-here-moved.md §2): least consequence first. Skip, "I
+  /// can't check", "It's not here", "It's moved", then the campaign's own outcomes, each with a line
+  /// on what it means.
+  private func problemsSheet(_ c: TaskWorkController, _ loaded: LoadedTask, _ form: ChoiceForm) -> some View {
     let outcomes = form.outcomes.filter { c.offers(loaded.task, form, .outcome($0)) }
-    let canSkip = c.offers(loaded.task, form, .skip)
-    if !outcomes.isEmpty || canSkip {
-      Divider().padding(.vertical, 4)
-      Button(Wording.somethingWrong, systemImage: "exclamationmark.bubble") { showProblems = true }
-        .frame(maxWidth: .infinity, minHeight: 44)
-        .confirmationDialog(Wording.somethingWrong, isPresented: $showProblems, titleVisibility: .visible) {
-          // Lightest first: Skip, then "can't check", then the challenge's outcomes.
-          if canSkip { Button(Wording.skip(noun)) { c.perform(.skip) } }
-          if let tooHard = outcomes.first(where: { $0.id == ChoiceOutcome.tooHardID }) {
-            Button(Wording.cantCheck(noun)) { choose(c, loaded, form, .outcome(tooHard)) }
+    let tooHard = outcomes.first { $0.id == ChoiceOutcome.tooHardID }
+    let details = showDetails ? Wording.reportDetails : nil
+    return NavigationStack {
+      ScrollView {
+        VStack(alignment: .leading, spacing: 12) {
+          Text(Wording.problemsMessage).foregroundStyle(.secondary)
+          if c.offers(loaded.task, form, .skip) {
+            answerButton(Wording.skip(noun), detail: Wording.skipExplained, tags: nil, selected: false) {
+              pick { c.perform(.skip) }
+            }
+          }
+          if let tooHard {
+            answerButton(Wording.cantCheck(noun), detail: Wording.cantCheckExplained, tags: nil, selected: false) {
+              pick { choose(c, loaded, form, .outcome(tooHard)) }
+            }
+          }
+          answerButton(Wording.notHere, detail: Wording.notHereExplained(noun), tags: details, selected: false) {
+            pick {
+              switchNotice = nil
+              report = .outcome(.notHere)
+            }
+          }
+          if here != nil {
+            answerButton(Wording.moved, detail: Wording.movedExplained, tags: details, selected: false) {
+              pick {
+                switchNotice = nil
+                pickingSpot = true
+              }
+            }
           }
           ForEach(outcomes.filter { $0.id != ChoiceOutcome.tooHardID }) { outcome in
-            Button(outcome.label) { choose(c, loaded, form, .outcome(outcome)) }
+            answerButton(outcome.label, detail: outcome.description, tags: nil, selected: false) {
+              pick { choose(c, loaded, form, .outcome(outcome)) }
+            }
           }
-          Button("Cancel", role: .cancel) {}
-        } message: {
-          Text(Wording.problemsMessage(noun, gone: outcomes.first { $0.deletesElement || $0.id == "gone" }?.label))
         }
+        .padding()
+      }
+      .navigationTitle(Wording.somethingWrong)
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) { Button(Wording.cancel) { showProblems = false } }
+      }
     }
+    .presentationDetents([.large])
   }
 
   /// Outcomes run directly, except a delete, which always confirms (not in preview: nothing is sent).
@@ -505,14 +653,15 @@ struct TaskView: View {
     } else {
       Label {
         Text(
-          d.savedForLater
-            ? Wording.savedForLater(campaigns.checkedToday(d.loaded.challenge.id.value), noun)
-            : Wording.saved(campaigns.checkedToday(d.loaded.challenge.id.value), noun))
+          reportedLine(d.action)
+            ?? (d.savedForLater
+              ? Wording.savedForLater(campaigns.checkedToday(d.loaded.challenge.id.value), noun)
+              : Wording.saved(campaigns.checkedToday(d.loaded.challenge.id.value), noun)))
       } icon: {
         Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
       }
       .font(.title3.weight(.semibold))
-      if d.savedForLater && campaigns.checkedToday(d.loaded.challenge.id.value) <= 3 {
+      if d.savedForLater && !d.action.isReport && campaigns.checkedToday(d.loaded.challenge.id.value) <= 3 {
         // Only the first few times: by then the participant knows.
         Text(Wording.savedForLaterNote).font(.footnote).foregroundStyle(.secondary)
       }
@@ -533,7 +682,7 @@ struct TaskView: View {
     let count = preview?.savedCount(including: loaded.task.id.value) ?? 1
     VStack(alignment: .leading, spacing: 6) {
       Text(Wording.previewNotSaved).font(.title3.weight(.semibold))
-      Text(Wording.previewWouldSay(Wording.saved(count, noun)))
+      Text(Wording.previewWouldSay(reportedLine(action) ?? Wording.saved(count, noun)))
     }
     if showDetails {
       switch action {
@@ -547,6 +696,8 @@ struct TaskView: View {
             outcome, element: form.work.element, notDeletable: form.notDeletable.contains(outcome.id))
         )
         .font(.footnote).foregroundStyle(.secondary)
+      case .moved:
+        Text(Wording.reportDetails).font(.footnote).foregroundStyle(.secondary)
       case .skip:
         EmptyView()
       }
@@ -672,6 +823,7 @@ struct TaskView: View {
       summary = TaskText.outcomeSummary(
         outcome, element: state.form.work.element, taskID: id, me: me, osmServer: session.osmServer,
         notDeletable: state.form.notDeletable.contains(outcome.id))
+    case .moved: summary = reportLine(state.action) ?? ""
     case .skip: return
     }
     confirmation = Confirmation(

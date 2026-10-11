@@ -15,8 +15,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/mvexel/maproulette-mobile-sdk",
       "state" : {
-        "revision" : "b6f317719f6f824b538c78215868cb062f96913b",
-        "version" : "0.2.0"
+        "revision" : "5c0f7865add70bf096e5ac653be7f123b07bc52b"
       }
     }
   ],

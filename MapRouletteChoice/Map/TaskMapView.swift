@@ -1,5 +1,6 @@
 @preconcurrency import MapLibre
 import CoreLocation
+import MapRoulette
 import SwiftUI
 
 /// A MapLibre map (OpenFreeMap style by default) of a campaign's places, with the brand pins
@@ -7,13 +8,17 @@ import SwiftUI
 /// answers), each a different shape. Tapping a pin shows its name; tapping the callout opens it.
 /// With VoiceOver, activating a pin to check opens it directly. Pins are added nearest to
 /// `origin` first (else north to south), which is the order VoiceOver reads them.
-/// `done` marks finished tasks; `interactive` false gives a fixed preview map.
+/// `done` marks finished tasks; `interactive` false gives a fixed preview map. A place someone
+/// reported (design/not-here-moved.md §4) reads "Needs another look"; a moved one also gets a small
+/// gray dot at the reported spot, joined to its pin by a dashed line.
 struct TaskMapView: UIViewRepresentable {
   let styleURL: URL
   let tasks: [LocatedTask]
   var done: Set<Int64> = []
   /// Of `done`: saved for later (guest), not on the map yet.
   var pending: Set<Int64> = []
+  /// Reported as not here or moved.
+  var reports: [Int64: TaskReport] = [:]
   /// The user's location, for the VoiceOver reading order.
   var origin: CLLocationCoordinate2D?
   var noun = Noun.place
@@ -47,7 +52,8 @@ struct TaskMapView: UIViewRepresentable {
   func updateUIView(_ map: MLNMapView, context: Context) {
     context.coordinator.open = open
     if map.showsUserLocation != Self.locationAllowed { map.showsUserLocation = Self.locationAllowed }
-    context.coordinator.show(tasks, done: done, pending: pending, origin: origin, noun: noun, on: map)
+    context.coordinator.show(
+      tasks, done: done, pending: pending, reports: reports, origin: origin, noun: noun, on: map)
   }
 
   private static var locationAllowed: Bool {
@@ -61,10 +67,12 @@ struct TaskMapView: UIViewRepresentable {
   /// checking are not on the map, so there is no stale pin.
   enum Pin: Equatable {
     case toCheck, done, pending
+    /// Open, but someone reported it not here or moved. It can still be opened.
+    case reported
 
-    /// `pending` only counts for a done place.
-    init(done: Bool, pending: Bool) {
-      self = done ? (pending ? .pending : .done) : .toCheck
+    /// `pending` only counts for a done place, `reported` only for an open one.
+    init(done: Bool, pending: Bool, reported: Bool = false) {
+      self = done ? (pending ? .pending : .done) : reported ? .reported : .toCheck
     }
 
     var imageName: String {
@@ -72,6 +80,7 @@ struct TaskMapView: UIViewRepresentable {
       case .toCheck: "PinTodo"
       case .done: "PinDone"
       case .pending: "PinPending"
+      case .reported: "PinLook"
       }
     }
 
@@ -81,14 +90,40 @@ struct TaskMapView: UIViewRepresentable {
       case .toCheck: "To check"
       case .done: "Already checked"
       case .pending: "Saved, not on the map yet"
+      case .reported: Wording.needsAnotherLook
       }
     }
 
-    /// What activating the pin does; only places to check open.
-    var accessibilityHint: String? { self == .toCheck ? "Opens the questions" : nil }
+    /// Places to check and reported ones open.
+    var opens: Bool { self == .toCheck || self == .reported }
+
+    /// What activating the pin does.
+    var accessibilityHint: String? { opens ? "Opens the questions" : nil }
 
     /// The callout's second line, for sighted users.
     var calloutSubtitle: String { self == .toCheck ? "Tap to answer" : accessibilityValue }
+  }
+
+  /// Where someone reported a moved place to be: a small gray dot, not a VoiceOver element (the
+  /// place's pin says it needs another look).
+  final class ReportedSpot: MLNPointAnnotation {}
+
+  final class ReportedSpotView: MLNAnnotationView {
+    static let reuseID = "reported"
+
+    init(reuseID: String) {
+      super.init(annotation: nil, reuseIdentifier: reuseID)
+      frame = CGRect(x: 0, y: 0, width: 12, height: 12)
+      scalesWithViewingDistance = false
+      backgroundColor = .systemGray
+      layer.cornerRadius = 6
+      layer.borderWidth = 2
+      layer.borderColor = UIColor.white.cgColor
+      isAccessibilityElement = false
+      accessibilityElementsHidden = true
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
   }
 
   final class TaskAnnotation: MLNPointAnnotation {
@@ -162,33 +197,40 @@ struct TaskMapView: UIViewRepresentable {
     private var shown: [Int64] = []
     private var shownDone: Set<Int64> = []
     private var shownPending: Set<Int64> = []
+    private var shownReports: [Int64: TaskReport] = [:]
+    /// Pin to reported spot, for each moved place; drawn once the style has loaded.
+    private var reportLines: [[CLLocationCoordinate2D]] = []
     private var shownOrigin: CLLocationCoordinate2D?
     private var fitted = false
 
     init(open: @escaping (Int64) -> Void) { self.open = open }
 
     func show(
-      _ tasks: [LocatedTask], done: Set<Int64>, pending: Set<Int64>, origin: CLLocationCoordinate2D?, noun: Noun,
-      on map: MLNMapView
+      _ tasks: [LocatedTask], done: Set<Int64>, pending: Set<Int64>, reports: [Int64: TaskReport],
+      origin: CLLocationCoordinate2D?, noun: Noun, on map: MLNMapView
     ) {
       let ids = tasks.map(\.id)
       let moved = origin?.latitude != shownOrigin?.latitude || origin?.longitude != shownOrigin?.longitude
-      guard ids != shown || done != shownDone || pending != shownPending || moved else { return }
+      guard ids != shown || done != shownDone || pending != shownPending || reports != shownReports || moved
+      else { return }
       let refit = ids != shown && !fitted
       shown = ids
       shownDone = done
       shownPending = pending
+      shownReports = reports
       shownOrigin = origin
-      if let old = map.annotations?.filter({ $0 is TaskAnnotation }), !old.isEmpty {
+      if let old = map.annotations?.filter({ $0 is TaskAnnotation || $0 is ReportedSpot }), !old.isEmpty {
         map.removeAnnotations(old)
       }
+      showReportedSpots(tasks, done: done, reports: reports, on: map)
       // VoiceOver reads pins in the order they are added: nearest first.
       let from = origin ?? map.userLocation?.location?.coordinate
       let annotations: [TaskAnnotation] = TaskLocation.mapOrder(tasks, from: from).compactMap { task in
         guard let coordinate = task.coordinate else { return nil }
         let a = TaskAnnotation()
         a.taskID = task.id
-        a.pin = Pin(done: done.contains(task.id), pending: pending.contains(task.id))
+        a.pin = Pin(
+          done: done.contains(task.id), pending: pending.contains(task.id), reported: reports[task.id] != nil)
         a.coordinate = coordinate
         a.title = Wording.placeName(task.task, noun)
         a.subtitle = a.pin.calloutSubtitle
@@ -205,6 +247,46 @@ struct TaskMapView: UIViewRepresentable {
       } else {
         map.showAnnotations(annotations, animated: true)
       }
+    }
+
+    /// A dot and a dashed line for each open place reported as moved. Added before the pins, so
+    /// they sit underneath.
+    private func showReportedSpots(
+      _ tasks: [LocatedTask], done: Set<Int64>, reports: [Int64: TaskReport], on map: MLNMapView
+    ) {
+      var spots: [ReportedSpot] = []
+      reportLines = []
+      for task in tasks where !done.contains(task.id) {
+        guard let from = task.coordinate, case .moved(let lat, let lon)? = reports[task.id] else { continue }
+        let spot = ReportedSpot()
+        spot.coordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        spots.append(spot)
+        reportLines.append([from, spot.coordinate])
+      }
+      if !spots.isEmpty { map.addAnnotations(spots) }
+      if let style = map.style { Self.drawLines(reportLines, in: style) }
+    }
+
+    static let reportLinesID = "reported-lines"
+
+    /// One dashed gray line per pair, in a shape source the delegate refreshes.
+    static func drawLines(_ lines: [[CLLocationCoordinate2D]], in style: MLNStyle) {
+      let shapes = lines.map { points in
+        var points = points
+        return MLNPolylineFeature(coordinates: &points, count: UInt(points.count))
+      }
+      let collection = MLNShapeCollectionFeature(shapes: shapes)
+      if let source = style.source(withIdentifier: reportLinesID) as? MLNShapeSource {
+        source.shape = collection
+        return
+      }
+      let source = MLNShapeSource(identifier: reportLinesID, shape: collection, options: nil)
+      style.addSource(source)
+      let line = MLNLineStyleLayer(identifier: reportLinesID, source: source)
+      line.lineColor = NSExpression(forConstantValue: UIColor.systemGray)
+      line.lineWidth = NSExpression(forConstantValue: 2)
+      line.lineDashPattern = NSExpression(forConstantValue: [2, 1.5])
+      style.addLayer(line)
     }
 
     /// Symbol layers from these OpenMapTiles source layers (shops, bus stops, stations, airports)
@@ -224,17 +306,22 @@ struct TaskMapView: UIViewRepresentable {
           symbols.isVisible = false
         }
       }
+      Self.drawLines(reportLines, in: style)
     }
 
     /// Pins are views rather than annotation images, for a 44 pt touch target and their own
     /// VoiceOver value. The user location (not a TaskAnnotation) keeps MapLibre's puck.
     func mapView(_ mapView: MLNMapView, viewFor annotation: any MLNAnnotation) -> MLNAnnotationView? {
+      if annotation is ReportedSpot {
+        return mapView.dequeueReusableAnnotationView(withIdentifier: ReportedSpotView.reuseID)
+          ?? ReportedSpotView(reuseID: ReportedSpotView.reuseID)
+      }
       guard let task = annotation as? TaskAnnotation else { return nil }
       let view =
         mapView.dequeueReusableAnnotationView(withIdentifier: PinView.reuseID) as? PinView
         ?? PinView(reuseID: PinView.reuseID)
       let id = task.taskID
-      view.configure(task, onActivate: task.pin == .toCheck ? { [weak self] in self?.open(id) } : nil)
+      view.configure(task, onActivate: task.pin.opens ? { [weak self] in self?.open(id) } : nil)
       return view
     }
 
@@ -265,7 +352,7 @@ struct TaskMapView: UIViewRepresentable {
     }
 
     private func openIfToCheck(_ task: TaskAnnotation, on mapView: MLNMapView) {
-      guard task.pin == .toCheck else { return }
+      guard task.pin.opens else { return }
       mapView.deselectAnnotation(task, animated: false)
       open(task.taskID)
     }

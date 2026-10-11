@@ -219,11 +219,19 @@ import Testing
 }
 
 @Suite struct ProblemsTextTests {
-  @Test func messageExplainsEachChoiceInOrder() {
+  /// design/not-here-moved.md §7.
+  @Test func notHereAndMovedCopy() {
     let stops = Noun.from(match: ["highway": "bus_stop"])
-    #expect(
-      Wording.problemsMessage(stops, gone: "Stop is gone")
-        == "Skip leaves it for someone else. “I can't check this stop” tells the organizer it needs another look. “Stop is gone” reports that the stop isn't there anymore.")
-    #expect(Wording.problemsMessage(stops).hasSuffix("needs another look."))
+    #expect(Wording.problemsMessage == "Nothing here changes OpenStreetMap. The organizer checks every report.")
+    #expect(Wording.notHereExplained(stops) == "You're at the spot and there's no stop.")
+    #expect(Wording.movedTitle(stops) == "Where is the stop now?")
+    #expect(Wording.reportMoved(31, stops) == "The stop has moved, about 30 m from where the map has it.")
+    #expect(Wording.someoneReportedMoved(28, stops) == "Someone reported this stop moved, about 30 m.")
+    #expect(Wording.movedFar(212, stops) == "That's 210 m away. If it's a different stop, use “It's not here” instead.")
+  }
+
+  /// Under 100 m to the nearest 5 m, then to the nearest 10 m.
+  @Test func distancesAreRounded() {
+    #expect([2, 31, 33, 97, 104, 156].map(Wording.roundedMeters) == [0, 30, 35, 95, 100, 160])
   }
 }

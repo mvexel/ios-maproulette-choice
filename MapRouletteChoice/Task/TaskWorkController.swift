@@ -60,7 +60,10 @@ struct PreviewTaskOps: TaskOps {
 enum ChoiceAction: Equatable, Sendable {
   /// Question id → option id; questions left out are "Can't tell".
   case answers([String: String])
+  /// A campaign outcome, Too hard, or the built-in "It's not here" (`ChoiceOutcome.notHere`).
   case outcome(ChoiceOutcome)
+  /// The built-in "It's moved", with the spot the participant picked.
+  case moved(MovedLocation)
   case skip
 
   /// Whether the action edits OpenStreetMap (needs `osm:tagfix`).
@@ -68,7 +71,26 @@ enum ChoiceAction: Equatable, Sendable {
     switch self {
     case .answers: true
     case .outcome(let outcome): outcome.deletesElement
-    case .skip: false
+    case .moved, .skip: false
+    }
+  }
+
+  /// "It's not here" or "It's moved" (design/not-here-moved.md): a report for the organizer.
+  var isReport: Bool {
+    switch self {
+    case .outcome(let outcome): outcome == .notHere
+    case .moved: true
+    case .answers, .skip: false
+    }
+  }
+
+  /// What the SDK sends; nil for a skip.
+  var submission: ChoiceSubmission? {
+    switch self {
+    case .answers(let answers): .answers(answers)
+    case .outcome(let outcome): .outcome(outcome)
+    case .moved(let location): .moved(location)
+    case .skip: nil
     }
   }
 }
@@ -132,6 +154,15 @@ enum TaskScreen: Sendable {
     var checking = false
     /// A guest's answers: saved on the server, not on the map yet. The task itself is unchanged.
     var savedForLater = false
+
+    /// The report this records, for lists and maps: not here, or moved to the picked spot.
+    var report: TaskReport? {
+      switch action {
+      case .outcome(let outcome) where outcome == .notHere: .notHere
+      case .moved(let spot): .moved(latitude: spot.latitude, longitude: spot.longitude)
+      default: nil
+      }
+    }
   }
   /// The submission may still land (unknown outcome, pending submission or status). Never resent
   /// automatically; the user re-reads with Check again. `canResend`: the user may send the
@@ -311,7 +342,8 @@ enum TaskScreen: Sendable {
         && answers.allSatisfy { q, o in
           form.work.questions.contains { $0.id == q && $0.options.contains { $0.id == o } }
         }
-    case .outcome(let outcome): return form.outcomes.contains(outcome)
+    case .outcome(let outcome): return outcome == .notHere || form.outcomes.contains(outcome)
+    case .moved: return true
     case .skip: return task.canSkip()
     }
   }
@@ -392,11 +424,8 @@ enum TaskScreen: Sendable {
     job = Task {
       let result = await Task.detached { () async -> Result<PendingChoice, any Error> in
         do {
-          switch action {
-          case .answers(let answers): return .success(try await ops.submitPendingChoice(loaded.task, .answers(answers)))
-          case .outcome(let outcome): return .success(try await ops.submitPendingChoice(loaded.task, .outcome(outcome)))
-          case .skip: throw CancellationError()
-          }
+          guard let submission = action.submission else { throw CancellationError() }
+          return .success(try await ops.submitPendingChoice(loaded.task, submission))
         } catch {
           return .failure(error)
         }
@@ -460,13 +489,11 @@ enum TaskScreen: Sendable {
     -> Result<ChoiceResult?, any Error>
   {
     do {
-      switch action {
-      case .answers(let answers): return .success(try await ops.submitChoice(task, .answers(answers)))
-      case .outcome(let outcome): return .success(try await ops.submitChoice(task, .outcome(outcome)))
-      case .skip:
+      guard let submission = action.submission else {
         try await ops.skipTask(task.id)
         return .success(nil)
       }
+      return .success(try await ops.submitChoice(task, submission))
     } catch {
       return .failure(error)
     }
@@ -522,6 +549,8 @@ enum TaskScreen: Sendable {
       return checkAgain("The connection failed before MapRoulette confirmed the result. It was not sent again.", .unknown)
     case .choice(.invalidSubmission)?:
       return answering("Your answers weren't accepted. Nothing was saved. Try again, or skip this \(noun.one).")
+    case .choice(.movedTooFar)?:
+      return answering(Wording.movedTooFar(noun))
     case .choice(.unsupportedTask)?:
       return .notAvailable(
         loaded, reason: "MapRoulette cannot process this task's questions. Complete it on the MapRoulette website.")
@@ -584,6 +613,7 @@ enum TaskScreen: Sendable {
     switch pending.action {
     case .answers: target = .fixed
     case .outcome(let outcome): target = outcome.resolution
+    case .moved: target = .tooHard
     case .skip:  // Not reached: an uncertain skip goes straight to Skipped.
       publish(.skipped(loaded, uncertain: true))
       return
