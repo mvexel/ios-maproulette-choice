@@ -250,7 +250,7 @@
         ]
       }
       return [
-        "meta": ["version": 2, "type": 3, "choiceVersion": 1],
+        "meta": ["version": 2, "type": 3, "choiceVersion": 1], "liveMissingQuestions": true,
         "element": "node/\(element)", "match": ["highway": "bus_stop"],
         "questions": [
           yesNo(
@@ -272,7 +272,7 @@
         values.map { ["id": $0.0, "label": $0.1, "setTags": [key: $0.0.hasPrefix("c") ? String($0.0.dropFirst()) : $0.0]] }
       }
       return [
-        "meta": ["version": 2, "type": 3, "choiceVersion": 1],
+        "meta": ["version": 2, "type": 3, "choiceVersion": 1], "liveMissingQuestions": true,
         "element": "node/\(element)", "match": ["amenity": "bench"],
         "questions": [
           [

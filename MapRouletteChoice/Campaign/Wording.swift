@@ -47,6 +47,10 @@ enum Wording {
   static let notSure = "I'm not sure"
   static let notSureShort = "Not sure"
   static let somethingWrong = "Something's wrong here"
+  /// A guest on a task that can't hold answers until sign-in.
+  static func accountNeeded(_ noun: Noun) -> String {
+    "Answering this \(noun.one) needs an OpenStreetMap account. Sign in to answer it, or go on to the next one."
+  }
   static func cantCheck(_ noun: Noun) -> String { "I can't check this \(noun.one)" }
 
   // MARK: "Something's wrong here" (design/not-here-moved.md §2, §7)

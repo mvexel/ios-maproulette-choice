@@ -305,6 +305,10 @@ struct TaskView: View {
       Text(reason)
       bigButton("Sign in again") { signIn() }
       backButton()
+    case .accountNeeded:
+      Text(Wording.accountNeeded(noun))
+      bigButton("Sign in with OpenStreetMap", prominent: true) { signIn() }
+      nextButtons(prominent: false)
     case .elementInUse(let loaded, let form, let outcome):
       elementInUse(c, loaded, form, outcome)
     }
