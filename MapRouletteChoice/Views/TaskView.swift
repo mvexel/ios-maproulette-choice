@@ -219,7 +219,7 @@ struct TaskView: View {
 
   private var nextPlace: LocatedTask? {
     TaskLocation.nearest(
-      from: here, in: candidates, excluding: visited.union(campaigns.justDone).union(allReports.keys))
+      from: here, in: candidates, excluding: visited.union(campaigns.justDone).union(campaigns.lookAgain(allReports)))
   }
 
   private func open(_ next: LocatedTask) {
