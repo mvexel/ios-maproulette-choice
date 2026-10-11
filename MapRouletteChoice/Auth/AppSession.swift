@@ -203,8 +203,8 @@ struct SessionClient: Sendable {
   private func signedInMessage() -> String {
     let limit =
       !writesConfigured ? ""
-      : !scopes.contains(Self.writeScope) || !scopes.contains(Self.tagfixScope) ? ". This sign-in can't save answers." : ""
-    return "Signed in with OpenStreetMap\(limit)"
+      : !scopes.contains(Self.writeScope) || !scopes.contains(Self.tagfixScope) ? " This sign-in can't save answers." : ""
+    return Wording.signedIn(view.displayName) + limit
   }
 
   private func signedInDetail() -> String {

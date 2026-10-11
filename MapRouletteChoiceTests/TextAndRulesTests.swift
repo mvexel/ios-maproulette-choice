@@ -245,6 +245,7 @@ import Testing
     #expect(line(.reauth) == "Sign in again so we can put your saved answers on the map.")
     #expect(line(.later) == who + "Your answers are still saved. We'll try again next time you open the app.")
     #expect(Wording.claimMessage(.later, name: nil).hasPrefix("You're signed in with OpenStreetMap. "))
+    #expect(Wording.signedIn("rosa_slc") == "You're signed in as rosa_slc.")
   }
 
   @Test func dayNeverWraps() {

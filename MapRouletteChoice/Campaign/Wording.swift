@@ -158,11 +158,15 @@ enum Wording {
   /// Phone sign-in claims the saved answers (B5), so the original line is true again
   /// (design/copy-fixes-2026-10-11.md row 5).
   static let signInPutsOnMap = "Sign in now and your saved answers go on the map right away."
+  /// The account line after sign-in (copy-fixes-2026-10-11.md): the OSM name when known.
+  static func signedIn(_ name: String?) -> String {
+    name.map { "You're signed in as \($0)." } ?? "You're signed in with OpenStreetMap."
+  }
   /// After a phone sign-in with saved answers (B5; design/copy-fixes-2026-10-11.md, "Phone claim
   /// status line"). `name` is the signed-in OSM account, which matters when the answers turn out
   /// to be linked to another one.
   static func claimMessage(_ outcome: AppSession.ClaimOutcome, name: String?) -> String {
-    let who = name.map { "You're signed in as \($0)." } ?? "You're signed in with OpenStreetMap."
+    let who = signedIn(name)
     switch outcome {
     case .started(let pending, let waiting):
       guard pending > 0 else { return "\(who) New answers go straight on the map from now on." }
