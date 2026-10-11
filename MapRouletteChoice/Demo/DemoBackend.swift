@@ -14,7 +14,12 @@
   /// `-demoReported` starts with 187 reported moved (about 30 m) and 185 reported not here
   /// (design/not-here-moved.md), for the banner and map dot (`seededReports`).
   /// `-demoClaimed` answers the finish-link request with 409 `guest_claimed`, for the claimed copy.
+  /// `-demoWoodbine` serves the first pilot, "Woodbine entrance doors" (design/woodbine-campaign.md),
+  /// on eight real entrance nodes around Woodbine Food Hall; 188 already has `door`, so only the
+  /// automatic-opening question is asked there (`liveMissingQuestions`).
   actor DemoBackend: Transport {
+    enum Campaign: Sendable { case benches, stops, woodbine }
+
     static let challengeID: Int64 = 3
     static let taskIDs: [Int64] = Array(184...191)
     /// The demo account: MapRoulette user 7, OpenStreetMap username "rosa_slc".
@@ -27,15 +32,20 @@
       184: "900 E & 1300 S", 185: "900 E & Kensington Ave", 186: "1300 S & 800 E", 187: "1300 S & 1000 E",
       188: "900 E & Bryan Ave", 189: "Sugar House Park & Ride", 190: "900 E & Emerson Ave", 191: "1100 E & 1300 S",
     ]
-    let stops: Bool
+    let campaign: Campaign
+    private var stops: Bool { campaign == .stops }
+    /// The campaign a demo launch asks for.
+    static func demoCampaign(_ args: [String]) -> Campaign {
+      args.contains("-demoWoodbine") ? .woodbine : args.contains("-demoStops") ? .stops : .benches
+    }
     let draft: Bool
     private var pending: [Int64: Date] = [:]
     private var email = "none"
     /// When the guest's saved answers are removed.
     private var expiresAt = Date().addingTimeInterval(14 * 86400)
 
-    init(stops: Bool = false, closing: Bool = false, draft: Bool = false, reported: Bool = false) {
-      self.stops = stops
+    init(campaign: Campaign = .benches, closing: Bool = false, draft: Bool = false, reported: Bool = false) {
+      self.campaign = campaign
       self.draft = draft
       if reported {
         status[185] = 6
@@ -55,8 +65,8 @@
 
     /// `-demoReported`'s reports. The campaign status read (E1) will serve these; until it exists the
     /// campaign screen takes them straight from here.
-    static func seededReports(stops: Bool) -> [Int64: TaskReport] {
-      let (lat, lng) = coordinate(187, stops: stops)
+    static func seededReports(_ campaign: Campaign) -> [Int64: TaskReport] {
+      let (lat, lng) = coordinate(187, campaign)
       return [185: .notHere, 187: .moved(latitude: lat + 0.00025, longitude: lng + 0.0001)]
     }
 
@@ -86,6 +96,8 @@
       case (.get, let p) where p.count == 4 && p[2] == "choice" && p[3] == "check":
         switch id(p[1]) {
         case 191?: return ok(["eligible": false, "reason": "key_changed"])
+        case 188? where campaign == .woodbine:
+          return ok(["eligible": true, "deleteAllowed": true, "questionIds": ["automatic-opening"]])
         case _?: return ok(["eligible": true, "deleteAllowed": true])
         case nil: return notFound
         }
@@ -178,6 +190,16 @@
     }
 
     private var published: [String: Any] {
+      if campaign == .woodbine {
+        return [
+          "id": Self.challengeID, "parent": 1, "name": "Woodbine entrance doors",
+          "description":
+            "Help map the doors around Woodbine Food Hall. At each entrance, check how the door opens and whether it opens by itself, so people with wheelchairs, strollers or walkers know what to expect.",
+          "instruction":
+            "Survey the door at the mapped entrance node. Sets door=* and automatic_door=* only when missing. No geometry changes.",
+          "enabled": true, "cooperativeType": 3, "tags": ["mobile-survey-v1"],
+        ]
+      }
       if stops {
         return [
           "id": Self.challengeID, "parent": 1, "name": "SLC Bus Stops",
@@ -195,44 +217,74 @@
       ]
     }
 
-    private func coordinate(_ id: Int64) -> (Double, Double) { Self.coordinate(id, stops: stops) }
+    private func coordinate(_ id: Int64) -> (Double, Double) { Self.coordinate(id, campaign) }
+
+    /// Real entrance nodes near Woodbine Food Hall, Salt Lake City (graveyard C-001 inventory):
+    /// task id to node id, `entrance` value and position.
+    private static let entrances: [Int64: (node: Int64, entrance: String, lat: Double, lng: Double)] = [
+      184: (14178183367, "main", 40.7538166, -111.9068120), 185: (14178183369, "yes", 40.7535743, -111.9068124),
+      186: (14178183390, "main", 40.7527671, -111.9056331), 187: (10290204107, "yes", 40.7561096, -111.9078998),
+      188: (12790552134, "yes", 40.7565212, -111.9015878), 189: (13689903758, "main", 40.7521289, -111.9005183),
+      190: (13302228244, "yes", 40.7567798, -111.9015054), 191: (10290204100, "main", 40.7580994, -111.9004649),
+    ]
 
     /// Spread around Library Square, a few minutes' walk apart.
-    private static func coordinate(_ id: Int64, stops: Bool) -> (Double, Double) {
+    private static func coordinate(_ id: Int64, _ campaign: Campaign) -> (Double, Double) {
       let i = Double(id - 184)
-      if stops {  // along 900 E and 1300 S, around their corner
+      if campaign == .woodbine, let e = entrances[id] { return (e.lat, e.lng) }
+      if campaign == .stops {  // along 900 E and 1300 S, around their corner
         return id.isMultiple(of: 2)
           ? (40.7390 - 0.0018 * (i / 2 - 1), -111.8648) : (40.7393, -111.8648 + 0.0022 * ((i - 1) / 2 - 1.5))
       }
       return (40.7600 + 0.0011 * (i - 3.5), -111.8860 + 0.0016 * (i.truncatingRemainder(dividingBy: 3) - 1))
     }
 
+    private func elementID(_ id: Int64) -> Int64 {
+      campaign == .woodbine ? Self.entrances[id]?.node ?? id + 1000 : id + 1000
+    }
+
     private func summary(_ id: Int64) -> [String: Any] {
       let (lat, lng) = coordinate(id)
       return [
-        "id": id, "parentId": Self.challengeID, "title": "node/\(id + 1000)", "status": status[id] ?? 0,
+        "id": id, "parentId": Self.challengeID, "title": "node/\(elementID(id))", "status": status[id] ?? 0,
         "point": ["lat": lat, "lng": lng],
       ]
     }
 
     private func task(_ id: Int64) -> [String: Any] {
       let (lat, lng) = coordinate(id)
-      var properties: [String: Any] = stops ? ["highway": "bus_stop"] : ["amenity": "bench"]
-      properties["name"] = (stops ? Self.stopNames : Self.benchNames)[id]
+      let element = elementID(id)
+      var properties: [String: Any]
+      let work: [String: Any]
+      switch campaign {
+      case .benches:
+        properties = ["amenity": "bench"]
+        properties["name"] = Self.benchNames[id]
+        work = payload(element: element)
+      case .stops:
+        properties = ["highway": "bus_stop"]
+        properties["name"] = Self.stopNames[id]
+        work = stopPayload(element: element)
+      case .woodbine:
+        let entrance = Self.entrances[id]?.entrance ?? "yes"
+        properties = ["entrance": entrance]
+        if id == 188 { properties["door"] = "hinged" }
+        work = woodbinePayload(element: element, entrance: entrance)
+      }
       var o: [String: Any] = [
-        "id": id, "parent": Self.challengeID, "name": "node/\(id + 1000)",
+        "id": id, "parent": Self.challengeID, "name": "node/\(element)",
         "instruction": "", "status": status[id] ?? 0,
         "geometries": [
           "type": "FeatureCollection",
           "features": [
             [
-              "type": "Feature", "id": "node/\(id + 1000)",
+              "type": "Feature", "id": "node/\(element)",
               "geometry": ["type": "Point", "coordinates": [lng, lat]],
               "properties": properties,
             ]
           ],
         ],
-        "cooperativeWork": stops ? stopPayload(element: id + 1000) : payload(element: id + 1000),
+        "cooperativeWork": work,
       ]
       if let by = completedBy[id] { o["completedBy"] = by }
       if let changeset = changesets[id] { o["changesetId"] = changeset }
@@ -263,6 +315,43 @@
           ),
         ],
         // "Stop is gone" is retired: the built-in "It's not here" replaces it (not-here-moved §1).
+      ]
+    }
+
+    /// The Woodbine pilot (design/woodbine-campaign.md): two questions, asked only where the tag is
+    /// missing, and one campaign outcome for open doorways.
+    private func woodbinePayload(element: Int64, entrance: String) -> [String: Any] {
+      func options(_ key: String, _ values: [(String, String, String)]) -> [[String: Any]] {
+        values.map { ["id": $0.0, "label": $0.1, "setTags": [key: $0.2]] }
+      }
+      return [
+        "meta": ["version": 2, "type": 3, "choiceVersion": 1],
+        "element": "node/\(element)", "match": ["entrance": entrance], "liveMissingQuestions": true,
+        "questions": [
+          [
+            "id": "door-type", "prompt": "How does this door open?",
+            "description": "Look only at the door at this entrance.", "expect": ["door": NSNull()],
+            "options": options(
+              "door",
+              [
+                ("hinged", "Swings open", "hinged"), ("sliding", "Slides sideways", "sliding"),
+                ("revolving", "Revolves", "revolving"), ("folding", "Folds", "folding"),
+              ]),
+          ],
+          [
+            "id": "automatic-opening", "prompt": "Does it open by itself?",
+            "description": "A door that's propped open doesn't count.", "expect": ["automatic_door": NSNull()],
+            "options": options(
+              "automatic_door",
+              [
+                ("no", "No, you push or pull it", "no"), ("button", "Yes, with a button", "button"),
+                ("motion", "Yes, when you walk up", "motion"), ("yes", "Yes, not sure how", "yes"),
+              ]),
+          ],
+        ],
+        "outcomes": [
+          ["id": "no-door", "label": "There's no door", "description": "It's an open doorway or a gate.", "status": 6]
+        ],
       ]
     }
 

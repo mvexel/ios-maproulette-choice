@@ -189,7 +189,7 @@ struct ChallengeTasksView: View {
       guard !Self.demoRouted else { return }
       Self.demoRouted = true
       let args = ProcessInfo.processInfo.arguments
-      if args.contains("-demoReported") { serverReports = DemoBackend.seededReports(stops: args.contains("-demoStops")) }
+      if args.contains("-demoReported") { serverReports = DemoBackend.seededReports(DemoBackend.demoCampaign(args)) }
       guard args.contains(where: { ["-demoMap", "-demoList", "-demoTask"].contains($0) }) else { return }
       sheet = nil
       campaigns.welcomeClosed(challengeID.value, preview: preview)

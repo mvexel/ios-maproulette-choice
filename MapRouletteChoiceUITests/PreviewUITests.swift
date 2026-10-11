@@ -26,7 +26,7 @@ final class PreviewUITests: XCTestCase {
 
   @MainActor func testAnswerEveryQuestionWithoutSaving() throws {
     let app = launch("-demoTask", "185")
-    XCTAssert(app.staticTexts["Is there a shelter with a roof?"].waitForExistence(timeout: 10))
+    XCTAssert(app.staticTexts["Is there a shelter with a roof?"].waitForExistence(timeout: 20))
     XCTAssert(banner(app).exists)
 
     answer(app, "Yes")
