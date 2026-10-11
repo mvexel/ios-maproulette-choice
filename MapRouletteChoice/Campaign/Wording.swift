@@ -48,6 +48,9 @@ enum Wording {
   static let notSureShort = "Not sure"
   static let somethingWrong = "Something's wrong here"
   /// A guest in a campaign where every open place needs an account.
+  /// A campaign guests can't answer, said once (guest-vs-signed-in-review.md).
+  static let needsAccountBadge = "Needs an OpenStreetMap account"
+  static let campaignNeedsAccount = "This campaign needs an OpenStreetMap account."
   /// Shown only while open places remain (guest-vs-signed-in-review.md point 3); a complete
   /// tally gets the normal all-checked line instead.
   static let guestCampaignTitle = "Sign in to check the rest"

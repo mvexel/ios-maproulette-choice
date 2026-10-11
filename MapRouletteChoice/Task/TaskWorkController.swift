@@ -473,7 +473,7 @@ enum TaskScreen: Sendable {
 
   /// The pending route holds a guest's answers only where the campaign re-checks live OSM per
   /// question (`cooperativeWork.liveMissingQuestions`, deferred-signup.md §4.3).
-  static func guestAnswerable(_ task: MapRouletteTask) -> Bool {
+  nonisolated static func guestAnswerable(_ task: MapRouletteTask) -> Bool {
     guard case .object(let work)? = task.cooperativeWork else { return false }
     return work["liveMissingQuestions"] == .bool(true)
   }
