@@ -80,7 +80,8 @@ struct ChallengeTasksView: View {
       switch mode {
       case .map:
         TaskMapView(
-          styleURL: session.mapStyleURL, tasks: shown, done: doneIDs, pending: pendingIDs, noun: noun) { id in navigate(to: id) }
+          styleURL: session.mapStyleURL, tasks: shown, done: doneIDs, pending: pendingIDs,
+          origin: origin, noun: noun) { id in navigate(to: id) }
           .background(Color(.secondarySystemBackground))
           .overlay {
             if tasks.isEmpty && request != nil { ProgressView("Loading…").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) }
@@ -160,19 +161,25 @@ struct ChallengeTasksView: View {
 
   // MARK: Summary
 
+  @Environment(\.dynamicTypeSize) private var typeSize
+
   @ViewBuilder private var summary: some View {
     VStack(spacing: 8) {
       if !shown.isEmpty {
         let done = progress.checked
         let today = campaigns.checkedToday(challengeID.value)
-        HStack {
-          Text(Wording.progress(done: done, total: total, noun))
-          Spacer()
-          if today > 0 { Text("You've checked \(today) today") }
+        // Side by side until accessibility sizes, then stacked so neither line truncates.
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading)) : AnyLayout(HStackLayout())
+        layout {
+          Text(Wording.progress(done: done, total: total, noun)).foregroundStyle(.primary)
+          if !typeSize.isAccessibilitySize { Spacer() }
+          if today > 0 { Text("You've checked \(today) today").foregroundStyle(.secondary) }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .font(.subheadline)
-        .foregroundStyle(.secondary)
+        // The tally above reads the same count; the bar alone is a 4 pt sliver.
         ProgressView(value: Double(done), total: Double(max(total, 1)))
+          .accessibilityHidden(true)
       } else {
         HStack {
           if request != nil { ProgressView() }
@@ -185,17 +192,19 @@ struct ChallengeTasksView: View {
           Text(Wording.savedExpired).font(.subheadline).foregroundStyle(.secondary)
         } else if saved.pendingCount > 0 {
           savedBanner(saved)
-          Button(Wording.doneForToday) { sheet = .daySummary }.font(.subheadline)
+          Button(Wording.doneForToday) { sheet = .daySummary }.font(.subheadline).frame(minHeight: 44)
         }
       }
       if let nearest = open.first {
         Button {
           navigate(to: nearest.id)
         } label: {
-          Label(
-            Wording.nearest(noun, distance: TaskLocation.distanceText(origin, nearest.coordinate)),
-            systemImage: "location.north.circle.fill"
-          )
+          // The icon alone reads "Orient To Phone".
+          Label {
+            Text(Wording.nearest(noun, distance: TaskLocation.distanceText(origin, nearest.coordinate)))
+          } icon: {
+            Image(systemName: "location.north.circle.fill").accessibilityHidden(true)
+          }
           .frame(maxWidth: .infinity, minHeight: 44)
         }
         .buttonStyle(.borderedProminent)
@@ -211,17 +220,21 @@ struct ChallengeTasksView: View {
   /// last 3 days before they are removed (§1.6).
   private func savedBanner(_ saved: GuestStatus) -> some View {
     let closing = saved.expiresAt.timeIntervalSinceNow < 3 * 86400
-    return HStack(alignment: .firstTextBaseline) {
+    let stacked = typeSize.isAccessibilitySize
+    let layout = stacked ? AnyLayout(VStackLayout(alignment: .leading)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline))
+    return layout {
       Text(
         closing
           ? Wording.savedClosing(saved.pendingCount, noun, on: saved.expiresAt)
           : Wording.savedNotOnMap(saved.pendingCount, noun, until: saved.expiresAt)
       )
       .font(.subheadline.weight(.semibold))
-      Spacer()
+      if !stacked { Spacer() }
       Button(saved.email == .none ? "Send me the link" : "Resend the link") { sheet = .putOnMap }
         .font(.subheadline)
+        .frame(minHeight: 44)
     }
+    .frame(maxWidth: .infinity, alignment: .leading)
     .padding(10)
     .background(
       closing ? AnyShapeStyle(Color.orange.opacity(0.2)) : AnyShapeStyle(Color(.secondarySystemBackground)),
@@ -247,7 +260,7 @@ struct ChallengeTasksView: View {
       }
       if !checked.isEmpty {
         Section("Already checked") {
-          ForEach(checked) { task in row(task, done: true) }
+          ForEach(checked) { task in row(task, done: true, pending: pendingIDs.contains(task.id)) }
         }
       }
       if showDetails && (hidden > 0 || truncated) {
@@ -260,7 +273,7 @@ struct ChallengeTasksView: View {
     .refreshable { load(); await request?.value }
   }
 
-  private func row(_ task: LocatedTask, done: Bool) -> some View {
+  private func row(_ task: LocatedTask, done: Bool, pending: Bool = false) -> some View {
     HStack {
       if done {
         Image(systemName: "checkmark.circle.fill").foregroundStyle(.secondary)
@@ -276,10 +289,12 @@ struct ChallengeTasksView: View {
       if let text = TaskLocation.rowText(origin, task.coordinate) {
         // Color.secondary, not .secondary: inside a button label the latter takes the accent tint.
         Text(text).font(.subheadline.monospacedDigit()).foregroundStyle(Color.secondary)
+          // "130 m northeast", without VoiceOver reading the separator.
+          .accessibilityLabel(text.replacingOccurrences(of: " · ", with: " "))
       }
     }
     .accessibilityElement(children: .combine)
-    .accessibilityValue(done ? "Already checked" : "")
+    .accessibilityValue(pending ? "Saved, not on the map yet" : done ? "Already checked" : "")
   }
 
   private var detailsFooter: String {

@@ -13,6 +13,9 @@ struct TaskView: View {
   @Environment(CampaignStore.self) private var campaigns
   @Environment(\.webAuthenticationSession) private var webAuth
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  /// VoiceOver moves to each new question's prompt.
+  @AccessibilityFocusState private var promptFocused: Bool
   @AppStorage(SettingsKey.showOSMDetails) private var showDetails = false
   @AppStorage(SettingsKey.putOnMapCardShown) private var putOnMapCardShown = false
   @State private var showPutOnMap = false
@@ -274,13 +277,16 @@ struct TaskView: View {
       )
       .frame(height: 150)
       .clipShape(RoundedRectangle(cornerRadius: 12))
-      .accessibilityLabel("Map showing where this \(noun.one) is")
+      // One element: the tiles' street names aren't readable text.
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel("Map of \(Wording.placeName(task, noun))")
+      .accessibilityAddTraits(.isImage)
       .id(coordinate.latitude + coordinate.longitude)
     }
     VStack(alignment: .leading, spacing: 4) {
       Text(Wording.placeName(task, noun)).font(.title2.bold())
       if task.id.value == firstTaskID, let whereText = TaskLocation.fromYouText(userLocation, TaskLocation.coordinate(task)) {
-        Text(whereText).font(.subheadline).foregroundStyle(.secondary)
+        Text(whereText).font(.subheadline).foregroundStyle(.primary)
       }
       if showDetails {
         Text(verbatim: task.name).font(.footnote.monospaced()).foregroundStyle(.secondary)
@@ -328,11 +334,14 @@ struct TaskView: View {
     _ c: TaskWorkController, _ form: ChoiceForm, _ q: ChoiceQuestion, index: Int, of count: Int
   ) -> some View {
     VStack(alignment: .leading, spacing: 6) {
-      Text("Question \(index + 1) of \(count)").font(.subheadline).foregroundStyle(.secondary)
-      ProgressView(value: Double(index + 1), total: Double(count))
+      Text("Question \(index + 1) of \(count)").font(.subheadline).foregroundStyle(.primary)
+      // "Question 1 of 3" says it; the bar would be a separate 4 pt element.
+      ProgressView(value: Double(index + 1), total: Double(count)).accessibilityHidden(true)
     }
     .accessibilityElement(children: .combine)
     Text(q.prompt).font(.title2.weight(.semibold))
+      .accessibilityAddTraits(.isHeader)
+      .accessibilityFocused($promptFocused)
     if let description = q.description, !description.isEmpty {
       Text(description).font(.body).foregroundStyle(.primary)
     }
@@ -354,11 +363,17 @@ struct TaskView: View {
     }
     if index > 0 {
       Button("Previous question", systemImage: "chevron.left") { step = index - 1 }
+        .frame(minHeight: 44)
     }
   }
 
   private func advance() {
-    withAnimation(.easeInOut(duration: 0.2)) { step += 1 }
+    if reduceMotion {
+      step += 1
+    } else {
+      withAnimation(.easeInOut(duration: 0.2)) { step += 1 }
+    }
+    promptFocused = true
   }
 
   @ViewBuilder private func review(_ c: TaskWorkController, _ loaded: LoadedTask, _ form: ChoiceForm) -> some View {
@@ -412,16 +427,17 @@ struct TaskView: View {
       Button(Wording.somethingWrong, systemImage: "exclamationmark.bubble") { showProblems = true }
         .frame(maxWidth: .infinity, minHeight: 44)
         .confirmationDialog(Wording.somethingWrong, isPresented: $showProblems, titleVisibility: .visible) {
-          ForEach(outcomes.filter { $0.id != ChoiceOutcome.tooHardID }) { outcome in
-            Button(outcome.label) { choose(c, loaded, form, .outcome(outcome)) }
-          }
+          // Lightest first: Skip, then "can't check", then the challenge's outcomes.
+          if canSkip { Button(Wording.skip(noun)) { c.perform(.skip) } }
           if let tooHard = outcomes.first(where: { $0.id == ChoiceOutcome.tooHardID }) {
             Button(Wording.cantCheck(noun)) { choose(c, loaded, form, .outcome(tooHard)) }
           }
-          if canSkip { Button(Wording.skip(noun)) { c.perform(.skip) } }
+          ForEach(outcomes.filter { $0.id != ChoiceOutcome.tooHardID }) { outcome in
+            Button(outcome.label) { choose(c, loaded, form, .outcome(outcome)) }
+          }
           Button("Cancel", role: .cancel) {}
         } message: {
-          Text(Wording.problemsMessage(noun))
+          Text(Wording.problemsMessage(noun, gone: outcomes.first { $0.deletesElement || $0.id == "gone" }?.label))
         }
     }
   }

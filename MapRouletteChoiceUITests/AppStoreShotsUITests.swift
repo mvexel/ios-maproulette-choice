@@ -14,7 +14,9 @@ final class AppStoreShotsUITests: XCTestCase {
     app.staticTexts["SLC Bus Stops"].tap()
     let start = app.buttons["Let's go"]
     XCTAssert(start.waitForExistence(timeout: 10))
+    sleep(4)  // map tiles behind the sheet
     shot(app, "welcome")
+    // On a 6.9" phone the whole card fits, guest lines included (Iris B-6).
     start.tap()
     allowLocationIfAsked(app)
     XCTAssert(text(app, "3 of 8 stops checked").waitForExistence(timeout: 10))
