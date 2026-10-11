@@ -231,14 +231,15 @@ import Testing
 
   /// After a phone sign-in with saved answers (B5).
   @Test func claimMessages() {
-    #expect(Wording.claimMessage(.started(pending: 3, waiting: false))
-      == "Signed in with OpenStreetMap. Your 3 saved answers are going on the map now.")
-    #expect(Wording.claimMessage(.started(pending: 1, waiting: false))
-      == "Signed in with OpenStreetMap. Your saved answer is going on the map now.")
+    let signedIn = "Signed in with OpenStreetMap. "
+    #expect(Wording.claimMessage(.started(pending: 3, waiting: false)) == signedIn + "Your 3 saved answers are being put on the map.")
+    #expect(Wording.claimMessage(.started(pending: 1, waiting: false)) == signedIn + "Your saved answer is being put on the map.")
+    #expect(Wording.claimMessage(.started(pending: 0, waiting: false)) == signedIn + "Your next answers go straight on the map.")
     #expect(Wording.claimMessage(.started(pending: 2, waiting: true))
-      == "Signed in with OpenStreetMap. Your 2 saved answers will go on the map shortly.")
-    #expect(Wording.claimMessage(.started(pending: 0, waiting: false))
-      == "Signed in with OpenStreetMap. New answers go straight on the map.")
+      == signedIn + "Your 2 saved answers are now linked to your account. They'll go on the map later.")
+    #expect(Wording.claimMessage(.gone) == signedIn + "We couldn't find your saved answers. "
+      + "They may have expired, or they're linked to a different OpenStreetMap account.")
+    #expect(Wording.claimMessage(.later) == signedIn + "Your answers are still saved. We'll try again next time you open the app.")
     for outcome in [AppSession.ClaimOutcome.gone, .reauth, .later] {
       #expect(Wording.claimMessage(outcome).hasPrefix("Signed in with OpenStreetMap. "))
     }

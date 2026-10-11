@@ -158,21 +158,26 @@ enum Wording {
   /// Phone sign-in claims the saved answers (B5), so the original line is true again
   /// (design/copy-fixes-2026-10-11.md row 5).
   static let signInPutsOnMap = "Sign in now and your saved answers go on the map right away."
-  /// After a phone sign-in with saved answers (B5). Draft copy for Iris.
+  /// After a phone sign-in with saved answers (B5; design/copy-fixes-2026-10-11.md, last section).
   static func claimMessage(_ outcome: AppSession.ClaimOutcome) -> String {
     let signedIn = "Signed in with OpenStreetMap."
     switch outcome {
     case .started(let pending, let waiting):
-      guard pending > 0 else { return signedIn + " New answers go straight on the map." }
-      let answers = pending == 1 ? "Your saved answer" : "Your \(pending) saved answers"
-      let going = waiting ? "will go on the map shortly." : pending == 1 ? "is going on the map now." : "are going on the map now."
-      return "\(signedIn) \(answers) \(going)"
+      guard pending > 0 else { return "\(signedIn) Your next answers go straight on the map." }
+      let one = pending == 1
+      let answers = one ? "Your saved answer" : "Your \(pending) saved answers"
+      if waiting {
+        return "\(signedIn) \(answers) \(one ? "is" : "are") now linked to your account. "
+          + "\(one ? "It'll" : "They'll") go on the map later."
+      }
+      return "\(signedIn) \(answers) \(one ? "is" : "are") being put on the map."
     case .gone:
-      return signedIn + " We couldn't find your saved answers. They may have expired or been put on the map already."
+      return "\(signedIn) We couldn't find your saved answers. "
+        + "They may have expired, or they're linked to a different OpenStreetMap account."
     case .reauth:
-      return signedIn + " Sign in again so we can put your saved answers on the map."
+      return "\(signedIn) Sign in again so we can put your saved answers on the map."
     case .later:
-      return signedIn + " Your saved answers are safe. We'll put them on the map next time you open the app."
+      return "\(signedIn) Your answers are still saved. We'll try again next time you open the app."
     }
   }
   /// Only a bad address is the participant's to fix (shown in red); the rest are calm.
