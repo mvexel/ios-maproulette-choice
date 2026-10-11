@@ -33,7 +33,7 @@ struct SessionClient: Sendable {
   nonisolated static let readScope = "tasks:read"
   nonisolated static let writeScope = "tasks:write"
   nonisolated static let tagfixScope = "osm:tagfix"
-  /// Backends with a known OSM server. Staging edits development OSM, never the real map.
+  /// Backends with a known OSM server; stage and prod target the real map.
   nonisolated static let osmServers = [
     "https://mr-api.osm.lol": TaskText.devOSM, "https://mr-dev.osm.lol": TaskText.devOSM,
     "https://mr-stage.osm.lol": TaskText.liveOSM, "https://mr-prod.osm.lol": TaskText.liveOSM,
@@ -95,6 +95,11 @@ struct SessionClient: Sendable {
         && Self.writesAllowed(
           origin: endpoints.origin, loopbackAllowed: endpoints.loopbackAllowed,
           liveAllowed: endpoints.liveWritesAllowed))
+  }
+  /// Pending guest operations are independent of authenticated task/OSM writes.
+  var guestOperationsConfigured: Bool {
+    demo != nil ? guestsEnabled : guestsEnabled && signInAvailable
+      && Self.guestOperationsAllowed(origin: endpoints.origin)
   }
   /// The OSM server this build's backend edits, for confirmations and changeset links.
   var osmServer: String? { demo != nil ? TaskText.devOSM : Self.osmServers[endpoints.origin] }
@@ -239,7 +244,7 @@ struct SessionClient: Sendable {
 
   private func publish(_ message: String, detail: String? = nil) {
     let signedIn = view.userID != nil
-    let writable = signedIn && scopes.contains(Self.writeScope)
+    let writable = signedIn && writesConfigured && scopes.contains(Self.writeScope)
     view = SessionView(
       generation: view.generation, signedIn: signedIn, userID: view.userID,
       displayName: signedIn ? view.displayName : nil, message: message, detail: detail,
@@ -256,7 +261,7 @@ struct SessionClient: Sendable {
 
   /// Signed out in a build that lets participants answer first, unless the backend refused guests.
   var canAnswerAsGuest: Bool {
-    guestsEnabled && writesConfigured && !view.signedIn && !guestsRefused && !guestRecoveryUnavailable
+    guestOperationsConfigured && !view.signedIn && !guestsRefused && !guestRecoveryUnavailable
   }
 
   /// The guest's saved answers and deadline, as last read; nil when not a guest or not read yet.
@@ -265,7 +270,7 @@ struct SessionClient: Sendable {
   /// A guest whose answers were claimed on the web becomes that account (UX §1.5). Checked on
   /// launch. Once claimed the guest token is refused, so a failed status read still tries.
   private func upgradeIfClaimed(_ auth: MobileSignIn) async -> Bool {
-    guard view.guest, !guestRecoveryUnavailable else { return false }
+    guard guestOperationsConfigured, view.guest, !guestRecoveryUnavailable else { return false }
     let status = try? await newClient().client.getGuestStatus()
     guard status == nil || status?.state == .claimed else {
       guestStatus = status
@@ -288,7 +293,7 @@ struct SessionClient: Sendable {
 
   /// Re-reads the guest's status (saved count, email state, deadline). Failures keep the last one.
   func refreshGuestStatus() async {
-    guard view.guest else {
+    guard guestOperationsConfigured, view.guest else {
       guestStatus = nil
       return
     }
@@ -336,7 +341,7 @@ struct SessionClient: Sendable {
   }
 
   private func registerGuest() async -> Bool {
-    guard let auth, guestsEnabled, writesConfigured, !view.signedIn else { return false }
+    guard let auth, guestOperationsConfigured, !view.signedIn else { return false }
     if await auth.guest != nil {
       // A failed marker write must retry the same retained identity, never register another.
       await sync(auth)
@@ -443,8 +448,10 @@ struct SessionClient: Sendable {
       }
     #endif
     let transport = GuardedTransport(session: self, expected: expected, inner: transport)
-    // The SDK sends writes only where this app's allowlist does (`writesConfigured`).
-    let environment = Self.environment(endpoints, writes: writesConfigured)
+    // The pinned SDK shares a mutation gate. Enable it for an eligible current guest only;
+    // GuardedTransport still refuses every authenticated lifecycle/OSM route for that guest.
+    let environment = Self.environment(endpoints,
+      writes: writesConfigured || (guestOperationsConfigured && view.guest && !guestRecoveryUnavailable))
     return SessionClient(
       client: MapRouletteClient(
         environment: environment, transport: transport, allowElementDeletion: deletion,
@@ -463,7 +470,7 @@ struct SessionClient: Sendable {
 
   /// Discovery clients also stay anonymous until this exact guest has durable evidence.
   private func guestAccessMatches(_ guestID: String, _ expected: Int) -> Bool {
-    guard expected == view.generation, view.guest, !guestRecoveryUnavailable else { return false }
+    guard expected == view.generation, guestOperationsConfigured, view.guest, !guestRecoveryUnavailable else { return false }
     do {
       guard try guestAccess?.read() == Data(guestID.utf8) else { throw SessionFailure() }
       return true
@@ -482,7 +489,15 @@ struct SessionClient: Sendable {
     if !view.signedIn, guestRecoveryUnavailable, request.method != .get {
       throw MapRouletteError(.permission)
     }
-    if Self.isTaskWrite(request.url), !(writesConfigured && scopes.contains(Self.writeScope)) {
+    if Self.isGuestOperation(request.url) {
+      guard guestOperationsConfigured, view.guest, !view.signedIn, !guestRecoveryUnavailable,
+        endpoints.permitsConnection(request.url), Self.guestRequestAllowed(request),
+        let guestBinding, let guestID = guestBinding.split(separator: "\n").last,
+        guestAccessMatches(String(guestID), expected) else { throw MapRouletteError(.permission) }
+    } else if view.guest && request.method != .get {
+      throw MapRouletteError(.permission)
+    }
+    if Self.isTaskWrite(request.url), !(view.signedIn && writesConfigured && scopes.contains(Self.writeScope)) {
       throw MapRouletteError(.permission)
     }
   }
@@ -524,6 +539,29 @@ struct SessionClient: Sendable {
     else { return false }
     if writeOrigins.contains(origin) || (liveAllowed && liveWriteOrigins.contains(origin)) { return true }
     return loopbackAllowed && c.scheme == "http" && (c.host == "127.0.0.1" || c.host == "localhost")
+  }
+
+  /// Guest eligibility is an exact allowlist, unaffected by the live OSM flag.
+  nonisolated static func guestOperationsAllowed(origin: String) -> Bool {
+    writeOrigins.contains(origin) || origin == "https://mr-stage.osm.lol"
+  }
+
+  nonisolated static func isGuestOperation(_ url: URL) -> Bool {
+    let path = url.path
+    return path == "/api/v2/mobile-guest" || path.hasPrefix("/api/v2/mobile-guest/")
+      || path.range(of: #"^/api/v2/task/\d+/choice/pending/?$"#, options: .regularExpression) != nil
+  }
+
+  /// Only the pinned SDK's guest endpoints/methods may use the shared mutation gate.
+  nonisolated static func guestRequestAllowed(_ request: HTTPRequest) -> Bool {
+    switch (request.method, request.url.path) {
+    case (.get, "/api/v2/mobile-guest/me"), (.get, "/api/v2/mobile-guest/pending"),
+      (.put, "/api/v2/mobile-guest/email"), (.delete, "/api/v2/mobile-guest"):
+      return true
+    default:
+      return (request.method == .post || request.method == .delete)
+        && request.url.path.range(of: #"^/api/v2/task/\d+/choice/pending$"#, options: .regularExpression) != nil
+    }
   }
 
   /// Any task lifecycle write (start, refreshLock, release, skip, choice or status), whatever

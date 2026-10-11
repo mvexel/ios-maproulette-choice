@@ -149,7 +149,7 @@ struct TaskView: View {
       preview != nil ? nil
       : session.writesConfigured && view.signedIn && view.canWriteTasks
         ? view.userID.map { Writer(me: $0, canEditOsm: view.canEditOsm) }
-      : session.writesConfigured && view.guest && session.guestBinding != nil
+      : session.guestOperationsConfigured && view.guest && session.guestBinding != nil
         ? Writer(me: 0, canEditOsm: true, guest: true, guestBinding: session.guestBinding) : nil
     controller = TaskWorkController(
       ops: ClientTaskOps(session.newClient().client), writer: writer, noun: noun, previewing: preview != nil, guestSaves: session.guestSaves)
