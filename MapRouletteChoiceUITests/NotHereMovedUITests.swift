@@ -17,6 +17,7 @@ final class NotHereMovedUITests: XCTestCase {
 
     row(app, "It's not here").tap()
     XCTAssert(text(app, "The stop isn't here.").waitForExistence(timeout: 5))
+    XCTAssert(app.staticTexts["Check your report"].exists)
     shot(app, "nhm-review-nothere")
     app.buttons["Done"].tap()
     XCTAssert(text(app, "Thanks, reported. The organizer will check it.").waitForExistence(timeout: 10))
@@ -39,10 +40,13 @@ final class NotHereMovedUITests: XCTestCase {
 
     app.buttons["Save this spot"].tap()
     XCTAssert(text(app, "The stop has moved, about").waitForExistence(timeout: 5))
+    XCTAssert(app.staticTexts["Check your report"].exists)
     sleep(2)
     shot(app, "nhm-review-moved")
     app.buttons["Done"].tap()
     XCTAssert(text(app, "Thanks, reported. The organizer will move it on the map.").waitForExistence(timeout: 10))
+    // The "Someone reported" banner is for the next person, not the reporter.
+    XCTAssertFalse(text(app, "Someone reported").exists)
     shot(app, "nhm-saved-moved")
   }
 

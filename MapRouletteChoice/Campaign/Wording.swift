@@ -84,6 +84,7 @@ enum Wording {
   static let spotOnly = "Only the spot you pick is saved, not your own location."
   static func spotIsHere(_ noun: Noun) -> String { "Your current location is saved as the \(noun.one)'s new spot." }
 
+  static let checkReport = "Check your report"
   static let reporting = "You're reporting:"
   static func reportNotHere(_ noun: Noun) -> String { "The \(noun.one) isn't here." }
   static func reportMoved(_ meters: Double, _ noun: Noun) -> String {

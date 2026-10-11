@@ -248,7 +248,7 @@ struct TaskView: View {
 
   @ViewBuilder private func content(_ c: TaskWorkController) -> some View {
     let state = c.state
-    if let loaded = state.loaded { header(loaded, checked: Self.showsChecked(state)) }
+    if let loaded = state.loaded { header(loaded, checked: Self.showsChecked(state), movedTo: reviewedSpot(state)) }
     if let switchNotice, !isLoading(state) { banner(switchNotice) }
     switch state {
     case .loading:
@@ -320,9 +320,24 @@ struct TaskView: View {
     }
   }
 
-  @ViewBuilder private func header(_ loaded: LoadedTask, checked: Bool) -> some View {
+  /// The spot being reviewed for "It's moved": the header map then draws it like the moved map.
+  private func reviewedSpot(_ state: TaskScreen) -> CLLocationCoordinate2D? {
+    guard case .answering = state, case .moved(let spot)? = report else { return nil }
+    return CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
+  }
+
+  @ViewBuilder private func header(_ loaded: LoadedTask, checked: Bool, movedTo: CLLocationCoordinate2D?) -> some View {
     let task = loaded.task
-    if let coordinate = TaskLocation.coordinate(task) {
+    if let coordinate = TaskLocation.coordinate(task), let movedTo {
+      // "On the map", the navy pin and the dashed line, as on the moved map (§3.2 step 4).
+      SpotMapView(mapped: coordinate, spot: movedTo, interactive: false)
+        .frame(height: 150)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Map of where the map has it and the spot you picked")
+        .accessibilityAddTraits(.isImage)
+        .id("\(movedTo.latitude),\(movedTo.longitude)")
+    } else if let coordinate = TaskLocation.coordinate(task) {
       TaskMapView(
         styleURL: AppConfig.detailStyle, tasks: [LocatedTask(task)], done: checked ? [task.id.value] : [],
         reports: reports[task.id.value].map { [task.id.value: $0] } ?? [:],
@@ -353,8 +368,13 @@ struct TaskView: View {
     if let lockedBy = task.lockedBy, lockedBy != session.view.userID {
       banner("Someone else may be checking this \(noun.one) right now. You can still answer.")
     }
-    // Someone else's report, from the campaign list (design/not-here-moved.md §4).
-    if !checked, let text = reportBanner(reports[task.id.value], at: TaskLocation.coordinate(task)) { banner(text) }
+    // Someone else's report, from the campaign list (design/not-here-moved.md §4). The reporter
+    // sees their own saved line instead.
+    if !checked, campaigns.justReported[task.id.value] == nil,
+      let text = reportBanner(reports[task.id.value], at: TaskLocation.coordinate(task))
+    {
+      banner(text)
+    }
   }
 
   private func reportBanner(_ report: TaskReport?, at place: CLLocationCoordinate2D?) -> String? {
@@ -398,29 +418,17 @@ struct TaskView: View {
     if report == nil { problems(c, loaded, form) }
   }
 
-  /// "Check your answers" for a report (§3.1, §3.2 step 4): what will be sent, then Done or Back.
+  /// "Check your report" (§3.1, §3.2 step 4): what will be sent, then Done or Back. For a move,
+  /// the header map shows the spot.
   @ViewBuilder private func reportReview(
     _ c: TaskWorkController, _ loaded: LoadedTask, _ form: ChoiceForm, _ action: ChoiceAction
   ) -> some View {
-    Text("Check your answers").font(.title2.weight(.semibold)).accessibilityAddTraits(.isHeader)
+    Text(Wording.checkReport).font(.title2.weight(.semibold)).accessibilityAddTraits(.isHeader)
     VStack(alignment: .leading, spacing: 8) {
       Text(Wording.reporting).font(.headline)
       Text(reportLine(action) ?? "")
     }
     .accessibilityElement(children: .combine)
-    if case .moved(let spot) = action, let place = here {
-      TaskMapView(
-        styleURL: AppConfig.detailStyle, tasks: [LocatedTask(loaded.task)],
-        reports: [loaded.task.id.value: .moved(latitude: spot.latitude, longitude: spot.longitude)],
-        noun: noun, interactive: false, open: { _ in }
-      )
-      .frame(height: 150)
-      .clipShape(RoundedRectangle(cornerRadius: 12))
-      .accessibilityElement(children: .ignore)
-      .accessibilityLabel("Map of where the map has it and the spot you picked")
-      .accessibilityAddTraits(.isImage)
-      .id("\(place.latitude),\(spot.latitude),\(spot.longitude)")
-    }
     Text(action == .outcome(.notHere) ? Wording.reportNotHereNote : Wording.reportMovedNote)
     bigButton(preview != nil ? Wording.donePreview : Wording.done, prominent: true) { c.perform(action) }
       .disabled(!c.offers(loaded.task, form, action))

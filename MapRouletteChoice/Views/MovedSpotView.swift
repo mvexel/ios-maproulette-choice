@@ -166,13 +166,15 @@ struct MovedSpotView: View {
 
 /// The map behind `MovedSpotView`: the place where the map has it (a gray hollow marker labeled
 /// "On the map"), the participant's pick (a navy pin, draggable), and a dashed line between them.
-private struct SpotMapView: UIViewRepresentable {
+/// Not `interactive`, it's the fixed map on the review screen, framed on both points.
+struct SpotMapView: UIViewRepresentable {
   let mapped: CLLocationCoordinate2D
   let spot: CLLocationCoordinate2D?
+  var interactive = true
   /// Changes when the location permission may have; the puck shows once it's allowed.
-  let asked: Int
-  let picked: (CLLocationCoordinate2D) -> Void
-  let located: (CLLocationCoordinate2D) -> Void
+  var asked = 0
+  var picked: (CLLocationCoordinate2D) -> Void = { _ in }
+  var located: (CLLocationCoordinate2D) -> Void = { _ in }
 
   func makeCoordinator() -> Coordinator { Coordinator(picked: picked, located: located) }
 
@@ -180,27 +182,34 @@ private struct SpotMapView: UIViewRepresentable {
     let map = MLNMapView(frame: .zero, styleURL: AppConfig.detailStyle)
     map.delegate = context.coordinator
     map.tintColor = .systemBlue
-    map.compassViewPosition = .topRight
-    map.showsUserLocation = Self.locationAllowed
     map.setCenter(mapped, zoomLevel: 18, animated: false)
     let mappedMarker = MappedSpot()
     mappedMarker.coordinate = mapped
     map.addAnnotation(mappedMarker)
+    context.coordinator.mapped = mapped
+    context.coordinator.interactive = interactive
+    guard interactive else {
+      map.isUserInteractionEnabled = false
+      map.compassView.isHidden = true
+      return map
+    }
+    map.compassViewPosition = .topRight
+    map.showsUserLocation = Self.locationAllowed
     let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:)))
     // A double tap still zooms.
     for case let other as UITapGestureRecognizer in map.gestureRecognizers ?? [] where other.numberOfTapsRequired == 2 {
       tap.require(toFail: other)
     }
     map.addGestureRecognizer(tap)
-    context.coordinator.mapped = mapped
     return map
   }
 
   func updateUIView(_ map: MLNMapView, context: Context) {
     context.coordinator.picked = picked
     context.coordinator.located = located
-    if map.showsUserLocation != Self.locationAllowed { map.showsUserLocation = Self.locationAllowed }
+    if interactive, map.showsUserLocation != Self.locationAllowed { map.showsUserLocation = Self.locationAllowed }
     context.coordinator.show(spot, on: map)
+    if !interactive { context.coordinator.frameBoth(on: map) }
   }
 
   private static var locationAllowed: Bool {
@@ -275,6 +284,7 @@ private struct SpotMapView: UIViewRepresentable {
     var picked: (CLLocationCoordinate2D) -> Void
     var located: (CLLocationCoordinate2D) -> Void
     var mapped: CLLocationCoordinate2D?
+    var interactive = true
     private var pin: NewSpot?
 
     init(picked: @escaping (CLLocationCoordinate2D) -> Void, located: @escaping (CLLocationCoordinate2D) -> Void) {
@@ -306,6 +316,24 @@ private struct SpotMapView: UIViewRepresentable {
       drawLine(on: map)
     }
 
+    private var framed = false
+
+    /// The fixed map: both points in view, once the map has a size.
+    func frameBoth(on map: MLNMapView) {
+      guard !framed, map.bounds.width > 0, let mapped, let spot = pin?.coordinate else { return }
+      framed = true
+      // Room for the pin above its tip and the label under the marker.
+      let bounds = MLNCoordinateBounds(
+        sw: CLLocationCoordinate2D(
+          latitude: min(mapped.latitude, spot.latitude), longitude: min(mapped.longitude, spot.longitude)),
+        ne: CLLocationCoordinate2D(
+          latitude: max(mapped.latitude, spot.latitude), longitude: max(mapped.longitude, spot.longitude)))
+      map.setVisibleCoordinateBounds(
+        bounds, edgePadding: UIEdgeInsets(top: 50, left: 40, bottom: 30, right: 40), animated: false,
+        completionHandler: nil)
+      if map.zoomLevel > 18 { map.setCenter(map.centerCoordinate, zoomLevel: 18, animated: false) }
+    }
+
     private func drawLine(on map: MLNMapView) {
       guard let style = map.style, let mapped else { return }
       TaskMapView.Coordinator.drawLines(pin.map { [[mapped, $0.coordinate]] } ?? [], in: style)
@@ -316,6 +344,7 @@ private struct SpotMapView: UIViewRepresentable {
         if let buildings = layer as? MLNFillExtrusionStyleLayer { buildings.isVisible = false }
       }
       drawLine(on: mapView)
+      if !interactive { frameBoth(on: mapView) }
     }
 
     func mapView(_ mapView: MLNMapView, viewFor annotation: any MLNAnnotation) -> MLNAnnotationView? {
@@ -327,6 +356,7 @@ private struct SpotMapView: UIViewRepresentable {
       let view =
         mapView.dequeueReusableAnnotationView(withIdentifier: NewSpotView.reuseID) as? NewSpotView
         ?? NewSpotView(reuseID: NewSpotView.reuseID)
+      view.isDraggable = interactive
       view.dropped = { [weak self] coordinate in self?.picked(coordinate) }
       return view
     }
