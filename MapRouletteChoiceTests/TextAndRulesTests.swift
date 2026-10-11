@@ -242,7 +242,7 @@ import Testing
       == who + "Your saved answer is now linked to your account. It'll go on the map later.")
     #expect(line(.gone) == who + "We couldn't find your saved answers. "
       + "They may have expired, or they're linked to a different OpenStreetMap account.")
-    #expect(line(.reauth) == who + "Sign in again so we can put your saved answers on the map.")
+    #expect(line(.reauth) == "Sign in again so we can put your saved answers on the map.")
     #expect(line(.later) == who + "Your answers are still saved. We'll try again next time you open the app.")
     #expect(Wording.claimMessage(.later, name: nil).hasPrefix("You're signed in with OpenStreetMap. "))
   }

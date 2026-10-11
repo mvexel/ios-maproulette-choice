@@ -176,7 +176,8 @@ enum Wording {
       return "\(who) We couldn't find your saved answers. "
         + "They may have expired, or they're linked to a different OpenStreetMap account."
     case .reauth:
-      return "\(who) Sign in again so we can put your saved answers on the map."
+      // Not signed in in any useful sense, so no "You're signed in as" prefix.
+      return "Sign in again so we can put your saved answers on the map."
     case .later:
       return "\(who) Your answers are still saved. We'll try again next time you open the app."
     }
