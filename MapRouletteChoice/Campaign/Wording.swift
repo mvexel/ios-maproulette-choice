@@ -9,8 +9,9 @@ struct Noun: Hashable, Sendable {
 
   static let place = Noun(one: "place", many: "places")
 
-  /// Known identity tags, most specific first.
-  private static let known: [(key: String, value: String, noun: Noun)] = [
+  /// Known identity tags, most specific first. A nil value matches any value of the key
+  /// (`entrance=main`, `entrance=yes`).
+  private static let known: [(key: String, value: String?, noun: Noun)] = [
     ("highway", "bus_stop", Noun(one: "stop", many: "stops")),
     ("public_transport", "platform", Noun(one: "stop", many: "stops")),
     ("railway", "platform", Noun(one: "platform", many: "platforms")),
@@ -22,10 +23,11 @@ struct Noun: Hashable, Sendable {
     ("amenity", "shelter", Noun(one: "shelter", many: "shelters")),
     ("leisure", "playground", Noun(one: "playground", many: "playgrounds")),
     ("leisure", "park", Noun(one: "park", many: "parks")),
+    ("entrance", nil, Noun(one: "entrance", many: "entrances")),
   ]
 
   static func from(match: [String: String]) -> Noun {
-    known.first { match[$0.key] == $0.value }?.noun ?? .place
+    known.first { k in match[k.key].map { k.value == nil || $0 == k.value } ?? false }?.noun ?? .place
   }
 
   /// The noun for a campaign: from the first choice task's identity guard.

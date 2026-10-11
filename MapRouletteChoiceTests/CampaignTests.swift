@@ -27,6 +27,9 @@ import Testing
     #expect(Noun.from(match: ["amenity": "bench"]).count(2) == "2 benches")
     #expect(Noun.from(match: ["amenity": "bench"]).count(1) == "1 bench")
     #expect(Noun.from(match: ["shop": "bakery"]) == .place)
+    // Woodbine: any entrance value (design/woodbine-campaign.md).
+    #expect(Noun.from(match: ["entrance": "main"]).count(2) == "2 entrances")
+    #expect(Noun.from(match: ["entrance": "yes"]).one == "entrance")
     #expect(Noun.from(match: [:]).One == "Place")
   }
 }
