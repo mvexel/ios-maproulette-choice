@@ -351,29 +351,41 @@ struct ChallengeTasksView: View {
     return parts.joined(separator: " ")
   }
 
-  /// Open tasks that the bounds search (`excludePending`) leaves out: held by a guest's saved
-  /// answer until it goes on the map or expires. Best effort: on failure or a short read, none.
+  /// Open tasks held by a guest's saved answer until it goes on the map or expires: the bounds
+  /// search with `includePending` says so per task (backend #16). A backend without it sends no
+  /// `pending`, so the held set is then what the `excludePending` search leaves out. Best effort:
+  /// on failure or a short read, none.
   private static func heldTasks(_ tasks: [LocatedTask], in challengeID: ChallengeID, client: MapRouletteClient) async
     -> Set<Int64>
   {
     let open = tasks.filter(\.isOpen)
     guard let bounds = TaskLocation.bounds(open.compactMap(\.coordinate)) else { return [] }
-    let filter = TaskFilter(challengeIDs: [challengeID], bounds: bounds, choiceOnly: true, excludePending: true)
-    var listed: Set<Int64> = []
+    let filter = TaskFilter(challengeIDs: [challengeID], bounds: bounds, choiceOnly: true, includePending: true)
+    guard let rows = await boxSearch(filter, client: client) else { return [] }
+    if !rows.isEmpty, rows.allSatisfy({ $0.pending != nil }) {
+      return Set(rows.filter { $0.pending == true }.map(\.id.value))
+    }
+    let unheld = TaskFilter(challengeIDs: [challengeID], bounds: bounds, choiceOnly: true, excludePending: true)
+    guard let listed = await boxSearch(unheld, client: client) else { return [] }
+    return Set(open.map(\.id)).subtracting(listed.map(\.id.value))
+  }
+
+  /// Every page of a bounds search, or nil on failure or a short read.
+  private static func boxSearch(_ filter: TaskFilter, client: MapRouletteClient) async -> [TaskSummary]? {
+    var rows: [TaskSummary] = []
     var cursor: PageCursor?
     var pages = 0
     do {
       repeat {
         let page = try await client.findTasksInBounds(filter: filter, pageSize: 100, after: cursor)
-        listed.formUnion(page.items.map(\.id.value))
+        rows += page.items
         cursor = page.next
         pages += 1
       } while cursor != nil && pages < maxPages
     } catch {
-      return []
+      return nil
     }
-    guard cursor == nil else { return [] }
-    return Set(open.map(\.id)).subtracting(listed)
+    return cursor == nil ? rows : nil
   }
 
   // MARK: Preview
