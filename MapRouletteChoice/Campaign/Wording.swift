@@ -1,3 +1,4 @@
+import Foundation
 import MapRoulette
 
 /// What a campaign's tasks are called on screen ("stop", "bench"), derived from the identity tag
@@ -94,6 +95,44 @@ enum Wording {
   static func savedForLater(_ todayCount: Int, _ noun: Noun) -> String {
     "Saved. That's \(noun.count(todayCount)) today."
   }
+  static let putOnMapIntro =
+    "To put them on the map, finish on a computer. It takes about 3 minutes. We'll email you a link."
+  static let emailUse = "We only email you about these answers, and delete your address once they're on the map or removed."
+  static func linkSent(to email: String, until: Date?) -> String {
+    "Sent to \(email). Check your email later." + (until.map { " The link works until \(day($0))." } ?? "")
+  }
+  /// "Nov 30": the one date format for guest deadlines. A non-breaking space keeps month and day
+  /// on one line (Iris B-8).
+  static func day(_ date: Date) -> String {
+    date.formatted(.dateTime.month(.abbreviated).day()).replacingOccurrences(of: " ", with: "\u{00A0}")
+  }
+  static let signInPutsOnMap = "Sign in now and your saved answers go on the map right away."
+  /// Only a bad address is the participant's to fix (shown in red); the rest are calm.
+  static func isInputError(_ error: any Error) -> Bool { (error as? MapRouletteError)?.kind == .validation }
+  /// The backend sends the link only once the guest has a saved answer (409 `nothing_saved`).
+  /// Matched by kind and server code, which the SDK has exposed since the guest API (#2).
+  static func isNothingSaved(_ error: any Error) -> Bool {
+    guard let error = error as? MapRouletteError else { return false }
+    return error.kind == .conflict && error.reason == "nothing_saved"
+  }
+  static func linkFailed(_ error: any Error, _ noun: Noun = .place) -> String {
+    if isNothingSaved(error) { return "Answer a \(noun.one) first, then we can send you the link." }
+    return switch (error as? MapRouletteError)?.kind {
+    case .validation?: "That doesn't look like an email address."
+    case .rateLimit?: "We've sent a few links already. Try again tomorrow."
+    case .network?: "Couldn't connect. Check your connection and try again."
+    case .conflict?: "These answers are already on the map."
+    default: "Couldn't send the link right now. Try again later."
+    }
+  }
+  static func savedNotOnMap(_ count: Int, _ noun: Noun, until: Date?) -> String {
+    "\(noun.count(count)) saved, not on the map yet."
+      + (until.map { " Finish on a computer by \(day($0))." } ?? "")
+  }
+  static let deleteMyData = "Delete my data"
+  static let deleteMyDataExplained =
+    "Removes your email and any saved answers that aren't on the map yet. Answers already on the map stay there, because they belong to OpenStreetMap now."
+  static let deleteMyDataDone = "Done. Your email and saved answers are deleted."
   static let savedForLaterNote = "Saved on our server. They go on the map when you finish on a computer."
   static func saved(_ todayCount: Int, _ noun: Noun) -> String {
     "Saved, thanks! That's \(noun.count(todayCount)) today."

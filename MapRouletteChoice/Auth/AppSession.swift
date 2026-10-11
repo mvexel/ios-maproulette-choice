@@ -202,6 +202,37 @@ struct SessionClient: Sendable {
     guestsEnabled && writesConfigured && !view.signedIn && !guestsRefused
   }
 
+  /// The guest's saved answers and deadline, as last read; nil when not a guest or not read yet.
+  private(set) var guestStatus: GuestStatus?
+
+  /// Re-reads the guest's status (saved count, email state, deadline). Failures keep the last one.
+  func refreshGuestStatus() async {
+    guard view.guest else {
+      guestStatus = nil
+      return
+    }
+    let client = newClient().client
+    if let status = try? await client.getGuestStatus(), view.guest { guestStatus = status }
+  }
+
+  /// Sends the "finish on a computer" link to `email` (again, to correct it). Throws for the
+  /// card to show a plain message.
+  func sendFinishLink(to email: String) async throws {
+    let status = try await newClient().client.setGuestEmail(email)
+    if view.guest { guestStatus = status }
+  }
+
+  /// Deletes the guest's email and saved answers on the server, then forgets the guest here.
+  /// Answers already on the map stay.
+  func deleteGuestData() async throws {
+    guard view.guest, let auth else { return }
+    try await newClient().client.deleteGuest()
+    try? await auth.forgetGuest()
+    guestStatus = nil
+    await sync(auth)
+    publish(signedOutMessage())
+  }
+
   /// Makes this phone a guest before its first answer (registering once; later launches restore it).
   /// False when signed in, when this build or backend has no guests, or when registering failed.
   func ensureGuest() async -> Bool {

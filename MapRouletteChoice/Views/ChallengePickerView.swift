@@ -15,6 +15,8 @@ struct ChallengePickerView: View {
   @State private var failed = false
   @State private var request: Task<Void, Never>?
   @State private var signingIn = false
+  @State private var confirmDelete = false
+  @State private var deleteResult: String?
   @State private var search = ""
   @AppStorage(SettingsKey.showOSMDetails) private var showDetails = false
 
@@ -71,8 +73,17 @@ struct ChallengePickerView: View {
         if session.signInAvailable && !session.view.signedIn {
           Text(session.accountHint).font(.footnote).foregroundStyle(.secondary)
         }
+        if session.view.guest {
+          Button(Wording.deleteMyData, role: .destructive) { confirmDelete = true }
+        }
+        if let deleteResult { Text(deleteResult).font(.footnote) }
       } header: {
         Text("Account")
+      }
+      .confirmationDialog(Wording.deleteMyData, isPresented: $confirmDelete, titleVisibility: .visible) {
+        Button("Delete", role: .destructive) { deleteGuestData() }
+      } message: {
+        Text(Wording.deleteMyDataExplained)
       }
       Section {
         Toggle(Wording.showDetails, isOn: $showDetails)
@@ -172,6 +183,17 @@ struct ChallengePickerView: View {
       return session.canAnswerAsGuest ? "I already use OpenStreetMap" : "Sign in with OpenStreetMap"
     }
     return needsReconsent ? "Sign in again to save answers" : "Sign out"
+  }
+
+  private func deleteGuestData() {
+    Task {
+      do {
+        try await session.deleteGuestData()
+        deleteResult = Wording.deleteMyDataDone
+      } catch {
+        deleteResult = "Couldn't delete right now. Check your connection and try again."
+      }
+    }
   }
 
   private func accountAction() {
