@@ -486,7 +486,8 @@ struct SessionClient: Sendable {
   /// and a grant that includes `tasks:write`. Everything else is refused unsent.
   fileprivate func admit(_ request: HTTPRequest, _ expected: Int) throws {
     if expected != view.generation { throw CancellationError() }
-    if !view.signedIn, guestRecoveryUnavailable, request.method != .get {
+    let markerRead = Self.isMarkerRead(request)
+    if !view.signedIn, guestRecoveryUnavailable, request.method != .get, !markerRead {
       throw MapRouletteError(.permission)
     }
     if Self.isGuestOperation(request.url) {
@@ -494,7 +495,7 @@ struct SessionClient: Sendable {
         endpoints.permitsConnection(request.url), Self.guestRequestAllowed(request),
         let guestBinding, let guestID = guestBinding.split(separator: "\n").last,
         guestAccessMatches(String(guestID), expected) else { throw MapRouletteError(.permission) }
-    } else if view.guest && request.method != .get {
+    } else if view.guest && request.method != .get && !markerRead {
       throw MapRouletteError(.permission)
     }
     if Self.isTaskWrite(request.url), !(view.signedIn && writesConfigured && scopes.contains(Self.writeScope)) {
@@ -550,6 +551,14 @@ struct SessionClient: Sendable {
     let path = url.path
     return path == "/api/v2/mobile-guest" || path.hasPrefix("/api/v2/mobile-guest/")
       || path.range(of: #"^/api/v2/task/\d+/choice/pending/?$"#, options: .regularExpression) != nil
+  }
+
+  /// The pinned SDK's bounded map discovery is read-only despite using PUT.
+  nonisolated static func isMarkerRead(_ request: HTTPRequest) -> Bool {
+    let parts = request.url.path.split(separator: "/")
+    return request.method == .put && parts.count == 8
+      && parts.prefix(4).map(String.init) == ["api", "v2", "markers", "box"]
+      && parts.suffix(4).allSatisfy { Double($0)?.isFinite == true }
   }
 
   /// Only the pinned SDK's guest endpoints/methods may use the shared mutation gate.

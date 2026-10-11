@@ -15,6 +15,9 @@ actor GuestSessionTransport: Transport {
   func allow() { refuseToken = false }
   func execute(_ request: HTTPRequest) async throws -> HTTPResponse {
     paths.append(request.url.path)
+    if request.method == .put && request.url.path.hasPrefix("/api/v2/markers/box/") {
+      return HTTPResponse(status: 200, body: Data("[]".utf8))
+    }
     switch request.url.path {
     case "/oauth/mobile/guest":
       registrations += 1
@@ -162,6 +165,10 @@ actor GuestSessionTransport: Transport {
     #expect(!app.view.canWriteTasks && !app.view.canEditOsm && !app.allowElementDeletion)
     #expect(AppSession.requestedScope(writesConfigured: app.writesConfigured) == "tasks:read")
     let client = app.newClient().client
+    let markers = try await client.findTaskMarkers(filter: TaskFilter(
+      bounds: Bounds(west: -112, south: 40, east: -111, north: 41)))
+    #expect(markers.isEmpty)
+    #expect(await transport.paths.contains { $0.hasPrefix("/api/v2/markers/box/") })
     let task = try await makeTask()
     let saved = try await client.submitPendingChoice(task, .answers(["backrest": "yes"]))
     #expect(saved.state == .pending)
