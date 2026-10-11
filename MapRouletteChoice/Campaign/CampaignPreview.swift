@@ -86,7 +86,7 @@ extension CampaignStore {
       preview?.recordSaved(loaded.task.id.value)
       return nil
     case .done(let d) where !d.byOther && preview == nil:
-      recordChecked(d.loaded.challenge.id.value, task: d.loaded.task.id.value)
+      recordChecked(d.loaded.challenge.id.value, task: d.loaded.task.id.value, report: d.report)
       return d
     default:
       return nil

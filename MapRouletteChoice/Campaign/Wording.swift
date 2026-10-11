@@ -48,11 +48,55 @@ enum Wording {
   static let notSureShort = "Not sure"
   static let somethingWrong = "Something's wrong here"
   static func cantCheck(_ noun: Noun) -> String { "I can't check this \(noun.one)" }
-  /// `gone`: the label of an outcome that removes the place ("Stop is gone"), if offered.
-  static func problemsMessage(_ noun: Noun, gone: String? = nil) -> String {
-    "Skip leaves it for someone else. “\(cantCheck(noun))” tells the organizer it needs another look."
-      + (gone.map { " “\($0)” reports that the \(noun.one) isn't there anymore." } ?? "")
+
+  // MARK: "Something's wrong here" (design/not-here-moved.md §2, §7)
+
+  static let skipExplained = "Leave it for someone else."
+  static let cantCheckExplained = "You're near it but can't see or reach it."
+  static let notHere = "It's not here"
+  static func notHereExplained(_ noun: Noun) -> String { "You're at the spot and there's no \(noun.one)." }
+  static let moved = "It's moved"
+  static let movedExplained = "You can see it somewhere else nearby. You'll show where."
+  static let problemsMessage = "Nothing here changes OpenStreetMap. The organizer checks every report."
+  /// With OSM details on, under "It's not here" and "It's moved".
+  static let reportDetails = "Marks the task “Too hard”. Does not edit OpenStreetMap."
+
+  static func movedTitle(_ noun: Noun) -> String { "Where is the \(noun.one) now?" }
+  static let movedHelp = "Tap the map where it is, or stand next to it and use your location."
+  static let standingAtIt = "I'm standing at it"
+  static let onTheMap = "On the map"
+  static let saveThisSpot = "Save this spot"
+  /// Under 100 m to the nearest 5 m, then to the nearest 10 m.
+  static func roundedMeters(_ meters: Double) -> Int {
+    let step = meters < 100 ? 5.0 : 10.0
+    return Int((meters / step).rounded() * step)
   }
+  static func movedDistance(_ meters: Double) -> String {
+    "About \(roundedMeters(meters)) m from where the map has it."
+  }
+  static let movedTooClose =
+    "That's where the map already has it. If it's there, go back and answer the questions instead."
+  static func movedFar(_ meters: Double, _ noun: Noun) -> String {
+    "That's \(roundedMeters(meters)) m away. If it's a different \(noun.one), use “\(notHere)” instead."
+  }
+  static func movedTooFar(_ noun: Noun) -> String { "That's too far to be the same \(noun.one)." }
+  static let spotOnly = "Only the spot you pick is saved, not your own location."
+  static func spotIsHere(_ noun: Noun) -> String { "Your current location is saved as the \(noun.one)'s new spot." }
+
+  static let reporting = "You're reporting:"
+  static func reportNotHere(_ noun: Noun) -> String { "The \(noun.one) isn't here." }
+  static func reportMoved(_ meters: Double, _ noun: Noun) -> String {
+    "The \(noun.one) has moved, about \(roundedMeters(meters)) m from where the map has it."
+  }
+  static let reportNotHereNote = "Nothing changes on OpenStreetMap. The organizer will check it."
+  static let reportMovedNote = "Nothing changes on OpenStreetMap. The organizer will move it on the map."
+  static let reportedNotHere = "Thanks, reported. The organizer will check it."
+  static let reportedMoved = "Thanks, reported. The organizer will move it on the map."
+  static func someoneReportedNotHere(_ noun: Noun) -> String { "Someone reported this \(noun.one) isn't here." }
+  static func someoneReportedMoved(_ meters: Double, _ noun: Noun) -> String {
+    "Someone reported this \(noun.one) moved, about \(roundedMeters(meters)) m."
+  }
+  static let needsAnotherLook = "Needs another look"
   static let needsAccount = "To save answers you'll sign in with a free OpenStreetMap account."
 
   /// A place's display name: its `name`, else "Stop 12345" from `ref`, else "Stop". The

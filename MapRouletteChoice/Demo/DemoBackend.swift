@@ -11,6 +11,8 @@
   /// the guest with two saved answers (184, 188) that expire in about 2 days, for the amber banner.
   /// `-demoDraft` serves the campaign as an unpublished draft (disabled, not tagged
   /// `mobile-survey-v1`) for preview mode; the picker then lists nothing and only the preview link opens it.
+  /// `-demoReported` starts with 187 reported moved (about 30 m) and 185 reported not here
+  /// (design/not-here-moved.md), for the banner and map dot.
   actor DemoBackend: Transport {
     static let challengeID: Int64 = 3
     static let taskIDs: [Int64] = Array(184...191)
@@ -31,9 +33,15 @@
     /// When the guest's saved answers are removed.
     private var expiresAt = Date().addingTimeInterval(14 * 86400)
 
-    init(stops: Bool = false, closing: Bool = false, draft: Bool = false) {
+    init(stops: Bool = false, closing: Bool = false, draft: Bool = false, reported: Bool = false) {
       self.stops = stops
       self.draft = draft
+      if reported {
+        let (lat, lng) = Self.coordinate(187, stops: stops)
+        reports = [185: ["reported": "not-here"], 187: ["reported": "moved", "reportedLocation": ["lat": lat + 0.00025, "lon": lng + 0.0001]]]
+        status[185] = 6
+        status[187] = 6
+      }
       if closing {
         let now = Date()
         pending = [184: now.addingTimeInterval(-12 * 86400), 188: now.addingTimeInterval(-12 * 86400)]
@@ -45,6 +53,8 @@
     private var completedBy: [Int64: Int64] = [186: 8, 189: 8, 190: 8]
     private var changesets: [Int64: Int64] = [:]
     private var nextChangeset: Int64 = 9001
+    /// Not here / moved reports by task, as the bounds search returns them.
+    private var reports: [Int64: [String: Any]] = [:]
 
     func execute(_ request: HTTPRequest) async throws -> HTTPResponse {
       try await Task.sleep(for: .milliseconds(250))
@@ -55,6 +65,10 @@
       case (.get, ["challenges", "extendedFind"]): return ok(firstPage ? [challenge] : [])
       case (.get, ["challenge", "3"]): return ok(challenge)
       case (.get, ["challenge", "3", "tasks"]): return ok(firstPage ? Self.taskIDs.map { task($0) } : [])
+      // The bounds search: open tasks not held by a guest, with their reports.
+      case (.get, let p) where p.count == 6 && p[0] == "tasks" && p[1] == "box":
+        let rows = Self.taskIDs.filter { [0, 3, 6].contains(status[$0] ?? 0) && pending[$0] == nil }.map(summary)
+        return ok(["total": firstPage ? rows.count : 0, "tasks": firstPage ? rows : []])
       case (.get, let p) where p.count == 2 && p[0] == "task":
         return id(p[1]).map { ok(task($0)) } ?? notFound
       case (.get, let p) where p.count == 4 && p[2] == "choice" && p[3] == "check":
@@ -106,7 +120,18 @@
       } else {
         let outcome = body["outcome"] as? String
         let delete = body["delete"] as? Bool == true
-        result = outcome == "too-hard" ? 6 : delete ? 1 : 2
+        if outcome == "moved" {
+          guard let at = body["location"] as? [String: Any], let lat = at["lat"] as? Double,
+            let lon = at["lon"] as? Double
+          else { return HTTPResponse(status: 422, body: json(["error": "invalid_submission"])) }
+          let (mappedLat, mappedLng) = coordinate(id)
+          let meters = hypot((lat - mappedLat) * 111_320, (lon - mappedLng) * 111_320 * cos(lat * .pi / 180))
+          if meters > 500 { return HTTPResponse(status: 422, body: json(["error": "moved_too_far"])) }
+          reports[id] = ["reported": "moved", "reportedLocation": ["lat": lat, "lon": lon]]
+        } else if outcome == "not-here" {
+          reports[id] = ["reported": "not-here"]
+        }
+        result = ["too-hard", "not-here", "moved"].contains(outcome) ? 6 : delete ? 1 : 2
         if delete { changeset = nextChangeset }
       }
       if changeset != nil { nextChangeset += 1 }
@@ -158,14 +183,26 @@
       ]
     }
 
+    private func coordinate(_ id: Int64) -> (Double, Double) { Self.coordinate(id, stops: stops) }
+
     /// Spread around Library Square, a few minutes' walk apart.
-    private func coordinate(_ id: Int64) -> (Double, Double) {
+    private static func coordinate(_ id: Int64, stops: Bool) -> (Double, Double) {
       let i = Double(id - 184)
       if stops {  // along 900 E and 1300 S, around their corner
         return id.isMultiple(of: 2)
           ? (40.7390 - 0.0018 * (i / 2 - 1), -111.8648) : (40.7393, -111.8648 + 0.0022 * ((i - 1) / 2 - 1.5))
       }
       return (40.7600 + 0.0011 * (i - 3.5), -111.8860 + 0.0016 * (i.truncatingRemainder(dividingBy: 3) - 1))
+    }
+
+    private func summary(_ id: Int64) -> [String: Any] {
+      let (lat, lng) = coordinate(id)
+      var o: [String: Any] = [
+        "id": id, "parentId": Self.challengeID, "title": "node/\(id + 1000)", "status": status[id] ?? 0,
+        "point": ["lat": lat, "lng": lng],
+      ]
+      o.merge(reports[id] ?? [:]) { $1 }
+      return o
     }
 
     private func task(_ id: Int64) -> [String: Any] {
@@ -215,7 +252,7 @@
             "A streetlight or shelter light that shines on where people wait. If it's daytime and you can't tell, pick \u{201C}I'm not sure\u{201D}."
           ),
         ],
-        "outcomes": [["id": "gone", "label": "Stop is gone", "delete": true]],
+        // "Stop is gone" is retired: the built-in "It's not here" replaces it (not-here-moved §1).
       ]
     }
 

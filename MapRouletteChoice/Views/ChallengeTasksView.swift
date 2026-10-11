@@ -47,6 +47,8 @@ struct ChallengeTasksView: View {
   @State private var hidden = 0
   /// Open tasks held by someone's saved guest answer: the bounds search leaves them out.
   @State private var held: Set<Int64> = []
+  /// Tasks someone reported as not here or moved, from the bounds search.
+  @State private var serverReports: [Int64: TaskReport] = [:]
   @State private var truncated = false
   @State private var status = "Loading…"
   @State private var failed = false
@@ -77,6 +79,8 @@ struct ChallengeTasksView: View {
     task.isOpen || (preview != nil && CampaignPreview.invalidSurvey(task.task))
   }
   private var doneIDs: Set<Int64> { progress.done }
+  /// Reports from the server, and this device's since launch (design/not-here-moved.md §4).
+  private var reports: [Int64: TaskReport] { serverReports.merging(campaigns.justReported) { $1 } }
   private var open: [LocatedTask] { TaskLocation.sorted(progress.open, from: origin) }
   private var checked: [LocatedTask] {
     let done = doneIDs
@@ -103,7 +107,7 @@ struct ChallengeTasksView: View {
         case .map:
           TaskMapView(
             styleURL: session.mapStyleURL, tasks: shown, done: doneIDs, pending: pendingIDs,
-            origin: origin, noun: noun) { id in navigate(to: id) }
+            reports: reports, origin: origin, noun: noun) { id in navigate(to: id) }
             .background(Color(.secondarySystemBackground))
             .overlay {
               if tasks.isEmpty && request != nil { ProgressView("Loading…").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) }
@@ -120,7 +124,8 @@ struct ChallengeTasksView: View {
     .navigationBarTitleDisplayMode(.inline)
     .navigationDestination(item: $selected) { selection in
       TaskView(
-        taskID: selection.id, candidates: selection.candidates, noun: noun, userLocation: origin, preview: preview)
+        taskID: selection.id, candidates: selection.candidates, reports: reports, noun: noun, userLocation: origin,
+        preview: preview)
     }
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
@@ -232,7 +237,8 @@ struct ChallengeTasksView: View {
           Button(Wording.doneForToday) { sheet = .daySummary }.font(.subheadline).frame(minHeight: 44)
         }
       }
-      if let nearest = open.first {
+      // Reported places stay open but aren't sent to anyone (design/not-here-moved.md §4).
+      if let nearest = open.first(where: { reports[$0.id] == nil }) {
         Button {
           navigate(to: nearest.id)
         } label: {
@@ -331,7 +337,9 @@ struct ChallengeTasksView: View {
       }
     }
     .accessibilityElement(children: .combine)
-    .accessibilityValue(pending ? "Saved, not on the map yet" : done ? "Already checked" : "")
+    .accessibilityValue(
+      pending ? "Saved, not on the map yet" : done ? "Already checked"
+        : reports[task.id] != nil ? Wording.needsAnotherLook : "")
   }
 
   private var detailsFooter: String {
@@ -343,27 +351,30 @@ struct ChallengeTasksView: View {
 
   /// Open tasks that the bounds search (`excludePending`) leaves out: held by a guest's saved
   /// answer until it goes on the map or expires. Best effort: on failure or a short read, none.
+  /// The same search reports which tasks someone reported as not here or moved.
   private static func heldTasks(_ tasks: [LocatedTask], in challengeID: ChallengeID, client: MapRouletteClient) async
-    -> Set<Int64>
+    -> (held: Set<Int64>, reports: [Int64: TaskReport])
   {
     let open = tasks.filter(\.isOpen)
-    guard let bounds = TaskLocation.bounds(open.compactMap(\.coordinate)) else { return [] }
+    guard let bounds = TaskLocation.bounds(open.compactMap(\.coordinate)) else { return ([], [:]) }
     let filter = TaskFilter(challengeIDs: [challengeID], bounds: bounds, choiceOnly: true, excludePending: true)
     var listed: Set<Int64> = []
+    var reports: [Int64: TaskReport] = [:]
     var cursor: PageCursor?
     var pages = 0
     do {
       repeat {
         let page = try await client.findTasksInBounds(filter: filter, pageSize: 100, after: cursor)
         listed.formUnion(page.items.map(\.id.value))
+        for item in page.items { reports[item.id.value] = item.report }
         cursor = page.next
         pages += 1
       } while cursor != nil && pages < maxPages
     } catch {
-      return []
+      return ([], [:])
     }
-    guard cursor == nil else { return [] }
-    return Set(open.map(\.id)).subtracting(listed)
+    guard cursor == nil else { return ([], reports) }
+    return (Set(open.map(\.id)).subtracting(listed), reports)
   }
 
   // MARK: Preview
@@ -541,9 +552,10 @@ struct ChallengeTasksView: View {
         } while cursor != nil && pages < Self.maxPages
         try Task.checkCancellation()
         let located = all.map(LocatedTask.init)
-        let heldNow = await Self.heldTasks(located, in: challengeID, client: client)
+        let (heldNow, reportsNow) = await Self.heldTasks(located, in: challengeID, client: client)
         try Task.checkCancellation()
         held = heldNow
+        serverReports = reportsNow
         challenge = loadedChallenge
         tasks = located
         noun = Noun.from(all)
