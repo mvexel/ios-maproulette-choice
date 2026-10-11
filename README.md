@@ -96,3 +96,13 @@ xcodebuild ... MAPROULETTE_BASE_URL=https://mr-stage.osm.lol MAPROULETTE_ALLOW_L
 ```
 
 That backend must also have the `maproulette-ios-choice` OAuth client and accept writes.
+
+## Pilot build (TestFlight)
+
+`scripts/archive-pilot.sh` archives a Release build with `Config/Pilot.xcconfig` (production backend,
+live writes and guests on, no loopback) and exports an App Store Connect `.ipa` to `build/`. It needs
+`TEAM_ID` (the Apple Developer team), a clean checkout, and Xcode signed in to that team. The build
+number is the commit count, so a later commit is always a newer build. `--stage` builds the same app
+against `mr-stage.osm.lol` for a rehearsal. The script checks the archived Info.plist and stops if
+it isn't the pilot configuration. It never uploads; upload with Xcode Organizer or `xcrun altool`
+once the release checklist clears it. Demo flags (`-demo…`) exist only in Debug builds.
