@@ -741,8 +741,11 @@ struct TaskView: View {
   @ViewBuilder private func nextButtons(prominent: Bool = true) -> some View {
     if let next = nextPlace {
       bigButton(
-        Wording.next(noun, distance: TaskLocation.directionText(here, next.coordinate)), prominent: prominent
-      ) { open(next) }
+        Wording.next(noun, distance: TaskLocation.directionText(here, next.coordinate), hasOrigin: here != nil), prominent: prominent
+      ) {
+        if here != nil { open(next) }
+        else { dismiss() }
+      }
     } else {
       Text("That was the last \(noun.one) to check. Thank you!").foregroundStyle(.secondary)
     }

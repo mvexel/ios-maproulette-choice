@@ -206,11 +206,17 @@ enum Wording {
   static func checkedByOtherFirst(_ noun: Noun) -> String {
     "Someone else checked this \(noun.one) first, so your answers weren't saved."
   }
-  static func next(_ noun: Noun, distance: String?) -> String {
-    "Next nearest \(noun.one)" + (distance.map { " · \($0)" } ?? "")
+  static func next(_ noun: Noun, distance: String?, hasOrigin: Bool) -> String {
+    guard hasOrigin else { return "Choose another \(noun.one)" }
+    return "Next nearest \(noun.one)" + (distance.map { " · \($0)" } ?? "")
   }
-  static func nearest(_ noun: Noun, distance: String?) -> String {
-    "Nearest \(noun.one)" + (distance.map { " · \($0)" } ?? "")
+  static func nearest(_ noun: Noun, distance: String?, hasOrigin: Bool) -> String {
+    guard hasOrigin else { return "Choose a \(noun.one)" }
+    return "Nearest \(noun.one)" + (distance.map { " · \($0)" } ?? "")
+  }
+  static func locationUnavailable(_ noun: Noun, isOff: Bool) -> String {
+    (isOff ? "Location is off." : "Your location isn't available yet.")
+      + " Choose a \(noun.one) on the map or in the list."
   }
   static func progress(done: Int, total: Int, _ noun: Noun) -> String {
     "The tally: \(done) of \(noun.count(total)) checked"
