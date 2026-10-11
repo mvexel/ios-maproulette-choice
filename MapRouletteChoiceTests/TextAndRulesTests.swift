@@ -231,18 +231,20 @@ import Testing
 
   /// After a phone sign-in with saved answers (B5).
   @Test func claimMessages() {
-    let signedIn = "Signed in with OpenStreetMap. "
-    #expect(Wording.claimMessage(.started(pending: 3, waiting: false)) == signedIn + "Your 3 saved answers are being put on the map.")
-    #expect(Wording.claimMessage(.started(pending: 1, waiting: false)) == signedIn + "Your saved answer is being put on the map.")
-    #expect(Wording.claimMessage(.started(pending: 0, waiting: false)) == signedIn + "Your next answers go straight on the map.")
-    #expect(Wording.claimMessage(.started(pending: 2, waiting: true))
-      == signedIn + "Your 2 saved answers are now linked to your account. They'll go on the map later.")
-    #expect(Wording.claimMessage(.gone) == signedIn + "We couldn't find your saved answers. "
+    let who = "You're signed in as rosa_slc. "
+    func line(_ outcome: AppSession.ClaimOutcome) -> String { Wording.claimMessage(outcome, name: "rosa_slc") }
+    #expect(line(.started(pending: 3, waiting: false)) == who + "Putting your 3 saved answers on the map\u{2026}")
+    #expect(line(.started(pending: 1, waiting: false)) == who + "Putting your saved answer on the map\u{2026}")
+    #expect(line(.started(pending: 0, waiting: false)) == who + "New answers go straight on the map from now on.")
+    #expect(line(.started(pending: 2, waiting: true))
+      == who + "Your 2 saved answers are now linked to your account. They'll go on the map later.")
+    #expect(line(.started(pending: 1, waiting: true))
+      == who + "Your saved answer is now linked to your account. It'll go on the map later.")
+    #expect(line(.gone) == who + "We couldn't find your saved answers. "
       + "They may have expired, or they're linked to a different OpenStreetMap account.")
-    #expect(Wording.claimMessage(.later) == signedIn + "Your answers are still saved. We'll try again next time you open the app.")
-    for outcome in [AppSession.ClaimOutcome.gone, .reauth, .later] {
-      #expect(Wording.claimMessage(outcome).hasPrefix("Signed in with OpenStreetMap. "))
-    }
+    #expect(line(.reauth) == who + "Sign in again so we can put your saved answers on the map.")
+    #expect(line(.later) == who + "Your answers are still saved. We'll try again next time you open the app.")
+    #expect(Wording.claimMessage(.later, name: nil).hasPrefix("You're signed in with OpenStreetMap. "))
   }
 
   @Test func dayNeverWraps() {

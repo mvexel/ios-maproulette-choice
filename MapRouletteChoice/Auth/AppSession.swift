@@ -134,7 +134,8 @@ struct SessionClient: Sendable {
         ? SessionView(message: "Demo campaign. Nothing is saved.", guest: true)
         : SessionView(
           signedIn: true, userID: DemoBackend.me, displayName: DemoBackend.displayName,
-          message: Self.demoClaimOutcome().map(Wording.claimMessage) ?? "Demo campaign. Nothing is saved.",
+          message: Self.demoClaimOutcome().map { Wording.claimMessage($0, name: DemoBackend.displayName) }
+            ?? "Demo campaign. Nothing is saved.",
           canWriteTasks: true, canEditOsm: true)
       deletionSetting = false
     }
@@ -171,7 +172,7 @@ struct SessionClient: Sendable {
     case .signedIn:
       // A guest kept from a phone sign-in whose claim didn't finish: try again (same claim).
       let claimed = await claimKeptGuest(auth)
-      publish(claimed.map(Wording.claimMessage) ?? signedInMessage(), detail: signedInDetail())
+      publish(claimed.map { Wording.claimMessage($0, name: view.displayName) } ?? signedInMessage(), detail: signedInDetail())
     case .guest: if !(await upgradeIfClaimed(auth)) { publish(signedOutMessage()) }
     case .signedOut: publish(signedOutMessage())
     case .refreshInterrupted: publish("Please sign in again.", detail: "A previous refresh was interrupted.")
@@ -368,7 +369,7 @@ struct SessionClient: Sendable {
       }
       await sync(auth)
       let claimed = await claimKeptGuest(auth)
-      publish(claimed.map(Wording.claimMessage) ?? signedInMessage(), detail: signedInDetail())
+      publish(claimed.map { Wording.claimMessage($0, name: view.displayName) } ?? signedInMessage(), detail: signedInDetail())
     } catch SignInFailure.superseded {
       return  // A newer sign-in or sign-out owns the view.
     } catch {
