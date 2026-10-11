@@ -31,6 +31,8 @@ struct ChallengeTasksView: View {
   /// The campaign's questions (first seen wins), for the welcome card.
   @State private var questions: [ChoiceQuestion] = []
   @State private var hidden = 0
+  /// Open tasks held by someone's saved guest answer: the bounds search leaves them out.
+  @State private var held: Set<Int64> = []
   @State private var truncated = false
   @State private var status = "Loading…"
   @State private var failed = false
@@ -49,18 +51,19 @@ struct ChallengeTasksView: View {
   /// Pages of 100 to read before stopping.
   private static let maxPages = 10
 
-  private var doneIDs: Set<Int64> {
-    Set(tasks.filter { $0.isDone || campaigns.justDone.contains($0.id) }.map(\.id))
+  private var progress: CampaignProgress {
+    CampaignProgress(tasks: tasks, justDone: campaigns.justDone, held: held)
   }
-  private var open: [LocatedTask] {
-    TaskLocation.sorted(tasks.filter { $0.isOpen && !campaigns.justDone.contains($0.id) }, from: origin)
-  }
+  private var doneIDs: Set<Int64> { progress.done }
+  private var open: [LocatedTask] { TaskLocation.sorted(progress.open, from: origin) }
   private var checked: [LocatedTask] {
     let done = doneIDs
     return TaskLocation.sorted(tasks.filter { done.contains($0.id) }, from: origin)
   }
+  /// The campaign's size for progress: held places still count (they're answered, just not on the map yet).
+  private var total: Int { progress.total }
   /// Open and checked places; the rest (not answerable here) are left off the map and list.
-  private var shown: [LocatedTask] { tasks.filter { $0.isOpen || doneIDs.contains($0.id) } }
+  private var shown: [LocatedTask] { progress.shown }
 
   var body: some View {
     VStack(spacing: 8) {
@@ -101,7 +104,7 @@ struct ChallengeTasksView: View {
       case .putOnMap: PutOnMapCard(noun: noun)
       case .daySummary:
         DaySummaryCard(
-          checkedToday: campaigns.checkedToday(challengeID.value), done: doneIDs.count, total: shown.count, noun: noun)
+          checkedToday: campaigns.checkedToday(challengeID.value), done: progress.checked, total: total, noun: noun)
       case .share: share
       }
     }
@@ -147,7 +150,7 @@ struct ChallengeTasksView: View {
   #endif
 
   private func navigate(to id: Int64) {
-    selected = Selection(id: id, candidates: tasks.filter(\.isOpen))
+    selected = Selection(id: id, candidates: tasks.filter { $0.isOpen && !held.contains($0.id) })
   }
 
   // MARK: Summary
@@ -155,16 +158,16 @@ struct ChallengeTasksView: View {
   @ViewBuilder private var summary: some View {
     VStack(spacing: 8) {
       if !shown.isEmpty {
-        let done = doneIDs.count
+        let done = progress.checked
         let today = campaigns.checkedToday(challengeID.value)
         HStack {
-          Text(Wording.progress(done: done, total: shown.count, noun))
+          Text(Wording.progress(done: done, total: total, noun))
           Spacer()
           if today > 0 { Text("You've checked \(today) today") }
         }
         .font(.subheadline)
         .foregroundStyle(.secondary)
-        ProgressView(value: Double(done), total: Double(max(shown.count, 1)))
+        ProgressView(value: Double(done), total: Double(max(total, 1)))
       } else {
         HStack {
           if request != nil { ProgressView() }
@@ -279,6 +282,31 @@ struct ChallengeTasksView: View {
     if hidden > 0 { parts.append("\(hidden) tasks are hidden: locked in a bundle, skipped by status, or not multiple-choice.") }
     if truncated { parts.append("Only the first \(Self.maxPages * 100) tasks were read.") }
     return parts.joined(separator: " ")
+  }
+
+  /// Open tasks that the bounds search (`excludePending`) leaves out: held by a guest's saved
+  /// answer until it goes on the map or expires. Best effort: on failure or a short read, none.
+  private static func heldTasks(_ tasks: [LocatedTask], in challengeID: ChallengeID, client: MapRouletteClient) async
+    -> Set<Int64>
+  {
+    let open = tasks.filter(\.isOpen)
+    guard let bounds = TaskLocation.bounds(open.compactMap(\.coordinate)) else { return [] }
+    let filter = TaskFilter(challengeIDs: [challengeID], bounds: bounds, choiceOnly: true, excludePending: true)
+    var listed: Set<Int64> = []
+    var cursor: PageCursor?
+    var pages = 0
+    do {
+      repeat {
+        let page = try await client.findTasksInBounds(filter: filter, pageSize: 100, after: cursor)
+        listed.formUnion(page.items.map(\.id.value))
+        cursor = page.next
+        pages += 1
+      } while cursor != nil && pages < maxPages
+    } catch {
+      return []
+    }
+    guard cursor == nil else { return [] }
+    return Set(open.map(\.id)).subtracting(listed)
   }
 
   // MARK: Sheets
@@ -400,6 +428,9 @@ struct ChallengeTasksView: View {
         } while cursor != nil && pages < Self.maxPages
         try Task.checkCancellation()
         let located = all.map(LocatedTask.init)
+        let heldNow = await Self.heldTasks(located, in: challengeID, client: client)
+        try Task.checkCancellation()
+        held = heldNow
         challenge = loadedChallenge
         tasks = located
         noun = Noun.from(all)
