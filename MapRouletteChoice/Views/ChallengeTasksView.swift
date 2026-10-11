@@ -55,7 +55,10 @@ struct ChallengeTasksView: View {
   @State private var failed = false
   @State private var request: Task<Void, Never>?
   @State private var origin: CLLocationCoordinate2D?
-  @State private var locationNote: String?
+  @State private var locationIsOff = false
+  private var locationNote: String? {
+    origin == nil ? Wording.locationUnavailable(noun, isOff: locationIsOff) : nil
+  }
   @State private var locator = Locator()
   @State private var selected: Selection?
   @State private var sheet: Sheet?
@@ -99,6 +102,11 @@ struct ChallengeTasksView: View {
         Spacer()
       } else {
         summary
+        if let locationNote {
+          Text(locationNote).font(.subheadline).foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal)
+        }
         Picker("View", selection: $mode) {
           ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
         }
@@ -242,13 +250,14 @@ struct ChallengeTasksView: View {
       // Reported places stay open but aren't sent to anyone (design/not-here-moved.md §4).
       if let nearest = open.first(where: { reports[$0.id] == nil }) {
         Button {
-          navigate(to: nearest.id)
+          if origin != nil { navigate(to: nearest.id) }
+          else { mode = .list }
         } label: {
           // The icon alone reads "Orient To Phone".
           Label {
-            Text(Wording.nearest(noun, distance: TaskLocation.distanceText(origin, nearest.coordinate)))
+            Text(Wording.nearest(noun, distance: TaskLocation.distanceText(origin, nearest.coordinate), hasOrigin: origin != nil))
           } icon: {
-            Image(systemName: "location.north.circle.fill").accessibilityHidden(true)
+            Image(systemName: origin != nil ? "location.north.circle.fill" : "list.bullet").accessibilityHidden(true)
           }
           .frame(maxWidth: .infinity, minHeight: 44)
         }
@@ -300,8 +309,6 @@ struct ChallengeTasksView: View {
         }
       } header: {
         if !open.isEmpty { Text("To check") }
-      } footer: {
-        if let locationNote { Text(locationNote) }
       }
       if !checked.isEmpty {
         Section("Already checked") {
@@ -613,15 +620,14 @@ struct ChallengeTasksView: View {
   }
 
   private func locate() {
-    locationNote = "Finding your location…"
+    origin = nil
+    locationIsOff = false
     locator.locate { result in
       switch result {
       case .found(let coordinate):
         origin = coordinate
-        locationNote = "Nearest first."
-      case .denied: locationNote = "Location is off, so the list isn't sorted by distance."
-      case .unavailable: locationNote = "Your location isn't available right now, so the list isn't sorted by distance."
-      case .timedOut: locationNote = "No location yet, so the list isn't sorted by distance."
+      case .denied: locationIsOff = true
+      case .unavailable, .timedOut: break
       }
     }
   }

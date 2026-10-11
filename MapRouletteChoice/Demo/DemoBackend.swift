@@ -13,6 +13,7 @@
   /// `mobile-survey-v1`) for preview mode; the picker then lists nothing and only the preview link opens it.
   /// `-demoReported` starts with 187 reported moved (about 30 m) and 185 reported not here
   /// (design/not-here-moved.md), for the banner and map dot (`seededReports`).
+  /// `-demoClaimed` answers the finish-link request with 409 `guest_claimed`, for the claimed copy.
   actor DemoBackend: Transport {
     static let challengeID: Int64 = 3
     static let taskIDs: [Int64] = Array(184...191)
@@ -107,6 +108,9 @@
         ])
       case (.get, ["mobile-guest", "me"]): return ok(guestStatus)
       case (.put, ["mobile-guest", "email"]):
+        if ProcessInfo.processInfo.arguments.contains("-demoClaimed") {
+          return HTTPResponse(status: 409, body: json(["error": "guest_claimed"]))
+        }
         email = "pending"
         return ok(guestStatus)
       case (.delete, ["mobile-guest"]):

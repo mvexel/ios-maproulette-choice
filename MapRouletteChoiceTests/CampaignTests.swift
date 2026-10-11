@@ -95,7 +95,7 @@ import Testing
     #expect(TaskLocation.fromYouText(here, northeast)?.hasSuffix(" northeast of you") == true)
     #expect(TaskLocation.rowText(nil, west) == nil)
     #expect(TaskLocation.directionText(here, west)?.hasSuffix(" west") == true)
-    #expect(Wording.next(.place, distance: TaskLocation.directionText(here, west)).hasPrefix("Next nearest place · "))
+    #expect(Wording.next(.place, distance: TaskLocation.directionText(here, west), hasOrigin: true).hasPrefix("Next nearest place · "))
   }
 
   @Test func offersOpenChoiceTaskAndNamesIt() async throws {

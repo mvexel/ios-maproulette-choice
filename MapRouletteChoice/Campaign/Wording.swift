@@ -144,7 +144,7 @@ enum Wording {
     "Saved. That's \(noun.count(todayCount)) today."
   }
   static let putOnMapIntro =
-    "To put them on the map, finish on a computer. It takes about 3 minutes. We'll email you a link."
+    "To put them on the map, finish on a computer. We can email you a link."
   static let emailUse = "We only email you about these answers, and delete your address once they're on the map or removed."
   static func linkSent(to email: String, until: Date?) -> String {
     "Sent to \(email). Check your email later." + (until.map { " The link works until \(day($0))." } ?? "")
@@ -155,7 +155,9 @@ enum Wording {
     date.formatted(.dateTime.month(.abbreviated).day()).replacingOccurrences(of: " ", with: "\u{00A0}")
   }
   static let enterEmailAgain = "Enter your email again and we'll send a new link."
-  static let signInPutsOnMap = "Sign in now and your saved answers go on the map right away."
+  /// Phone sign-in doesn't claim saved answers yet (claim B5 not built); restore the old line when it does.
+  static let signInPutsOnMap =
+    "Sign in now and your next answers go straight on the map. The ones you already saved stay saved until you finish on a computer."
   /// Only a bad address is the participant's to fix (shown in red); the rest are calm.
   static func isInputError(_ error: any Error) -> Bool { (error as? MapRouletteError)?.kind == .validation }
   /// The backend sends the link only once the guest has a saved answer (409 `nothing_saved`).
@@ -166,11 +168,13 @@ enum Wording {
   }
   static func linkFailed(_ error: any Error, _ noun: Noun = .place) -> String {
     if isNothingSaved(error) { return "Answer a \(noun.one) first, then we can send you the link." }
+    if let error = error as? MapRouletteError, error.kind == .conflict, error.reason == "guest_claimed" {
+      return "These answers are already linked to an OpenStreetMap account. Sign in with it to see them."
+    }
     return switch (error as? MapRouletteError)?.kind {
     case .validation?: "That doesn't look like an email address."
     case .rateLimit?: "We've sent a few links already. Try again tomorrow."
     case .network?: "Couldn't connect. Check your connection and try again."
-    case .conflict?: "These answers are already on the map."
     default: "Couldn't send the link right now. Try again later."
     }
   }
@@ -184,7 +188,7 @@ enum Wording {
   }
   static func daySummarySaved(until: Date?) -> String {
     (until.map { "They're saved until \(day($0))." } ?? "They're saved for now.")
-      + " Open the email we sent to put them on the map. It takes about 3 minutes on a computer."
+      + " If we emailed you a link, open it on a computer to put them on the map."
   }
   static let doneForToday = "I'm done for today"
   /// Deferred sign-up §1.6, in the last 3 days.
@@ -206,11 +210,17 @@ enum Wording {
   static func checkedByOtherFirst(_ noun: Noun) -> String {
     "Someone else checked this \(noun.one) first, so your answers weren't saved."
   }
-  static func next(_ noun: Noun, distance: String?) -> String {
-    "Next nearest \(noun.one)" + (distance.map { " · \($0)" } ?? "")
+  static func next(_ noun: Noun, distance: String?, hasOrigin: Bool) -> String {
+    guard hasOrigin else { return "Choose another \(noun.one)" }
+    return "Next nearest \(noun.one)" + (distance.map { " · \($0)" } ?? "")
   }
-  static func nearest(_ noun: Noun, distance: String?) -> String {
-    "Nearest \(noun.one)" + (distance.map { " · \($0)" } ?? "")
+  static func nearest(_ noun: Noun, distance: String?, hasOrigin: Bool) -> String {
+    guard hasOrigin else { return "Choose a \(noun.one)" }
+    return "Nearest \(noun.one)" + (distance.map { " · \($0)" } ?? "")
+  }
+  static func locationUnavailable(_ noun: Noun, isOff: Bool) -> String {
+    (isOff ? "Location is off." : "Your location isn't available yet.")
+      + " Choose a \(noun.one) on the map or in the list."
   }
   static func progress(done: Int, total: Int, _ noun: Noun) -> String {
     "The tally: \(done) of \(noun.count(total)) checked"

@@ -207,8 +207,26 @@ import Testing
     // A claimed guest is a different conflict.
     let claimed = MapRouletteError(.conflict, status: 409, reason: "guest_claimed")
     #expect(!Wording.isNothingSaved(claimed))
-    #expect(Wording.linkFailed(claimed) == "These answers are already on the map.")
+    #expect(Wording.linkFailed(claimed)
+      == "These answers are already linked to an OpenStreetMap account. Sign in with it to see them.")
+    // Any other conflict is not a promise about the map.
+    #expect(Wording.linkFailed(MapRouletteError(.conflict, status: 409, reason: "other"))
+      == "Couldn't send the link right now. Try again later.")
     #expect(!Wording.isNothingSaved(MapRouletteError(.validation, reason: "nothing_saved")))
+  }
+
+  /// design/copy-fixes-2026-10-11.md rows 2, 3, 5: no unmeasured time, no claim an email went out,
+  /// no promise that phone sign-in puts saved answers on the map.
+  @Test func noUnbackedPromises() {
+    #expect(Wording.putOnMapIntro == "To put them on the map, finish on a computer. We can email you a link.")
+    #expect(Wording.daySummarySaved(until: nil)
+      == "They're saved for now. If we emailed you a link, open it on a computer to put them on the map.")
+    #expect(Wording.signInPutsOnMap == "Sign in now and your next answers go straight on the map. "
+      + "The ones you already saved stay saved until you finish on a computer.")
+    for text in [Wording.putOnMapIntro, Wording.daySummarySaved(until: Date()), Wording.signInPutsOnMap] {
+      #expect(!text.contains("minutes"))
+      #expect(!text.contains("email we sent"))
+    }
   }
 
   @Test func dayNeverWraps() {
@@ -233,5 +251,31 @@ import Testing
   /// Under 100 m to the nearest 5 m, then to the nearest 10 m.
   @Test func distancesAreRounded() {
     #expect([2, 31, 33, 97, 104, 156].map(Wording.roundedMeters) == [0, 30, 35, 95, 100, 160])
+  }
+}
+
+@Suite struct PlaceSelectionTextTests {
+  @Test func noOriginOffersManualChoiceWithoutInventingDistance() {
+    let stops = Noun(one: "stop", many: "stops")
+    #expect(Wording.nearest(stops, distance: nil, hasOrigin: false) == "Choose a stop")
+    #expect(Wording.next(stops, distance: nil, hasOrigin: false) == "Choose another stop")
+    // A leftover distance cannot restore a nearest claim without a valid origin.
+    #expect(Wording.nearest(stops, distance: "100 m", hasOrigin: false) == "Choose a stop")
+    #expect(Wording.next(.place, distance: "100 m north", hasOrigin: false) == "Choose another place")
+  }
+
+  @Test func realOriginKeepsNearestCopyEvenWhenPlaceHasNoDistance() {
+    #expect(Wording.nearest(.place, distance: "100 m", hasOrigin: true) == "Nearest place · 100 m")
+    #expect(Wording.nearest(.place, distance: nil, hasOrigin: true) == "Nearest place")
+    #expect(Wording.next(.place, distance: "100 m north", hasOrigin: true) == "Next nearest place · 100 m north")
+    #expect(Wording.next(.place, distance: nil, hasOrigin: true) == "Next nearest place")
+  }
+
+  @Test func locationNotesExplainManualMapAndListSelection() {
+    let benches = Noun(one: "bench", many: "benches")
+    #expect(Wording.locationUnavailable(benches, isOff: true)
+      == "Location is off. Choose a bench on the map or in the list.")
+    #expect(Wording.locationUnavailable(.place, isOff: false)
+      == "Your location isn't available yet. Choose a place on the map or in the list.")
   }
 }
