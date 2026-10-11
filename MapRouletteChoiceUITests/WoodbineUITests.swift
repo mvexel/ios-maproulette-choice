@@ -5,6 +5,8 @@ import XCTest
 /// task (`liveMissingQuestions`) and the "There's no door" outcome. With SCREENSHOT_DIR set,
 /// writes woodbine-campaign, woodbine-list, woodbine-door, woodbine-automatic, woodbine-review,
 /// woodbine-one-question and woodbine-no-door.
+/// First looks at a new screen wait 20 s: under a full-suite run, map styles, tiles and the
+/// first location fix can hold the first frame past 10 s.
 final class WoodbineUITests: XCTestCase {
   override func setUp() {
     continueAfterFailure = false
@@ -12,23 +14,26 @@ final class WoodbineUITests: XCTestCase {
 
   @MainActor func testCampaignSaysEntrances() throws {
     let app = launch()
-    XCTAssert(app.staticTexts["Woodbine entrance doors"].waitForExistence(timeout: 10))
+    XCTAssert(app.staticTexts["Woodbine entrance doors"].waitForExistence(timeout: 20))
     app.staticTexts["Woodbine entrance doors"].tap()
     let start = app.buttons["Let's go"]
     XCTAssert(start.waitForExistence(timeout: 10))
     start.tap()
     allowLocationIfAsked(app)
-    XCTAssert(text(app, "3 of 8 entrances checked").waitForExistence(timeout: 10))
+    XCTAssert(text(app, "3 of 8 entrances checked").waitForExistence(timeout: 20))
     sleep(3)  // map tiles
     shot(app, "woodbine-campaign")
     app.buttons["List"].tap()
-    XCTAssert(app.staticTexts["Already checked"].waitForExistence(timeout: 5))
+    // A lazy list may not have built the section below the fold yet.
+    let checked = app.staticTexts["Already checked"]
+    if !checked.waitForExistence(timeout: 10) { app.swipeUp() }
+    XCTAssert(checked.waitForExistence(timeout: 10))
     shot(app, "woodbine-list")
   }
 
   @MainActor func testBothQuestionsAndSave() throws {
     let app = launch("-demoTask", "185")
-    XCTAssert(app.staticTexts["How does this door open?"].waitForExistence(timeout: 10))
+    XCTAssert(app.staticTexts["How does this door open?"].waitForExistence(timeout: 20))
     XCTAssert(text(app, "Look only at the door at this entrance.").exists)
     for label in ["Swings open", "Slides sideways", "Revolves", "Folds", "I'm not sure"] {
       XCTAssert(option(app, label).exists, "no option \(label)")
@@ -53,7 +58,7 @@ final class WoodbineUITests: XCTestCase {
   /// 188 already has `door`, so only the automatic-opening question is asked.
   @MainActor func testOnlyTheMissingQuestion() throws {
     let app = launch("-demoTask", "188")
-    XCTAssert(app.staticTexts["Does it open by itself?"].waitForExistence(timeout: 10))
+    XCTAssert(app.staticTexts["Does it open by itself?"].waitForExistence(timeout: 20))
     XCTAssertFalse(app.staticTexts["How does this door open?"].exists)
     shot(app, "woodbine-one-question")
   }
@@ -61,7 +66,7 @@ final class WoodbineUITests: XCTestCase {
   @MainActor func testNoDoorOutcome() throws {
     let app = launch("-demoTask", "185")
     let wrong = app.buttons["Something's wrong here"]
-    XCTAssert(wrong.waitForExistence(timeout: 10))
+    XCTAssert(wrong.waitForExistence(timeout: 20))
     wrong.tap()
     XCTAssert(option(app, "There's no door").waitForExistence(timeout: 5))
     XCTAssert(option(app, "There's no door").label.contains("It's an open doorway or a gate."))
