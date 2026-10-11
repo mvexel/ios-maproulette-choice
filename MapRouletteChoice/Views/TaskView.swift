@@ -314,7 +314,7 @@ struct TaskView: View {
   private static func showsChecked(_ state: TaskScreen) -> Bool {
     switch state {
     // A report leaves the place open: it needs another look.
-    case .done(let d) where d.action.isReport: false
+    case .done(let d) where d.action.isReport || d.flagged: false
     case .noLongerNeeded, .done: true
     default: state.loaded.map { LocatedTask($0.task).isDone } ?? false
     }
