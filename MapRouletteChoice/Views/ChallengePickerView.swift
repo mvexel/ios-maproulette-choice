@@ -168,7 +168,9 @@ struct ChallengePickerView: View {
   }
 
   private var signInLabel: String {
-    if !session.view.signedIn { return "Sign in with OpenStreetMap" }
+    if !session.view.signedIn {
+      return session.canAnswerAsGuest ? "I already use OpenStreetMap" : "Sign in with OpenStreetMap"
+    }
     return needsReconsent ? "Sign in again to save answers" : "Sign out"
   }
 
