@@ -106,6 +106,7 @@ enum Wording {
   static func day(_ date: Date) -> String {
     date.formatted(.dateTime.month(.abbreviated).day()).replacingOccurrences(of: " ", with: "\u{00A0}")
   }
+  static let enterEmailAgain = "Enter your email again and we'll send a new link."
   static let signInPutsOnMap = "Sign in now and your saved answers go on the map right away."
   /// Only a bad address is the participant's to fix (shown in red); the rest are calm.
   static func isInputError(_ error: any Error) -> Bool { (error as? MapRouletteError)?.kind == .validation }
@@ -129,6 +130,23 @@ enum Wording {
     "\(noun.count(count)) saved, not on the map yet."
       + (until.map { " Finish on a computer by \(day($0))." } ?? "")
   }
+  /// Deferred sign-up §1.4 summary: "You checked 14 stops. The tally: 212 of 410."
+  static func daySummary(_ checked: Int, done: Int, total: Int, _ noun: Noun) -> String {
+    "You checked \(noun.count(checked)). The tally: \(done) of \(total)."
+  }
+  static func daySummarySaved(until: Date?) -> String {
+    (until.map { "They're saved until \(day($0))." } ?? "They're saved for now.")
+      + " Open the email we sent to put them on the map. It takes about 3 minutes on a computer."
+  }
+  static let doneForToday = "I'm done for today"
+  /// Deferred sign-up §1.6, in the last 3 days.
+  static func savedClosing(_ count: Int, _ noun: Noun, on date: Date) -> String {
+    "\(count) saved \(count == 1 ? noun.one : noun.many) will be removed on "
+      + "\(day(date)) unless you finish on a computer."
+  }
+  /// After the deadline: calm, no error tone (§1.6).
+  static let savedExpired =
+    "Your saved answers weren't put on the map, so we removed them. They still count in the campaign's totals. Thanks for checking."
   static let deleteMyData = "Delete my data"
   static let deleteMyDataExplained =
     "Removes your email and any saved answers that aren't on the map yet. Answers already on the map stay there, because they belong to OpenStreetMap now."

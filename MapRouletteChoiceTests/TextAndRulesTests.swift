@@ -173,6 +173,24 @@ import Testing
 
 }
 
+@Suite struct GuestUpgradeTextTests {
+  @Test func claimedMessageNamesAccountAndCount() {
+    let status = GuestStatus(
+      guestID: "g", state: .claimed, email: .verified, pendingCount: 0, publishedCount: 12,
+      expiresAt: Date(), claimedAs: ClaimedAccount(displayName: "rosa_slc", osmID: 1))
+    #expect(
+      AppSession.claimedMessage(status)
+        == "You're signed in as rosa_slc. Your 12 answers are on the map. New answers go straight on the map from now on.")
+    #expect(AppSession.claimedMessage(nil).hasPrefix("You're signed in with OpenStreetMap. New answers"))
+  }
+
+  @Test func deadlineCopy() {
+    let stops = Noun.from(match: ["highway": "bus_stop"])
+    #expect(Wording.savedClosing(14, stops, on: Date()).hasPrefix("14 saved stops will be removed on "))
+    #expect(Wording.savedClosing(1, stops, on: Date()).hasSuffix(" unless you finish on a computer."))
+  }
+}
+
 @Suite struct GuestLinkTextTests {
   @Test func linkSentCopy() {
     #expect(Wording.linkSent(to: "a@b.org", until: nil) == "Sent to a@b.org. Check your email later.")

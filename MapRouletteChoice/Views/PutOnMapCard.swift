@@ -31,6 +31,10 @@ struct PutOnMapCard: View {
           }
         } else {
           Section {
+            // An email is on file, but this launch doesn't know it (it isn't stored on the phone).
+            if session.guestStatus.map({ $0.email != .none }) == true && session.lastLinkEmail == nil {
+              Text(Wording.enterEmailAgain)
+            }
             TextField("Email address", text: $email)
               .keyboardType(.emailAddress)
               .textContentType(.emailAddress)
