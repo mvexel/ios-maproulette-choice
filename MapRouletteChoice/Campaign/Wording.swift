@@ -64,6 +64,7 @@ enum Wording {
   static func movedTitle(_ noun: Noun) -> String { "Where is the \(noun.one) now?" }
   static let movedHelp = "Tap the map where it is, or stand next to it and use your location."
   static let standingAtIt = "I'm standing at it"
+  static let waitingForFix = "Waiting for a better location. Or tap the map."
   static let onTheMap = "On the map"
   static let saveThisSpot = "Save this spot"
   /// Under 100 m to the nearest 5 m, then to the nearest 10 m.

@@ -79,7 +79,7 @@ struct TaskMapView: UIViewRepresentable {
       case .toCheck: "PinTodo"
       case .done: "PinDone"
       case .pending: "PinPending"
-      case .reported: "PinStale"
+      case .reported: "PinLook"
       }
     }
 

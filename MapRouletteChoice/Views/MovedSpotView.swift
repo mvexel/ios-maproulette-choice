@@ -55,6 +55,8 @@ struct MovedSpotView: View {
         }
         .buttonStyle(.bordered)
         .disabled(fix == nil)
+        // Disabled until a fix is accurate enough; say so, so it doesn't look broken.
+        if fix == nil { Text(Wording.waitingForFix).font(.footnote).foregroundStyle(.secondary) }
         map
         status
         Button {
