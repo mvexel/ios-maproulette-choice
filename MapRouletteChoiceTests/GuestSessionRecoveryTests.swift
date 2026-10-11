@@ -11,6 +11,19 @@ actor GuestSessionTransport: Transport {
   var refuseToken = false
   var tokenRequests = 0
   var challengeHeaders: [String?] = []
+  var failStatus = false
+  var failEmail = false
+  var emailStored = false
+  var heldStatus: CheckedContinuation<HTTPResponse, any Error>?
+  var holdNextStatus = false
+  func failStatusReads(_ value: Bool) { failStatus = value }
+  func failEmailSend(_ value: Bool) { failEmail = value }
+  func holdStatusRead() { holdNextStatus = true }
+  func statusIsHeld() -> Bool { heldStatus != nil }
+  func finishHeldStatus() {
+    heldStatus?.resume(returning: HTTPResponse(status: 503, body: Data()))
+    heldStatus = nil
+  }
   func refuse() { refuseToken = true }
   func allow() { refuseToken = false }
   func execute(_ request: HTTPRequest) async throws -> HTTPResponse {
@@ -33,8 +46,17 @@ actor GuestSessionTransport: Transport {
       return HTTPResponse(status: 200, body: Data(#"{"taskId":42,"challengeId":1,"state":"pending","answeredAt":"2026-10-11T00:00:00Z"}"#.utf8))
     case "/api/v2/mobile-guest/pending":
       return HTTPResponse(status: 200, body: Data(#"{"items":[{"taskId":42,"challengeId":1,"state":"pending","answeredAt":"2026-10-11T00:00:00Z"}]}"#.utf8))
+    case "/api/v2/mobile-guest/email":
+      emailStored = true
+      if failEmail { return HTTPResponse(status: 503, body: Data(#"{"error":"email_unavailable"}"#.utf8)) }
+      return HTTPResponse(status: 200, body: Data(#"{"guestId":"guest-test","state":"active","emailSet":true,"pending":1}"#.utf8))
     case "/api/v2/mobile-guest/me":
-      return HTTPResponse(status: 200, body: Data(#"{"guestId":"guest-test","state":"active","pending":1,"expiresAt":"2026-12-01T00:00:00Z"}"#.utf8))
+      if holdNextStatus {
+        holdNextStatus = false
+        return try await withCheckedThrowingContinuation { heldStatus = $0 }
+      }
+      if failStatus { return HTTPResponse(status: 503, body: Data()) }
+      return HTTPResponse(status: 200, body: Data("{\"guestId\":\"guest-test\",\"state\":\"active\",\"email\":\"\(emailStored ? "pending" : "none")\",\"pending\":1,\"expiresAt\":\"2026-12-01T00:00:00Z\"}".utf8))
     default: throw failure(.protocolFailure)
     }
   }
@@ -50,6 +72,81 @@ actor GuestSessionTransport: Transport {
     try AppSession(testConfig: AppConfig(baseURL: "https://mr-dev.osm.lol", clientID: "test-mobile",
       allowLoopback: false, mapStyleURL: AppConfig.defaultStyle, guests: true),
       credentials: credentials, guestAccess: guestAccess ?? access, guestSaves: saves, transport: transport)
+  }
+
+  @Test func statusFailureRetainsConfirmedStateAndIntentThenRetryClearsWarning() async throws {
+    let app = try session()
+    #expect(await app.ensureGuest())
+    await app.refreshGuestStatus()
+    let deadline = try #require(app.guestStatus?.expiresAt)
+    let intent = GuestSaveIntent(binding: try #require(app.guestBinding), campaignID: 1,
+      taskID: 42, action: .answers(["backrest": "yes"]))
+    _ = try saves.keep(intent)
+    await transport.failStatusReads(true)
+    await app.refreshGuestStatus()
+    #expect(app.guestStatusRefreshFailed && !app.guestStatusRefreshInProgress)
+    #expect(app.guestStatus?.pendingCount == 1 && app.guestStatus?.expiresAt == deadline)
+    #expect(app.guestStatus?.state == .active && app.uncertainGuestSave == intent)
+    #expect(app.view.guest && !app.guestRecoveryUnavailable)
+    await transport.failStatusReads(false)
+    await app.refreshGuestStatus()
+    #expect(!app.guestStatusRefreshFailed && !app.guestStatusRefreshInProgress)
+    #expect(app.uncertainGuestSave == intent)
+  }
+
+  @Test func newerStatusReadWinsAndIdentityChangeClearsUncertainty() async throws {
+    let app = try session()
+    #expect(await app.ensureGuest())
+    await transport.holdStatusRead()
+    let oldRead = Task { await app.refreshGuestStatus() }
+    while !(await transport.statusIsHeld()) { await Task.yield() }
+    await app.refreshGuestStatus()
+    await transport.finishHeldStatus()
+    await oldRead.value
+    #expect(!app.guestStatusRefreshFailed && app.guestStatus?.pendingCount == 1)
+    await transport.failStatusReads(true)
+    await app.refreshGuestStatus()
+    #expect(app.guestStatusRefreshFailed)
+    await app.signOut()
+    #expect(!app.guestStatusRefreshFailed && app.guestStatus == nil)
+    #expect(app.lastLinkEmail == nil)
+  }
+
+  @Test func lateStatusFailureCannotRestoreWarningAfterSignOut() async throws {
+    let app = try session()
+    #expect(await app.ensureGuest())
+    await transport.holdStatusRead()
+    let oldRead = Task { await app.refreshGuestStatus() }
+    while !(await transport.statusIsHeld()) { await Task.yield() }
+    await app.signOut()
+    await transport.finishHeldStatus()
+    await oldRead.value
+    #expect(app.guestStatus == nil && !app.guestStatusRefreshFailed)
+    #expect(!app.guestStatusRefreshInProgress)
+  }
+
+  @Test func failedEmailResponseCannotConfirmLinkSending() async throws {
+    let app = try session()
+    #expect(await app.ensureGuest())
+    await transport.failEmailSend(true)
+    do { try await app.sendFinishLink(to: "a@b.org"); Issue.record("Email service failure reported success") }
+    catch { #expect(app.lastLinkEmail == nil) }
+    await app.refreshGuestStatus()
+    #expect(app.guestStatus?.email == .pending)
+    #expect(app.lastLinkEmail == nil)
+    let summary = Wording.daySummarySaved(until: app.guestStatus?.expiresAt)
+    #expect(summary.contains("If you received a finish link"))
+  }
+
+  @Test func restoredGuestStatusFailureIsVisibleWithoutReplacement() async throws {
+    let first = try session()
+    #expect(await first.ensureGuest())
+    await transport.failStatusReads(true)
+    let relaunched = try session()
+    #expect(await relaunched.ensureGuest())
+    #expect(relaunched.guestStatusRefreshFailed && relaunched.guestStatus == nil)
+    #expect(relaunched.guestBinding == first.guestBinding)
+    #expect(await transport.registrations == 1)
   }
 
   @Test func concurrentGuestStartAndRelaunchKeepOneIdentity() async throws {

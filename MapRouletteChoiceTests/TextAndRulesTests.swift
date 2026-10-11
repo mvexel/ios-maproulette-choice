@@ -184,6 +184,13 @@ import Testing
     #expect(AppSession.claimedMessage(nil).hasPrefix("You're signed in with OpenStreetMap. New answers"))
   }
 
+  @Test func readOnlyBuildDoesNotPromiseNewPublication() {
+    #expect(!AppSession.claimedMessage(nil, canEditOsm: false).contains("straight on the map"))
+    let claimed = GuestStatus(guestID: "g", state: .claimed, email: .verified,
+      pendingCount: 12, publishedCount: 0, expiresAt: Date(), claimedAs: nil)
+    #expect(!AppSession.claimedMessage(claimed, canEditOsm: false).contains("answers are on the map"))
+  }
+
   @Test func deadlineCopy() {
     let stops = Noun.from(match: ["highway": "bus_stop"])
     #expect(Wording.savedClosing(14, stops, on: Date()).hasPrefix("14 saved stops will be removed on "))
@@ -207,8 +214,18 @@ import Testing
     // A claimed guest is a different conflict.
     let claimed = MapRouletteError(.conflict, status: 409, reason: "guest_claimed")
     #expect(!Wording.isNothingSaved(claimed))
-    #expect(Wording.linkFailed(claimed) == "These answers are already on the map.")
+    #expect(Wording.linkFailed(claimed) == "These saved answers have been claimed. Open your finish link on a computer to check their status.")
     #expect(!Wording.isNothingSaved(MapRouletteError(.validation, reason: "nothing_saved")))
+    #expect(Wording.linkFailed(MapRouletteError(.conflict, status: 409, reason: "unknown_conflict"))
+      == "Couldn't send the link right now. Try again later.")
+    #expect(Wording.linkFailed(MapRouletteError(.conflict, status: 409))
+      == "Couldn't send the link right now. Try again later.")
+  }
+
+  @Test func storedEmailDoesNotProveDelivery() {
+    #expect(Wording.daySummarySaved(until: nil) == "They're saved for now. If you received a finish link, open it on a computer.")
+    #expect(Wording.daySummarySaved(until: Date()).hasSuffix(" If you received a finish link, open it on a computer."))
+    #expect(Wording.putOnMapIntro == "You can request an email link to finish on a computer. Your answers stay saved if the link can't be sent.")
   }
 
   @Test func dayNeverWraps() {

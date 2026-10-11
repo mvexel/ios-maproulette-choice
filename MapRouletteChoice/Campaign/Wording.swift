@@ -144,7 +144,7 @@ enum Wording {
     "Saved. That's \(noun.count(todayCount)) today."
   }
   static let putOnMapIntro =
-    "To put them on the map, finish on a computer. It takes about 3 minutes. We'll email you a link."
+    "You can request an email link to finish on a computer. Your answers stay saved if the link can't be sent."
   static let emailUse = "We only email you about these answers, and delete your address once they're on the map or removed."
   static func linkSent(to email: String, until: Date?) -> String {
     "Sent to \(email). Check your email later." + (until.map { " The link works until \(day($0))." } ?? "")
@@ -167,14 +167,17 @@ enum Wording {
   }
   static func linkFailed(_ error: any Error, _ noun: Noun = .place) -> String {
     if isNothingSaved(error) { return "Answer a \(noun.one) first, then we can send you the link." }
+    if let failure = error as? MapRouletteError, failure.kind == .conflict, failure.reason == "guest_claimed" {
+      return "These saved answers have been claimed. Open your finish link on a computer to check their status."
+    }
     return switch (error as? MapRouletteError)?.kind {
     case .validation?: "That doesn't look like an email address."
     case .rateLimit?: "We've sent a few links already. Try again tomorrow."
     case .network?: "Couldn't connect. Check your connection and try again."
-    case .conflict?: "These answers are already on the map."
     default: "Couldn't send the link right now. Try again later."
     }
   }
+  static let guestStatusUnavailable = "We couldn't refresh your saved-answer status. The information shown may be out of date."
   static func savedNotOnMap(_ count: Int, _ noun: Noun, until: Date?) -> String {
     "\(noun.count(count)) saved, not on the map yet."
       + (until.map { " Finish on a computer by \(day($0))." } ?? "")
@@ -185,7 +188,7 @@ enum Wording {
   }
   static func daySummarySaved(until: Date?) -> String {
     (until.map { "They're saved until \(day($0))." } ?? "They're saved for now.")
-      + " Open the email we sent to put them on the map. It takes about 3 minutes on a computer."
+      + " If you received a finish link, open it on a computer."
   }
   static let doneForToday = "I'm done for today"
   /// Deferred sign-up §1.6, in the last 3 days.

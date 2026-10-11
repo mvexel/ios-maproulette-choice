@@ -260,6 +260,14 @@ struct ChallengeTasksView: View {
         Text("An earlier save still needs checking.").font(.subheadline)
         Button("Check earlier save") { navigate(to: recovery.taskID) }.frame(minHeight: 44)
       }
+      if preview == nil, session.view.guest {
+        if session.guestStatusRefreshFailed {
+          Text(Wording.guestStatusUnavailable).foregroundStyle(.secondary)
+          Button("Check again") { Task { await session.refreshGuestStatus() } }
+            .disabled(session.guestStatusRefreshInProgress)
+            .frame(minHeight: 44)
+        }
+      }
       if preview == nil, session.view.guest, let saved = session.guestStatus {
         if saved.state == .expired {
           Text(Wording.savedExpired).font(.subheadline).foregroundStyle(.secondary)

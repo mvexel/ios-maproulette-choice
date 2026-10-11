@@ -22,6 +22,12 @@ struct PutOnMapCard: View {
       Form {
         Section {
           Text(Wording.putOnMapIntro)
+          if session.guestStatusRefreshFailed {
+            Text(Wording.guestStatusUnavailable).foregroundStyle(.secondary)
+            Button("Check again") { Task { await session.refreshGuestStatus() } }
+              .disabled(session.guestStatusRefreshInProgress)
+              .frame(minHeight: 44)
+          }
         }
         if let sentTo {
           Section {

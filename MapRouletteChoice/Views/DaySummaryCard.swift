@@ -18,13 +18,19 @@ struct DaySummaryCard: View {
 
   var body: some View {
     if session.guestStatus?.email == GuestEmailState.none || enterEmail {
-      PutOnMapCard()
+      PutOnMapCard(noun: noun)
     } else {
       NavigationStack {
         VStack(alignment: .leading, spacing: 16) {
           Text("Nice work today.").font(.title2.weight(.semibold))
           Text(Wording.daySummary(checkedToday, done: done, total: total, noun))
           Text(Wording.daySummarySaved(until: session.guestStatus?.expiresAt))
+          if session.guestStatusRefreshFailed {
+            Text(Wording.guestStatusUnavailable).foregroundStyle(.secondary)
+            Button("Check again") { Task { await session.refreshGuestStatus() } }
+              .disabled(session.guestStatusRefreshInProgress)
+              .frame(minHeight: 44)
+          }
           if let note { Text(note).foregroundStyle(.secondary) }
           Spacer()
           Button {

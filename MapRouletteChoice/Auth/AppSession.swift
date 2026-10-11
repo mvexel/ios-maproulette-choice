@@ -206,6 +206,8 @@ struct SessionClient: Sendable {
 
   /// Copies the SDK's account and generation into the view state.
   private func sync(_ auth: MobileSignIn) async {
+    let previousGeneration = view.generation
+    let previousBinding = guestBinding
     let account = await auth.account
     view.generation = await auth.generation
     view.userID = account?.userID
@@ -219,6 +221,13 @@ struct SessionClient: Sendable {
       guestRecoveryUnavailable = account == nil && (guest.map { evidence != Data($0.guestID.utf8) } ?? (evidence != nil))
     } catch { guestRecoveryUnavailable = true }
     view.guest = account == nil && guest != nil && !guestRecoveryUnavailable
+    if previousGeneration != view.generation || previousBinding != guestBinding || !view.guest {
+      guestStatus = nil
+      guestStatusRefreshFailed = false
+      guestStatusRefreshInProgress = false
+      guestStatusRequest += 1
+      lastLinkEmail = nil
+    }
   }
 
   nonisolated static let signInDidNotFinish = "Sign-in didn't finish. Please try again."
@@ -266,12 +275,19 @@ struct SessionClient: Sendable {
 
   /// The guest's saved answers and deadline, as last read; nil when not a guest or not read yet.
   private(set) var guestStatus: GuestStatus?
+  private(set) var guestStatusRefreshFailed = false
+  private(set) var guestStatusRefreshInProgress = false
+  @ObservationIgnored private var guestStatusRequest = 0
 
   /// A guest whose answers were claimed on the web becomes that account (UX §1.5). Checked on
   /// launch. Once claimed the guest token is refused, so a failed status read still tries.
   private func upgradeIfClaimed(_ auth: MobileSignIn) async -> Bool {
     guard guestOperationsConfigured, view.guest, !guestRecoveryUnavailable else { return false }
-    let status = try? await newClient().client.getGuestStatus()
+    let generation = view.generation
+    let binding = guestBinding
+    await refreshGuestStatus()
+    guard generation == view.generation, binding == guestBinding, view.guest else { return false }
+    let status = guestStatus
     guard status == nil || status?.state == .claimed else {
       guestStatus = status
       return false
@@ -279,33 +295,60 @@ struct SessionClient: Sendable {
     guard !guestRecoveryUnavailable, case .signedIn? = try? await auth.upgradeGuest() else { return false }
     guestStatus = nil
     await sync(auth)
-    publish(Self.claimedMessage(status), detail: signedInDetail())
+    publish(Self.claimedMessage(status, canEditOsm: writesConfigured && scopes.contains(Self.writeScope) && scopes.contains(Self.tagfixScope)), detail: signedInDetail())
     return true
   }
 
   /// "You're signed in as rosa_slc. Your 12 answers are on the map. …"
-  nonisolated static func claimedMessage(_ status: GuestStatus?) -> String {
+  nonisolated static func claimedMessage(_ status: GuestStatus?, canEditOsm: Bool = true) -> String {
     let who = status?.claimedAs.map { "You're signed in as \($0.displayName)." } ?? "You're signed in with OpenStreetMap."
     let count = status?.publishedCount ?? 0
     let onMap = count == 0 ? "" : count == 1 ? " Your answer is on the map." : " Your \(count) answers are on the map."
-    return who + onMap + " New answers go straight on the map from now on."
+    return who + onMap + (canEditOsm ? " New answers go straight on the map from now on." : " This app can't put new answers on the map in this build.")
   }
 
-  /// Re-reads the guest's status (saved count, email state, deadline). Failures keep the last one.
+  /// Keep the last confirmed count/deadline on failure, visibly marked as stale.
+  /// Only the latest read for this exact guest session can update the UI.
   func refreshGuestStatus() async {
     guard guestOperationsConfigured, view.guest else {
       guestStatus = nil
+      guestStatusRefreshFailed = false
+      guestStatusRefreshInProgress = false
+      guestStatusRequest += 1
       return
     }
-    let client = newClient().client
-    if let status = try? await client.getGuestStatus(), view.guest { guestStatus = status }
+    guestStatusRequest += 1
+    let request = guestStatusRequest
+    let generation = view.generation
+    let binding = guestBinding
+    guestStatusRefreshInProgress = true
+    defer {
+      if request == guestStatusRequest { guestStatusRefreshInProgress = false }
+    }
+    do {
+      let status = try await newClient().client.getGuestStatus()
+      guard request == guestStatusRequest, generation == view.generation,
+        binding == guestBinding, view.guest else { return }
+      guestStatus = status
+      guestStatusRefreshFailed = false
+    } catch {
+      guard request == guestStatusRequest, generation == view.generation,
+        binding == guestBinding, view.guest else { return }
+      guestStatusRefreshFailed = true
+    }
   }
 
   /// Sends the "finish on a computer" link to `email` (again, to correct it). Throws for the
   /// card to show a plain message.
   func sendFinishLink(to email: String) async throws {
+    let generation = view.generation
+    let binding = guestBinding
     let status = try await newClient().client.setGuestEmail(email)
+    guard generation == view.generation, binding == guestBinding, view.guest else { throw CancellationError() }
     if view.guest {
+      guestStatusRequest += 1
+      guestStatusRefreshFailed = false
+      guestStatusRefreshInProgress = false
       guestStatus = status
       lastLinkEmail = email
     }
