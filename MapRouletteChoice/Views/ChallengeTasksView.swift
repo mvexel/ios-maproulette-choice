@@ -138,7 +138,7 @@ struct ChallengeTasksView: View {
       case .putOnMap: PutOnMapCard(noun: noun)
       case .daySummary:
         DaySummaryCard(
-          checkedToday: campaigns.checkedToday(challengeID.value), done: doneIDs.count, total: total, noun: noun)
+          checkedToday: campaigns.checkedToday(challengeID.value), done: progress.checked, total: total, noun: noun)
       case .share: share
       }
     }
@@ -203,7 +203,7 @@ struct ChallengeTasksView: View {
       }
       // Preview hides the tally: nothing changes it (§4.2).
       if !shown.isEmpty && preview == nil {
-        let done = doneIDs.count
+        let done = progress.checked
         let today = campaigns.checkedToday(challengeID.value)
         // Side by side until accessibility sizes, then stacked so neither line truncates.
         let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading)) : AnyLayout(HStackLayout())

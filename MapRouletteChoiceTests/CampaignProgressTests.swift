@@ -14,6 +14,7 @@ import Testing
     let tasks = [try await open(1), try await open(2), try await open(3)]
     let p = CampaignProgress(tasks: tasks, justDone: [], held: [2])
     #expect(p.total == 3)
+    #expect(p.checked == 1)
     #expect(p.done.isEmpty)
     #expect(p.shown.map(\.id) == [1, 3])
     #expect(p.open.map(\.id) == [1, 3])
@@ -41,6 +42,7 @@ import Testing
     ]
     let p = CampaignProgress(tasks: tasks, justDone: [], held: [])
     #expect(p.total == 2)
+    #expect(p.checked == 1)
     #expect(p.done == [5])
     #expect(p.shown.map(\.id) == [1, 5])
     #expect(p.open.map(\.id) == [1])
@@ -50,6 +52,7 @@ import Testing
     let tasks = [try await open(1), try await open(2), try await open(3), try await done(4)]
     let p = CampaignProgress(tasks: tasks, justDone: [3], held: [2])
     #expect(p.total == 4)
+    #expect(p.checked == 3)
     #expect(p.done == [3, 4])
     #expect(p.shown.map(\.id) == [1, 3, 4])
     #expect(p.open.map(\.id) == [1])
