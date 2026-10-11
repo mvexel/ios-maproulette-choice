@@ -48,8 +48,9 @@ enum Wording {
   static let notSureShort = "Not sure"
   static let somethingWrong = "Something's wrong here"
   /// A guest on a task that can't hold answers until sign-in.
+  static func accountNeededTitle(_ noun: Noun) -> String { "Sign in to check this \(noun.one)" }
   static func accountNeeded(_ noun: Noun) -> String {
-    "Answering this \(noun.one) needs an OpenStreetMap account. Sign in to answer it, or go on to the next one."
+    "This \(noun.one) needs an OpenStreetMap account. Any answers you've saved stay saved."
   }
   static func cantCheck(_ noun: Noun) -> String { "I can't check this \(noun.one)" }
 

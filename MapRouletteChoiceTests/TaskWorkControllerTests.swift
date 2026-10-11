@@ -526,6 +526,8 @@ import Testing
     payload["liveMissingQuestions"] = nil
     let guest = await controller(ops(try await makeTask(payload: payload)), writer: .guestWriter)
     guard case .accountNeeded = guest.state else { Issue.record("\(guest.state.name)"); return }
+    #expect(Wording.accountNeededTitle(Noun.place) == "Sign in to check this place")
+    #expect(Wording.accountNeeded(Noun.place) == "This place needs an OpenStreetMap account. Any answers you've saved stay saved.")
     // A signed-in participant answers it as before.
     let signedIn = await controller(ops(try await makeTask(payload: payload)))
     #expect(signedIn.state.answering != nil)
