@@ -245,6 +245,16 @@ struct ChallengeTasksView: View {
       }
       if preview == nil, session.guestRecoveryUnavailable {
         Text(AppSession.guestAccessUnavailable).font(.subheadline).foregroundStyle(.secondary)
+        if session.guestBinding != nil {
+          Button("Try restoring saved-answer access") {
+            Task {
+              _ = await session.ensureGuest()
+              recovery = session.uncertainGuestSave
+              client = session.newClient()
+              load()
+            }
+          }.frame(minHeight: 44)
+        }
       }
       if preview == nil, session.view.guest, let recovery, recovery.campaignID == challengeID.value {
         Text("An earlier save still needs checking.").font(.subheadline)

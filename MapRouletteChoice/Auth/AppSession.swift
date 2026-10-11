@@ -210,8 +210,8 @@ struct SessionClient: Sendable {
     guestBinding = guest.map { endpoints.origin + "\n" + endpoints.clientID + "\n" + $0.guestID }
     do {
       if let guest { try guestAccess?.write(Data(guest.guestID.utf8)) }
-      let establishedGuest = try guestAccess?.read() != nil
-      guestRecoveryUnavailable = account == nil && guest == nil && establishedGuest
+      let evidence = try guestAccess?.read()
+      guestRecoveryUnavailable = account == nil && (guest.map { evidence != Data($0.guestID.utf8) } ?? (evidence != nil))
     } catch { guestRecoveryUnavailable = true }
     view.guest = account == nil && guest != nil && !guestRecoveryUnavailable
   }
@@ -265,12 +265,13 @@ struct SessionClient: Sendable {
   /// A guest whose answers were claimed on the web becomes that account (UX §1.5). Checked on
   /// launch. Once claimed the guest token is refused, so a failed status read still tries.
   private func upgradeIfClaimed(_ auth: MobileSignIn) async -> Bool {
+    guard view.guest, !guestRecoveryUnavailable else { return false }
     let status = try? await newClient().client.getGuestStatus()
     guard status == nil || status?.state == .claimed else {
       guestStatus = status
       return false
     }
-    guard case .signedIn? = try? await auth.upgradeGuest() else { return false }
+    guard !guestRecoveryUnavailable, case .signedIn? = try? await auth.upgradeGuest() else { return false }
     guestStatus = nil
     await sync(auth)
     publish(Self.claimedMessage(status), detail: signedInDetail())
@@ -335,9 +336,14 @@ struct SessionClient: Sendable {
   }
 
   private func registerGuest() async -> Bool {
+    guard let auth, guestsEnabled, writesConfigured, !view.signedIn else { return false }
+    if await auth.guest != nil {
+      // A failed marker write must retry the same retained identity, never register another.
+      await sync(auth)
+      publish(signedOutMessage())
+      return view.guest
+    }
     guard canAnswerAsGuest else { return false }
-    if view.guest { return true }
-    guard let auth else { return false }
     do {
       _ = try await auth.startGuest()
       await sync(auth)
@@ -444,6 +450,8 @@ struct SessionClient: Sendable {
         environment: environment, transport: transport, allowElementDeletion: deletion,
         accessToken: { [weak self, auth] in
           guard let auth else { return nil }
+          if await auth.account == nil, let guest = await auth.guest,
+            await self?.guestAccessMatches(guest.guestID, expected) != true { return nil }
           do {
             return try await auth.accessToken(generation: expected)
           } catch let error as MapRouletteError {
@@ -453,10 +461,27 @@ struct SessionClient: Sendable {
         }))
   }
 
+  /// Discovery clients also stay anonymous until this exact guest has durable evidence.
+  private func guestAccessMatches(_ guestID: String, _ expected: Int) -> Bool {
+    guard expected == view.generation, view.guest, !guestRecoveryUnavailable else { return false }
+    do {
+      guard try guestAccess?.read() == Data(guestID.utf8) else { throw SessionFailure() }
+      return true
+    } catch {
+      guestRecoveryUnavailable = true
+      view.guest = false
+      publish(Self.guestAccessUnavailable)
+      return false
+    }
+  }
+
   /// Enforced below the UI: a lifecycle write leaves the device only for an allowlisted backend
   /// and a grant that includes `tasks:write`. Everything else is refused unsent.
   fileprivate func admit(_ request: HTTPRequest, _ expected: Int) throws {
     if expected != view.generation { throw CancellationError() }
+    if !view.signedIn, guestRecoveryUnavailable, request.method != .get {
+      throw MapRouletteError(.permission)
+    }
     if Self.isTaskWrite(request.url), !(writesConfigured && scopes.contains(Self.writeScope)) {
       throw MapRouletteError(.permission)
     }

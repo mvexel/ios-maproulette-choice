@@ -453,7 +453,7 @@ enum TaskScreen: Sendable {
 
   private func guestUnknown(_ loaded: LoadedTask, _ form: ChoiceForm, _ action: ChoiceAction) -> TaskScreen {
     .checkAgain(.init(loaded: loaded, form: form, action: action,
-      message: "The connection dropped, so we're not sure your answers were saved. Tap Check again to find out.",
+      message: "We haven't confirmed these answers were saved. Check for a server receipt, or send the same answers again to confirm them.",
       checking: false, canResend: true, guest: true))
   }
 
