@@ -207,8 +207,26 @@ import Testing
     // A claimed guest is a different conflict.
     let claimed = MapRouletteError(.conflict, status: 409, reason: "guest_claimed")
     #expect(!Wording.isNothingSaved(claimed))
-    #expect(Wording.linkFailed(claimed) == "These answers are already on the map.")
+    #expect(Wording.linkFailed(claimed)
+      == "These answers are already linked to an OpenStreetMap account. Sign in with it to see them.")
+    // Any other conflict is not a promise about the map.
+    #expect(Wording.linkFailed(MapRouletteError(.conflict, status: 409, reason: "other"))
+      == "Couldn't send the link right now. Try again later.")
     #expect(!Wording.isNothingSaved(MapRouletteError(.validation, reason: "nothing_saved")))
+  }
+
+  /// design/copy-fixes-2026-10-11.md rows 2, 3, 5: no unmeasured time, no claim an email went out,
+  /// no promise that phone sign-in puts saved answers on the map.
+  @Test func noUnbackedPromises() {
+    #expect(Wording.putOnMapIntro == "To put them on the map, finish on a computer. We can email you a link.")
+    #expect(Wording.daySummarySaved(until: nil)
+      == "They're saved for now. If we emailed you a link, open it on a computer to put them on the map.")
+    #expect(Wording.signInPutsOnMap == "Sign in now and your next answers go straight on the map. "
+      + "The ones you already saved stay saved until you finish on a computer.")
+    for text in [Wording.putOnMapIntro, Wording.daySummarySaved(until: Date()), Wording.signInPutsOnMap] {
+      #expect(!text.contains("minutes"))
+      #expect(!text.contains("email we sent"))
+    }
   }
 
   @Test func dayNeverWraps() {
