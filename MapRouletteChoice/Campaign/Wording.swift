@@ -119,7 +119,7 @@ enum Wording {
   static let guestAnswersArePublic =
     "Your answers go on OpenStreetMap, the free map anyone can use, when you finish on a computer. Map edits are public and show the username you choose then."
   static func locationStaysOnPhone(_ noun: Noun) -> String {
-    "Your location stays on your phone. We use it to find the nearest \(noun.many)."
+    "We use your location to find the nearest \(noun.many). It stays on your phone, unless you tap “I'm standing at it” to show where a \(noun.one) has moved."
   }
 
   static func skip(_ noun: Noun) -> String { "Skip this \(noun.one)" }
