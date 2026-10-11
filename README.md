@@ -48,6 +48,20 @@ xcrun simctl launch booted lol.osm.maproulette.choice -demo -demoList        # c
 xcrun simctl launch booted lol.osm.maproulette.choice -demo -demoTask 185    # a place's first question
 ```
 
+`-demoStops` swaps in the bus stop campaign and `-demoGuest` answers as a guest. Campaign preview
+(design/preview-mode.md): `-demoDraft` serves the demo campaign as an unpublished draft (disabled,
+not tagged `mobile-survey-v1`), so the picker lists nothing and only a preview link opens it.
+`-demoPreview` opens it as the link would. With `-demoGuest` too, preview asks to sign in.
+
+```sh
+xcrun simctl launch booted lol.osm.maproulette.choice -demo -demoStops -demoDraft
+xcrun simctl openurl booted "mrchoice://challenge/3?preview=1"                       # preview the draft
+xcrun simctl launch booted lol.osm.maproulette.choice -demo -demoStops -demoDraft -demoPreview
+```
+
+Without `-demoDraft` the same link opens the published campaign normally, with the "answers are
+saved for real" note.
+
 `MapRouletteChoiceUITests` walks the demo from the picker to "Saved" and attaches a screenshot of
 each screen. To also write them as PNGs:
 

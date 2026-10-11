@@ -7,6 +7,8 @@ struct SessionView: Equatable, Sendable {
   var generation = 0
   var signedIn = false
   var userID: Int64?
+  /// The OpenStreetMap username, when the server sent one.
+  var displayName: String?
   /// Participant-facing status line.
   var message: String
   /// Technical detail (account ids, revocation results), shown only with "Show OSM details".
@@ -131,7 +133,8 @@ struct SessionClient: Sendable {
         guest
         ? SessionView(message: "Demo campaign. Nothing is saved.", guest: true)
         : SessionView(
-          signedIn: true, userID: 7, message: "Demo campaign. Nothing is saved.",
+          signedIn: true, userID: DemoBackend.me, displayName: DemoBackend.displayName,
+          message: "Demo campaign. Nothing is saved.",
           canWriteTasks: true, canEditOsm: true)
       deletionSetting = false
     }
@@ -161,6 +164,7 @@ struct SessionClient: Sendable {
     let account = await auth.account
     view.generation = await auth.generation
     view.userID = account?.userID
+    view.displayName = account?.displayName
     scopes = account?.scopes ?? []
     let guest = await auth.guest
     view.guest = account == nil && guest != nil
@@ -190,7 +194,8 @@ struct SessionClient: Sendable {
     let signedIn = view.userID != nil
     let writable = signedIn && scopes.contains(Self.writeScope)
     view = SessionView(
-      generation: view.generation, signedIn: signedIn, userID: view.userID, message: message, detail: detail,
+      generation: view.generation, signedIn: signedIn, userID: view.userID,
+      displayName: signedIn ? view.displayName : nil, message: message, detail: detail,
       canWriteTasks: writable, canEditOsm: writable && scopes.contains(Self.tagfixScope),
       guest: !signedIn && view.guest)
   }
@@ -301,6 +306,7 @@ struct SessionClient: Sendable {
     // Keep the revocation result visible: the old grant may still be valid on the server.
     let revocation = view.signedIn ? await signOut() : nil
     view.userID = nil
+    view.displayName = nil
     scopes = []
     publish("Opening OpenStreetMap sign-in…", detail: revocation)
     do {
@@ -333,6 +339,7 @@ struct SessionClient: Sendable {
   func signOut() async -> String {
     guard let auth else { return "" }
     view.userID = nil
+    view.displayName = nil
     scopes = []
     publish("Signing out…")
     let result = await auth.signOut()

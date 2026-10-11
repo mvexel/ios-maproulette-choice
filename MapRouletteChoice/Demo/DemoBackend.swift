@@ -9,10 +9,14 @@
   /// `-demoStops` swaps in "SLC Bus Stops" (same ids and states) around 1300 S 900 E, for App
   /// Store screenshots. Guest calls (`-demoGuest`) keep answers in memory. `-demoClosing` starts
   /// the guest with two saved answers (184, 188) that expire in about 2 days, for the amber banner.
+  /// `-demoDraft` serves the campaign as an unpublished draft (disabled, not tagged
+  /// `mobile-survey-v1`) for preview mode; the picker then lists nothing and only the preview link opens it.
   actor DemoBackend: Transport {
     static let challengeID: Int64 = 3
     static let taskIDs: [Int64] = Array(184...191)
-    private static let me: Int64 = 7
+    /// The demo account: MapRoulette user 7, OpenStreetMap username "rosa_slc".
+    static let me: Int64 = 7
+    static let displayName = "rosa_slc"
     private static let benchNames: [Int64: String] = [
       184: "Library Square bench", 187: "Washington Square bench", 190: "Gallivan Plaza bench",
     ]
@@ -21,13 +25,15 @@
       188: "900 E & Bryan Ave", 189: "Sugar House Park & Ride", 190: "900 E & Emerson Ave", 191: "1100 E & 1300 S",
     ]
     let stops: Bool
+    let draft: Bool
     private var pending: [Int64: Date] = [:]
     private var email = "none"
     /// When the guest's saved answers are removed.
     private var expiresAt = Date().addingTimeInterval(14 * 86400)
 
-    init(stops: Bool = false, closing: Bool = false) {
+    init(stops: Bool = false, closing: Bool = false, draft: Bool = false) {
       self.stops = stops
+      self.draft = draft
       if closing {
         let now = Date()
         pending = [184: now.addingTimeInterval(-12 * 86400), 188: now.addingTimeInterval(-12 * 86400)]
@@ -126,6 +132,15 @@
     private func json(_ value: Any) -> Data { try! JSONSerialization.data(withJSONObject: value) }
 
     private var challenge: [String: Any] {
+      var o = published
+      if draft {
+        o["enabled"] = false
+        o["tags"] = [String]()
+      }
+      return o
+    }
+
+    private var published: [String: Any] {
       if stops {
         return [
           "id": Self.challengeID, "parent": 1, "name": "SLC Bus Stops",

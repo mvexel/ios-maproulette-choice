@@ -6,7 +6,8 @@ import SwiftUI
 /// One place, one question per screen, sized for the street (docs: personas-and-design.md §4).
 /// Late locking as in the SDK example (docs/design/mobile-choice-challenges.md §7): viewing never
 /// locks; saving locks, submits and releases. OSM detail (tags, ids, changesets) shows only with
-/// "Show OSM details".
+/// "Show OSM details". In campaign preview (design/preview-mode.md) every question is asked and
+/// nothing is sent: the saved screen quotes what the real campaign would say.
 struct TaskView: View {
   @Environment(AppSession.self) private var session
   @Environment(TaskChanges.self) private var changes
@@ -28,6 +29,8 @@ struct TaskView: View {
   /// "130 m northeast of you". Not live: after "Next nearest" they have moved, so it is hidden.
   private let userLocation: CLLocationCoordinate2D?
   private let firstTaskID: Int64
+  /// Set in campaign preview: no writer, no guest, nothing counted or stored.
+  private let preview: CampaignPreview?
   /// Places opened in this screen; never offered again as next.
   @State private var visited: Set<Int64>
   @State private var controller: TaskWorkController?
@@ -43,13 +46,17 @@ struct TaskView: View {
   @State private var showProblems = false
   @State private var counted = false
 
-  init(taskID: Int64, candidates: [LocatedTask], noun: Noun, userLocation: CLLocationCoordinate2D? = nil) {
+  init(
+    taskID: Int64, candidates: [LocatedTask], noun: Noun, userLocation: CLLocationCoordinate2D? = nil,
+    preview: CampaignPreview? = nil
+  ) {
     _taskID = State(initialValue: taskID)
     _visited = State(initialValue: [taskID])
     self.candidates = candidates
     self.noun = noun
     self.userLocation = userLocation
     firstTaskID = taskID
+    self.preview = preview
   }
 
   /// A confirmation bound to the controller that showed it: a dialog left open across an
@@ -73,6 +80,9 @@ struct TaskView: View {
         }
       }
       .padding()
+    }
+    .safeAreaInset(edge: .top, spacing: 0) {
+      if let preview, preview.showsBanner { PreviewBanner(preview: preview) }
     }
     // The place name heads the screen; a title would repeat it.
     .navigationTitle("")
@@ -102,7 +112,8 @@ struct TaskView: View {
   private func start() {
     Task {
       // Registering a guest changes the session generation; do it before binding a controller.
-      if session.canAnswerAsGuest { _ = await session.ensureGuest() }
+      // Never in preview: that would leave a guest behind (§2).
+      if preview == nil && session.canAnswerAsGuest { _ = await session.ensureGuest() }
       guard controller == nil else { return }
       generation = session.view.generation
       replaceController()
@@ -113,12 +124,13 @@ struct TaskView: View {
   /// A controller is bound to one account's clients; results of a replaced one are never shown.
   private func replaceController() {
     let view = session.view
-    let writer =
-      session.writesConfigured && view.signedIn && view.canWriteTasks
-      ? view.userID.map { Writer(me: $0, canEditOsm: view.canEditOsm) }
+    let writer: Writer? =
+      preview != nil ? nil
+      : session.writesConfigured && view.signedIn && view.canWriteTasks
+        ? view.userID.map { Writer(me: $0, canEditOsm: view.canEditOsm) }
       : session.writesConfigured && view.guest ? .guestWriter : nil
     controller = TaskWorkController(
-      ops: ClientTaskOps(session.newClient().client), writer: writer, noun: noun)
+      ops: ClientTaskOps(session.newClient().client), writer: writer, noun: noun, previewing: preview != nil)
   }
 
   /// Account switch or sign-out: discard the old account's state and any late result.
@@ -152,16 +164,21 @@ struct TaskView: View {
     notSure = []
   }
 
-  /// The task id once it is finished by this user (saved or recorded, not skipped).
+  /// The task id once it is finished by this user (saved or recorded, not skipped), or "saved"
+  /// in preview.
   private var finishedTaskID: Int64? {
-    guard case .done(let d) = controller?.state, !d.byOther else { return nil }
-    return d.loaded.task.id.value
+    switch controller?.state {
+    case .done(let d)? where !d.byOther: d.loaded.task.id.value
+    case .previewSaved(let loaded, _, _)?: loaded.task.id.value
+    default: nil
+    }
   }
 
   private func countFinished() {
-    guard let id = finishedTaskID, !counted, case .done(let d) = controller?.state else { return }
+    guard finishedTaskID != nil, !counted, let state = controller?.state else { return }
     counted = true
-    campaigns.recordChecked(d.loaded.challenge.id.value, task: id)
+    // In preview nothing is stored and the card never opens (§4.2).
+    guard let d = campaigns.finished(state, preview: preview) else { return }
     if d.savedForLater && !putOnMapCardShown {
       // Once, after the first saved answer; later from the campaign's banner.
       putOnMapCardShown = true
@@ -214,12 +231,17 @@ struct TaskView: View {
       Text(message)
       bigButton("Try again") { c.load(try! TaskID(taskID)) }
       backButton()
-    case .notAvailable(_, let reason):
+    case .notAvailable(let loaded, let reason):
       Text(Wording.cannotAnswer(noun)).font(.headline)
-      if showDetails { Text(reason).font(.footnote).foregroundStyle(.secondary) }
+      if preview != nil && ChoiceWork(loaded.task.work()) == nil {
+        // The organizer needs the reason; participants never see a draft (§5).
+        Text(Wording.invalidSurvey(Wording.invalidSurveyReason(loaded.task)))
+      } else if showDetails {
+        Text(reason).font(.footnote).foregroundStyle(.secondary)
+      }
       nextButtons()
     case .preview(_, let work):
-      preview(work)
+      readOnly(work)
     case .checkFailed:
       Text(Wording.checkFailed(noun))
       bigButton("Try again") { c.load(try! TaskID(taskID)) }
@@ -234,6 +256,8 @@ struct TaskView: View {
       HStack { ProgressView(); Text("Saving…") }.font(.headline)
     case .done(let d):
       done(c, d)
+    case .previewSaved(let loaded, let form, let action):
+      previewSaved(loaded, form, action)
     case .skipped(_, let uncertain):
       Text(
         uncertain
@@ -410,9 +434,11 @@ struct TaskView: View {
         Text(Wording.notSureCloses(noun)).font(.footnote).foregroundStyle(.secondary)
       }
       // Answering is the intent: no confirmation dialog for the normal case.
-      bigButton(Wording.done, prominent: true) { c.perform(.answers(form.answers)) }
-        .disabled(!c.offers(loaded.task, form, .answers(form.answers)))
-      if showDetails {
+      bigButton(preview != nil ? Wording.donePreview : Wording.done, prominent: true) {
+        c.perform(.answers(form.answers))
+      }
+      .disabled(!c.offers(loaded.task, form, .answers(form.answers)))
+      if showDetails && preview == nil {
         Text(TaskText.osmNotice(session.osmServer)).font(.footnote).foregroundStyle(.secondary)
       }
     }
@@ -442,10 +468,10 @@ struct TaskView: View {
     }
   }
 
-  /// Outcomes run directly, except a delete, which always confirms.
+  /// Outcomes run directly, except a delete, which always confirms (not in preview: nothing is sent).
   private func choose(_ c: TaskWorkController, _ loaded: LoadedTask, _ form: ChoiceForm, _ action: ChoiceAction) {
     switchNotice = nil
-    if case .outcome(let outcome) = action, outcome.deletesElement, let me = session.view.userID {
+    if preview == nil, case .outcome(let outcome) = action, outcome.deletesElement, let me = session.view.userID {
       confirmation = Confirmation(
         title: "Delete it from OpenStreetMap?",
         message: TaskText.outcomeSummary(
@@ -457,7 +483,8 @@ struct TaskView: View {
     }
   }
 
-  @ViewBuilder private func preview(_ work: ChoiceWork) -> some View {
+  /// Signed out or read-only: the questions, and how to sign in to answer them.
+  @ViewBuilder private func readOnly(_ work: ChoiceWork) -> some View {
     Text("Sign in to answer").font(.headline)
     Text("You'll be asked \(work.questions.count == 1 ? "one question" : "\(work.questions.count) questions") about this \(noun.one):")
     ForEach(work.questions) { q in
@@ -496,6 +523,33 @@ struct TaskView: View {
     }
     if d.readFailed && showDetails {
       Button("Check status again") { c.recheck() }.disabled(d.checking)
+    }
+    nextButtons()
+  }
+
+  /// Preview: nothing was sent. The real saved line is quoted so the organizer sees its copy; with
+  /// details on, the tag changes it would have made.
+  @ViewBuilder private func previewSaved(_ loaded: LoadedTask, _ form: ChoiceForm, _ action: ChoiceAction) -> some View {
+    let count = preview?.savedCount(including: loaded.task.id.value) ?? 1
+    VStack(alignment: .leading, spacing: 6) {
+      Text(Wording.previewNotSaved).font(.title3.weight(.semibold))
+      Text(Wording.previewWouldSay(Wording.saved(count, noun)))
+    }
+    if showDetails {
+      switch action {
+      case .answers(let answers):
+        if let tags = TaskText.tagChanges(form, answers) {
+          Text(Wording.wouldSet(tags)).font(.footnote.monospaced()).foregroundStyle(.secondary)
+        }
+      case .outcome(let outcome):
+        Text(
+          TaskText.outcomeExplanation(
+            outcome, element: form.work.element, notDeletable: form.notDeletable.contains(outcome.id))
+        )
+        .font(.footnote).foregroundStyle(.secondary)
+      case .skip:
+        EmptyView()
+      }
     }
     nextButtons()
   }

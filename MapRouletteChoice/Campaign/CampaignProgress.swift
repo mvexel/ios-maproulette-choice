@@ -18,12 +18,17 @@ struct CampaignProgress {
   /// Still to check: open, not finished here, not held. In task order.
   let open: [LocatedTask]
 
-  init(tasks: [LocatedTask], justDone: Set<Int64>, held: Set<Int64>) {
+  /// `answerable` widens what can be opened beyond open tasks (preview lists broken surveys too);
+  /// it never changes the total.
+  init(
+    tasks: [LocatedTask], justDone: Set<Int64>, held: Set<Int64>,
+    answerable: (LocatedTask) -> Bool = { $0.isOpen }
+  ) {
     let done = Set(tasks.filter { $0.isDone || justDone.contains($0.id) }.map(\.id))
     self.done = done
     total = tasks.filter { $0.isOpen || done.contains($0.id) }.count
     checked = tasks.filter { done.contains($0.id) || ($0.isOpen && held.contains($0.id)) }.count
-    shown = tasks.filter { ($0.isOpen && !held.contains($0.id)) || done.contains($0.id) }
-    open = tasks.filter { $0.isOpen && !justDone.contains($0.id) && !held.contains($0.id) }
+    shown = tasks.filter { (answerable($0) && !held.contains($0.id)) || done.contains($0.id) }
+    open = tasks.filter { answerable($0) && !justDone.contains($0.id) && !held.contains($0.id) }
   }
 }

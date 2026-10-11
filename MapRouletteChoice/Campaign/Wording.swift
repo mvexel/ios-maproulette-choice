@@ -169,4 +169,57 @@ enum Wording {
   static func progress(done: Int, total: Int, _ noun: Noun) -> String {
     "The tally: \(done) of \(noun.count(total)) checked"
   }
+
+  // MARK: Campaign preview (design/preview-mode.md §8)
+
+  /// The banner reads "**Preview.** Answers aren't saved." with Exit.
+  static let previewBannerTitle = "Preview."
+  static let previewBannerText = "Answers aren't saved."
+  static let previewAnnouncement = "Preview mode. Answers aren't saved."
+  static let exitPreview = "Exit"
+  static let previewSignInTitle = "Sign in to preview this campaign"
+  static let previewSignInText =
+    "This campaign isn't published yet. Sign in with the OpenStreetMap account that manages it."
+  static let previewSignIn = "Sign in to OpenStreetMap"
+  static let cancel = "Cancel"
+  static let previewNoAccessTitle = "You can't preview this campaign"
+  /// `account`: who is signed in now; the parenthesis is left out when unknown.
+  static func previewNoAccessText(_ account: String?) -> String {
+    "Only the campaign's organizers can see it before it's published. Check you're signed in as the right account"
+      + (account.map { " (now: \($0))." } ?? ".")
+  }
+  static let switchAccount = "Switch account"
+  static let close = "Close"
+  static let previewAlreadyPublished = "This campaign is published, so answers are saved for real."
+  static func previewingAs(_ account: String) -> String { "You're previewing as \(account)." }
+  /// The signed-in account as preview names it: the OpenStreetMap username (no "@"), else
+  /// "MapRoulette user 7" when the server didn't send one.
+  static func account(_ userID: Int64?, displayName: String? = nil) -> String? {
+    if let name = displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { return name }
+    return userID.map { "MapRoulette user \($0)" }
+  }
+  static let donePreview = "Done (preview)"
+  static let previewNotSaved = "Preview: not saved."
+  /// `realLine`: what the saved screen says in the real campaign, quoted.
+  static func previewWouldSay(_ realLine: String) -> String { "In the real campaign this would say: “\(realLine)”" }
+  static func wouldSet(_ tags: String) -> String { "Would set: \(tags)" }
+  static let previewNowPublished = "This campaign is now published."
+  static let openForReal = "Open it for real"
+  /// An empty draft. `noun` is the campaign's own (`Noun.from`); a draft without places has no
+  /// identity guard to name them by, so it is usually the generic "places".
+  /// A draft opened without its preview link.
+  static let notPublished = "This campaign isn't published yet."
+
+  static func previewNoPlaces(_ noun: Noun) -> String {
+    "No \(noun.many) yet. Add them in the admin, then pull down to refresh."
+  }
+  static func invalidSurvey(_ reason: String) -> String { "This question set can't be shown: \(reason)" }
+  /// Why a draft's place can't be asked about, for `invalidSurvey`. The SDK doesn't say which part
+  /// of a payload failed to parse.
+  static func invalidSurveyReason(_ task: MapRouletteTask) -> String {
+    switch task.work() {
+    case .unknown: "its question payload isn't valid. Check the questions and answers in the admin."
+    default: "it has no multiple-choice questions."
+    }
+  }
 }
