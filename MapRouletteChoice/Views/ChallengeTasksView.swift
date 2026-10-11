@@ -491,7 +491,7 @@ struct ChallengeTasksView: View {
             if let account = Wording.account(session.view.userID, displayName: session.view.displayName) {
               Label(Wording.previewingAs(account), systemImage: "person.crop.circle")
             }
-          } else if session.canAnswerAsGuest {
+          } else if session.canAnswerAsGuest && !guestShutOut {
             Label(AppSession.noAccountNeeded(noun), systemImage: "person.crop.circle")
           } else if !session.view.signedIn {
             Label(Wording.needsAccount, systemImage: "person.crop.circle")
