@@ -264,7 +264,7 @@ struct SessionClient: Sendable {
       let claim = try await auth.claimGuest(environment: Self.environment(endpoints, writes: true), transport: transport)
       lastLinkEmail = nil
       return .started(pending: claim.pendingCount, waiting: claim.state == .waiting)
-    } catch let error as MapRouletteError where error.kind == .notFound {
+    } catch let error as MapRouletteError where error.reason == "not_found" || error.reason == "guest_claimed" {
       return .gone
     } catch let error as MapRouletteError where error.reason == "osm_reauth_required" {
       return .reauth
