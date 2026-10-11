@@ -41,6 +41,8 @@ struct Noun: Hashable, Sendable {
   /// "1 stop", "7 stops".
   func count(_ n: Int) -> String { "\(n) \(n == 1 ? one : many)" }
   var One: String { one.prefix(1).uppercased() + one.dropFirst() }
+  /// "a stop", "an entrance". Every known noun starts with a letter that sounds as written.
+  var aOne: String { ("aeiou".contains(one.prefix(1)) ? "an " : "a ") + one }
 }
 
 /// Participant-facing copy (docs: /mnt/project-files/design/personas-and-design.md §4). Expert
@@ -121,7 +123,7 @@ enum Wording {
   static let guestAnswersArePublic =
     "Your answers go on OpenStreetMap, the free map anyone can use, when you finish on a computer. Map edits are public and show the username you choose then."
   static func locationStaysOnPhone(_ noun: Noun) -> String {
-    "We use your location to find the nearest \(noun.many). It stays on your phone, unless you tap “I'm standing at it” to show where a \(noun.one) has moved."
+    "We use your location to find the nearest \(noun.many). It stays on your phone, unless you tap “I'm standing at it” to show where \(noun.aOne) has moved."
   }
 
   static func skip(_ noun: Noun) -> String { "Skip this \(noun.one)" }
@@ -169,7 +171,7 @@ enum Wording {
     return error.kind == .conflict && error.reason == "nothing_saved"
   }
   static func linkFailed(_ error: any Error, _ noun: Noun = .place) -> String {
-    if isNothingSaved(error) { return "Answer a \(noun.one) first, then we can send you the link." }
+    if isNothingSaved(error) { return "Answer \(noun.aOne) first, then we can send you the link." }
     if let error = error as? MapRouletteError, error.kind == .conflict, error.reason == "guest_claimed" {
       return "These answers are already linked to an OpenStreetMap account. Sign in with it to see them."
     }
@@ -217,12 +219,12 @@ enum Wording {
     return "Next nearest \(noun.one)" + (distance.map { " · \($0)" } ?? "")
   }
   static func nearest(_ noun: Noun, distance: String?, hasOrigin: Bool) -> String {
-    guard hasOrigin else { return "Choose a \(noun.one)" }
+    guard hasOrigin else { return "Choose \(noun.aOne)" }
     return "Nearest \(noun.one)" + (distance.map { " · \($0)" } ?? "")
   }
   static func locationUnavailable(_ noun: Noun, isOff: Bool) -> String {
     (isOff ? "Location is off." : "Your location isn't available yet.")
-      + " Choose a \(noun.one) on the map or in the list."
+      + " Choose \(noun.aOne) on the map or in the list."
   }
   static func progress(done: Int, total: Int, _ noun: Noun) -> String {
     "The tally: \(done) of \(noun.count(total)) checked"
