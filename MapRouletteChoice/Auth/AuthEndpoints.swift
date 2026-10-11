@@ -9,6 +9,8 @@ struct AppConfig: Sendable {
   /// Lets the stage and prod backends (which edit the real OpenStreetMap) receive task writes.
   var allowLiveWrites = false
   let mapStyleURL: URL
+  /// Answer without an account first (deferred sign-up); needs a backend with guests enabled.
+  var guests = false
 
   static let defaultStyle = URL(string: "https://tiles.openfreemap.org/styles/positron")!
   /// The small map above a task: more contrast than the campaign map, so streets read at a glance.
@@ -31,7 +33,7 @@ struct AppConfig: Sendable {
     return AppConfig(
       baseURL: value("MRBaseURL"), clientID: value("MROAuthClientID"), allowLoopback: loopback,
       allowLiveWrites: value("MRAllowLiveWrites") == "YES",
-      mapStyleURL: URL(string: value("MRMapStyleURL")) ?? defaultStyle)
+      mapStyleURL: URL(string: value("MRMapStyleURL")) ?? defaultStyle, guests: value("MRGuests") == "YES")
   }
 }
 

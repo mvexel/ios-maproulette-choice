@@ -15,6 +15,8 @@ struct ChallengePickerView: View {
   @State private var failed = false
   @State private var request: Task<Void, Never>?
   @State private var signingIn = false
+  @State private var confirmDelete = false
+  @State private var deleteResult: String?
   @State private var search = ""
   @AppStorage(SettingsKey.showOSMDetails) private var showDetails = false
 
@@ -25,10 +27,12 @@ struct ChallengePickerView: View {
   /// The tag the admin's "Publish" adds (`maproulette-mobile-admin` SurveyBuilder).
   static let publishedTag = "mobile-survey-v1"
 
-  /// Unarchived choice challenges published for mobile (tagged `mobile-survey-v1`).
+  /// Unarchived choice challenges published for mobile (tagged `mobile-survey-v1`). A disabled
+  /// one is a draft: left out here even where the server's search still lists it.
   nonisolated static func published(_ all: [Challenge]) -> [Challenge] {
     all.filter {
-      $0.cooperativeType == choiceType && $0.archived != true && $0.tags?.contains(publishedTag) == true
+      $0.cooperativeType == choiceType && $0.archived != true && $0.enabled != false
+        && $0.tags?.contains(publishedTag) == true
     }
   }
 
@@ -71,8 +75,17 @@ struct ChallengePickerView: View {
         if session.signInAvailable && !session.view.signedIn {
           Text(session.accountHint).font(.footnote).foregroundStyle(.secondary)
         }
+        if session.view.guest {
+          Button(Wording.deleteMyData, role: .destructive) { confirmDelete = true }
+        }
+        if let deleteResult { Text(deleteResult).font(.footnote) }
       } header: {
         Text("Account")
+      }
+      .confirmationDialog(Wording.deleteMyData, isPresented: $confirmDelete, titleVisibility: .visible) {
+        Button("Delete", role: .destructive) { deleteGuestData() }
+      } message: {
+        Text(Wording.deleteMyDataExplained)
       }
       Section {
         Toggle(Wording.showDetails, isOn: $showDetails)
@@ -168,8 +181,21 @@ struct ChallengePickerView: View {
   }
 
   private var signInLabel: String {
-    if !session.view.signedIn { return "Sign in with OpenStreetMap" }
+    if !session.view.signedIn {
+      return session.canAnswerAsGuest ? "I already use OpenStreetMap" : "Sign in with OpenStreetMap"
+    }
     return needsReconsent ? "Sign in again to save answers" : "Sign out"
+  }
+
+  private func deleteGuestData() {
+    Task {
+      do {
+        try await session.deleteGuestData()
+        deleteResult = Wording.deleteMyDataDone
+      } catch {
+        deleteResult = "Couldn't delete right now. Check your connection and try again."
+      }
+    }
   }
 
   private func accountAction() {

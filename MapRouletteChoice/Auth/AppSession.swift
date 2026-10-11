@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 import MapRoulette
 import os
@@ -8,6 +7,8 @@ struct SessionView: Equatable, Sendable {
   var generation = 0
   var signedIn = false
   var userID: Int64?
+  /// The OpenStreetMap username, when the server sent one.
+  var displayName: String?
   /// Participant-facing status line.
   var message: String
   /// Technical detail (account ids, revocation results), shown only with "Show OSM details".
@@ -16,6 +17,8 @@ struct SessionView: Equatable, Sendable {
   var canWriteTasks = false
   /// The grant includes `osm:tagfix` (with `tasks:write`): choice answers and deletes may edit OSM.
   var canEditOsm = false
+  /// Not signed in, answering as a guest: answers are saved, and put on the map later.
+  var guest = false
 }
 
 struct SessionFailure: Error {}
@@ -57,12 +60,18 @@ struct SessionClient: Sendable {
   }
   private var deletionSetting: Bool
 
-  @ObservationIgnored private let store: KeychainStore
-  @ObservationIgnored private var grant: Grant?
-  @ObservationIgnored private var refreshing: Task<Void, any Error>?
+  /// The SDK's sign-in (PKCE, Keychain, refresh, revocation); nil in demo mode.
+  @ObservationIgnored private let auth: MobileSignIn?
+  /// The signed-in grant's scopes, mirrored from `auth` for messages and the write guard.
+  @ObservationIgnored private var scopes: Set<String> = []
   @ObservationIgnored private let log = Logger(subsystem: "lol.osm.maproulette.choice", category: "auth")
   @ObservationIgnored private let demo: (any Transport)?
+  /// This build lets participants answer before signing in (`MAPROULETTE_GUESTS`).
+  let guestsEnabled: Bool
+  /// The backend refused guests (e.g. turned off there); this launch falls back to signing in.
+  @ObservationIgnored private var guestsRefused = false
   private static let deletionKey = "allowElementDeletion"
+  private static let keychainService = "lol.osm.maproulette.choice.auth"
 
   var signInAvailable: Bool { endpoints.enabled && demo == nil }
   /// Task writes need sign-in and never target the production MapRoulette deployment.
@@ -78,7 +87,8 @@ struct SessionClient: Sendable {
   /// ASWebAuthenticationSession runs ephemeral: no cookies are shared with Safari, so every
   /// sign-in shows the OSM login and can choose an account.
   var accountHint: String {
-    let host = osmServer.flatMap { URL(string: $0)?.host() } ?? "openstreetmap.org"
+    // Demo (screenshots) names the real map, not the dev OSM server its links use.
+    let host = demo != nil ? "openstreetmap.org" : osmServer.flatMap { URL(string: $0)?.host() } ?? "openstreetmap.org"
     return "You'll sign in on \(host). No account yet? It's free to create one there."
   }
 
@@ -90,83 +100,86 @@ struct SessionClient: Sendable {
     else { fatalError("Invalid MAPROULETTE_BASE_URL or MAPROULETTE_OAUTH_CLIENT_ID build setting") }
     mapStyleURL = config.mapStyleURL
     self.endpoints = endpoints
-    store = KeychainStore(binding: endpoints.storageBinding)
     demo = nil
+    guestsEnabled = config.guests
     view = SessionView(message: "")
     deletionSetting = UserDefaults.standard.bool(forKey: Self.deletionKey)
-    restore()
+    // AuthEndpoints validated the origin and client ID. Same binding and Keychain item as
+    // before the SDK helper, so existing sign-ins carry over.
+    if endpoints.enabled,
+      let configuration = try? MobileSignInConfiguration(
+        environment: Self.environment(endpoints, writes: false), clientID: endpoints.clientID,
+        redirectURI: URL(string: AuthEndpoints.redirect)!)
+    {
+      auth = MobileSignIn(
+        configuration: configuration,
+        store: KeychainCredentialStore(service: Self.keychainService, binding: configuration.storageBinding))
+      Task { await restore() }
+    } else {
+      auth = nil
+      publish(signedOutMessage())
+    }
   }
 
   #if DEBUG
-    /// Screenshot/demo mode: an in-process mock backend, signed in as user 7. No network.
-    init(demo transport: any Transport) {
+    /// Screenshot/demo mode: an in-process mock backend, signed in as user 7 (or a guest). No network.
+    init(demo transport: any Transport, guest: Bool = false) {
       endpoints = try! AuthEndpoints(baseURL: "https://demo.invalid", clientID: "", allowLoopback: false)
       mapStyleURL = AppConfig.defaultStyle
-      store = KeychainStore(binding: "demo")
+      auth = nil
       demo = transport
-      view = SessionView(
-        signedIn: true, userID: 7, message: "Demo campaign. Nothing is saved.",
-        canWriteTasks: true, canEditOsm: true)
+      guestsEnabled = guest
+      view =
+        guest
+        ? SessionView(message: "Demo campaign. Nothing is saved.", guest: true)
+        : SessionView(
+          signedIn: true, userID: DemoBackend.me, displayName: DemoBackend.displayName,
+          message: "Demo campaign. Nothing is saved.",
+          canWriteTasks: true, canEditOsm: true)
       deletionSetting = false
     }
   #endif
 
-  // MARK: Persistence
-
-  private struct Grant: Codable {
-    var accessToken: String
-    var refreshToken: String
-    var expiresAt: Date
-    var scopes: Set<String>
-    var needsRefresh: Bool { expiresAt.timeIntervalSinceNow < 60 }
-  }
-  private struct Saved: Codable {
-    var binding: String
-    var grant: Grant?
-    var userID: Int64?
-    var refreshPending = false
+  private static func environment(_ endpoints: AuthEndpoints, writes: Bool) -> MapRouletteEnvironment {
+    try! MapRouletteEnvironment(serviceURL: endpoints.api, allowWrites: writes)
   }
 
-  private func restore() {
-    do {
-      guard let data = try store.read() else { return publish(signedOutMessage()) }
-      let saved = try JSONDecoder().decode(Saved.self, from: data)
-      guard saved.binding == endpoints.storageBinding else { throw SessionFailure() }
-      // A process death during refresh leaves its outcome uncertain. Never retry the old token.
-      if saved.refreshPending {
-        try? store.clear()
-        return publish("Please sign in again.", detail: "A previous refresh was interrupted.")
-      }
-      if endpoints.enabled, let grant = saved.grant, let user = saved.userID, user > 0 {
-        self.grant = grant
-        view.userID = user
-      }
-      publish(grant != nil ? signedInMessage() : signedOutMessage(), detail: grant != nil ? signedInDetail() : nil)
-    } catch {
-      try? store.clear()
-      grant = nil
-      view.userID = nil
-      publish("Please sign in again.", detail: "Saved sign-in could not be restored.")
+  // MARK: State
+
+  private func restore() async {
+    guard let auth else { return }
+    let result = await auth.restore()
+    await sync(auth)
+    switch result {
+    case .signedIn: publish(signedInMessage(), detail: signedInDetail())
+    case .guest: if !(await upgradeIfClaimed(auth)) { publish(signedOutMessage()) }
+    case .signedOut: publish(signedOutMessage())
+    case .refreshInterrupted: publish("Please sign in again.", detail: "A previous refresh was interrupted.")
+    case .unreadable: publish("Please sign in again.", detail: "Saved sign-in could not be restored.")
     }
   }
 
-  private func persist(refreshPending: Bool = false) throws {
-    let saved = Saved(
-      binding: endpoints.storageBinding, grant: grant, userID: view.userID,
-      refreshPending: refreshPending)
-    try store.write(JSONEncoder().encode(saved))
+  /// Copies the SDK's account and generation into the view state.
+  private func sync(_ auth: MobileSignIn) async {
+    let account = await auth.account
+    view.generation = await auth.generation
+    view.userID = account?.userID
+    view.displayName = account?.displayName
+    scopes = account?.scopes ?? []
+    let guest = await auth.guest
+    view.guest = account == nil && guest != nil
   }
 
   nonisolated static let signInDidNotFinish = "Sign-in didn't finish. Please try again."
 
   private func signedOutMessage() -> String {
-    endpoints.enabled
+    if canAnswerAsGuest { return Self.noAccountNeeded() }
+    return endpoints.enabled
       ? "You can look around without signing in. Sign in with OpenStreetMap to save answers."
       : "You can look around. Signing in isn't set up in this build."
   }
 
   private func signedInMessage() -> String {
-    let scopes = grant?.scopes ?? []
     let limit =
       !writesConfigured ? ""
       : !scopes.contains(Self.writeScope) || !scopes.contains(Self.tagfixScope) ? ". This sign-in can't save answers." : ""
@@ -174,206 +187,177 @@ struct SessionClient: Sendable {
   }
 
   private func signedInDetail() -> String {
-    "MapRoulette user \(view.userID.map(String.init) ?? "?") · scopes: \((grant?.scopes ?? []).sorted().joined(separator: " "))"
+    "MapRoulette user \(view.userID.map(String.init) ?? "?") · scopes: \(scopes.sorted().joined(separator: " "))"
   }
 
   private func publish(_ message: String, detail: String? = nil) {
-    let scopes = grant?.scopes ?? []
-    let writable = scopes.contains(Self.writeScope)
+    let signedIn = view.userID != nil
+    let writable = signedIn && scopes.contains(Self.writeScope)
     view = SessionView(
-      generation: view.generation, signedIn: grant != nil, userID: grant != nil ? view.userID : nil,
-      message: message, detail: detail, canWriteTasks: writable,
-      canEditOsm: writable && scopes.contains(Self.tagfixScope))
+      generation: view.generation, signedIn: signedIn, userID: view.userID,
+      displayName: signedIn ? view.displayName : nil, message: message, detail: detail,
+      canWriteTasks: writable, canEditOsm: writable && scopes.contains(Self.tagfixScope),
+      guest: !signedIn && view.guest)
   }
 
-  /// Ends the current generation: old clients and in-flight requests can no longer use credentials.
-  private func invalidate(_ message: String, detail: String? = nil) throws {
-    view.generation += 1
-    grant = nil
-    view.userID = nil
-    refreshing = nil
-    defer { publish(message, detail: detail) }
-    try store.clear()
+  // MARK: Guests
+
+  /// Without a campaign (the status line), its places are "places".
+  nonisolated static func noAccountNeeded(_ noun: Noun = .place) -> String {
+    "No account needed to start. Answer a few \(noun.many) first, and we'll help you put them on the map afterwards."
   }
 
-  private func checkGeneration(_ expected: Int) throws {
-    if expected != view.generation { throw CancellationError() }
+  /// Signed out in a build that lets participants answer first, unless the backend refused guests.
+  var canAnswerAsGuest: Bool {
+    guestsEnabled && writesConfigured && !view.signedIn && !guestsRefused
+  }
+
+  /// The guest's saved answers and deadline, as last read; nil when not a guest or not read yet.
+  private(set) var guestStatus: GuestStatus?
+
+  /// A guest whose answers were claimed on the web becomes that account (UX §1.5). Checked on
+  /// launch. Once claimed the guest token is refused, so a failed status read still tries.
+  private func upgradeIfClaimed(_ auth: MobileSignIn) async -> Bool {
+    let status = try? await newClient().client.getGuestStatus()
+    guard status == nil || status?.state == .claimed else {
+      guestStatus = status
+      return false
+    }
+    guard case .signedIn? = try? await auth.upgradeGuest() else { return false }
+    guestStatus = nil
+    await sync(auth)
+    publish(Self.claimedMessage(status), detail: signedInDetail())
+    return true
+  }
+
+  /// "You're signed in as rosa_slc. Your 12 answers are on the map. …"
+  nonisolated static func claimedMessage(_ status: GuestStatus?) -> String {
+    let who = status?.claimedAs.map { "You're signed in as \($0.displayName)." } ?? "You're signed in with OpenStreetMap."
+    let count = status?.publishedCount ?? 0
+    let onMap = count == 0 ? "" : count == 1 ? " Your answer is on the map." : " Your \(count) answers are on the map."
+    return who + onMap + " New answers go straight on the map from now on."
+  }
+
+  /// Re-reads the guest's status (saved count, email state, deadline). Failures keep the last one.
+  func refreshGuestStatus() async {
+    guard view.guest else {
+      guestStatus = nil
+      return
+    }
+    let client = newClient().client
+    if let status = try? await client.getGuestStatus(), view.guest { guestStatus = status }
+  }
+
+  /// Sends the "finish on a computer" link to `email` (again, to correct it). Throws for the
+  /// card to show a plain message.
+  func sendFinishLink(to email: String) async throws {
+    let status = try await newClient().client.setGuestEmail(email)
+    if view.guest {
+      guestStatus = status
+      lastLinkEmail = email
+    }
+  }
+
+  /// The address the link went to in this launch, for "Resend the link". Kept in memory only.
+  private(set) var lastLinkEmail: String?
+
+  /// Deletes the guest's email and saved answers on the server, then forgets the guest here.
+  /// Answers already on the map stay.
+  func deleteGuestData() async throws {
+    guard view.guest, let auth else { return }
+    try await newClient().client.deleteGuest()
+    try? await auth.forgetGuest()
+    guestStatus = nil
+    lastLinkEmail = nil
+    await sync(auth)
+    publish(signedOutMessage())
+  }
+
+  /// Makes this phone a guest before its first answer (registering once; later launches restore it).
+  /// False when signed in, when this build or backend has no guests, or when registering failed.
+  func ensureGuest() async -> Bool {
+    guard canAnswerAsGuest else { return false }
+    if view.guest { return true }
+    guard let auth else { return false }
+    do {
+      _ = try await auth.startGuest()
+      await sync(auth)
+      publish(signedOutMessage())
+      return view.guest
+    } catch let error as MapRouletteError where error.kind == .notFound || error.kind == .authentication {
+      // Guests are off on this backend, or this client may not use them: sign in instead.
+      guestsRefused = true
+      await sync(auth)
+      publish(signedOutMessage())
+      return false
+    } catch {
+      log.debug("Guest start failed: \(String(describing: type(of: error)), privacy: .public)")
+      return false
+    }
   }
 
   // MARK: Sign-in
 
-  /// Browser authorization-code flow with S256 PKCE. `authenticate` opens the URL in an
-  /// ephemeral web authentication session and returns the callback URL. Signs out first
-  /// (revoking the current grant) when a session exists, e.g. a read-only one.
-  func signIn(authenticate: (URL) async throws -> URL) async {
-    guard signInAvailable else { return }
+  /// Browser sign-in through the SDK (authorization code with S256 PKCE). `authenticate` opens
+  /// the URL in an ephemeral web authentication session and returns the callback URL. A current
+  /// session (e.g. a read-only one) is signed out and revoked first.
+  func signIn(authenticate: @escaping @MainActor @Sendable (URL) async throws -> URL) async {
+    guard signInAvailable, let auth else { return }
     // Keep the revocation result visible: the old grant may still be valid on the server.
     let revocation = view.signedIn ? await signOut() : nil
-    try? invalidate("Opening OpenStreetMap sign-in…", detail: revocation)
-    let expected = view.generation
-    let verifier = Self.randomToken()
-    let state = Self.randomToken()
-    let scope = Self.requestedScope(writesConfigured: writesConfigured)
-    var url = URLComponents(url: endpoints.authorize, resolvingAgainstBaseURL: false)!
-    url.queryItems = [
-      URLQueryItem(name: "response_type", value: "code"),
-      URLQueryItem(name: "client_id", value: endpoints.clientID),
-      URLQueryItem(name: "redirect_uri", value: AuthEndpoints.redirect),
-      URLQueryItem(name: "scope", value: scope),
-      URLQueryItem(name: "state", value: state),
-      URLQueryItem(name: "code_challenge", value: Self.challenge(verifier)),
-      URLQueryItem(name: "code_challenge_method", value: "S256"),
-    ]
-    let callback: URL
+    view.userID = nil
+    view.displayName = nil
+    scopes = []
+    publish("Opening OpenStreetMap sign-in…", detail: revocation)
     do {
-      callback = try await authenticate(url.url!)
-    } catch {
-      if view.generation == expected { try? invalidate(Self.signInDidNotFinish, detail: "Canceled or could not complete.") }
-      return
-    }
-    // An old browser result must not replace a newer sign-in or signed-in account.
-    guard view.generation == expected else { return }
-    let items = URLComponents(url: callback, resolvingAgainstBaseURL: false)?.queryItems ?? []
-    func item(_ name: String) -> String? { items.first { $0.name == name }?.value }
-    guard endpoints.acceptsCallback(callback), item("state") == state else {
-      try? invalidate(Self.signInDidNotFinish, detail: "Sign-in callback did not match this app's pending request.")
-      return
-    }
-    if let error = item("error") {
-      try? invalidate(
-        error == "access_denied" ? "Sign-in was canceled on OpenStreetMap." : Self.signInDidNotFinish,
-        detail: "OAuth error: \(error)")
-      return
-    }
-    guard let code = item("code"), !code.isEmpty else {
-      try? invalidate(Self.signInDidNotFinish, detail: "No authorization code returned.")
-      return
-    }
-    var stage = "token exchange"
-    do {
-      let next = try await requestToken([
-        "grant_type": "authorization_code", "code": code, "redirect_uri": AuthEndpoints.redirect,
-        "client_id": endpoints.clientID, "code_verifier": verifier,
-      ], current: nil, requested: scope)
-      try checkGeneration(expected)
-      stage = "account lookup"
-      let token = next.accessToken
-      let identity = try await MapRouletteClient(
-        environment: MapRouletteEnvironment(serviceURL: endpoints.api), accessToken: { token }
-      ).getCurrentUser()
-      try checkGeneration(expected)
-      guard !identity.guest, identity.id > 0, identity.scopes == next.scopes else {
-        throw SessionFailure()
+      _ = try await auth.signIn(scopes: Self.scopes(Self.requestedScope(writesConfigured: writesConfigured))) {
+        try await authenticate($0)
       }
-      stage = "secure storage"
-      grant = next
-      view.userID = identity.id
-      try persist()
-      view.generation += 1
+      await sync(auth)
       publish(signedInMessage(), detail: signedInDetail())
-    } catch is CancellationError {
-      return
+    } catch SignInFailure.superseded {
+      return  // A newer sign-in or sign-out owns the view.
     } catch {
-      // Error type only; never token content or server text.
-      log.debug("Sign-in failed during \(stage, privacy: .public): \(String(describing: type(of: error)), privacy: .public)")
-      if view.generation == expected {
-        grant = nil
-        try? invalidate(Self.signInDidNotFinish, detail: "Sign-in failed during \(stage).")
+      // Failure case only; never token content or server text.
+      log.debug("Sign-in failed: \(String(describing: error), privacy: .public)")
+      await sync(auth)
+      switch error as? SignInFailure {
+      case .canceled?: publish(Self.signInDidNotFinish, detail: "Canceled or could not complete.")
+      case .denied?: publish("Sign-in was canceled on OpenStreetMap.", detail: "OAuth error: access_denied")
+      case .providerError(let code)?: publish(Self.signInDidNotFinish, detail: "OAuth error: \(code)")
+      case .callbackMismatch?:
+        publish(Self.signInDidNotFinish, detail: "Sign-in callback did not match this app's pending request.")
+      case .tokenExchange?: publish(Self.signInDidNotFinish, detail: "Sign-in failed during token exchange.")
+      case .accountLookup?: publish(Self.signInDidNotFinish, detail: "Sign-in failed during account lookup.")
+      default: publish(Self.signInDidNotFinish, detail: "Sign-in failed during secure storage.")
       }
     }
-  }
-
-  /// Token endpoint call. Validates the response before it is used; never follows redirects.
-  private func requestToken(_ form: [String: String], current: Grant?, requested: String) async throws -> Grant {
-    guard endpoints.permitsConnection(endpoints.token) else { throw SessionFailure() }
-    let (status, body) = try await Self.post(endpoints.token, form)
-    guard status == 200,
-      let o = try JSONSerialization.jsonObject(with: body) as? [String: Any],
-      (o["token_type"] as? String)?.lowercased() == "bearer",
-      let access = o["access_token"] as? String, !access.isEmpty,
-      let refresh = o["refresh_token"] as? String, !refresh.isEmpty,
-      let expiresIn = (o["expires_in"] as? NSNumber)?.doubleValue, expiresIn > 0
-    else { throw SessionFailure() }
-    let granted = Self.scopes(o["scope"] as? String)
-    // A refresh must keep the grant's scope; a new grant may be narrower if the client is.
-    if let current {
-      guard granted == current.scopes else { throw SessionFailure() }
-    } else {
-      guard Self.acceptableGrant(granted, requested: requested) else { throw SessionFailure() }
-    }
-    return Grant(
-      accessToken: access, refreshToken: refresh, expiresAt: Date().addingTimeInterval(expiresIn),
-      scopes: granted)
-  }
-
-  // MARK: Tokens
-
-  /// The current access token, refreshed when needed. Refresh is serialized; a failed or
-  /// interrupted refresh signs out instead of retrying a possibly consumed refresh token.
-  fileprivate func accessToken(_ expected: Int) async throws -> String? {
-    try checkGeneration(expected)
-    if let refreshing { try await refreshing.value }
-    try checkGeneration(expected)
-    guard let current = grant else { return nil }
-    if current.needsRefresh {
-      let task = Task { try await self.refresh(current, expected) }
-      refreshing = task
-      defer { if refreshing == task { refreshing = nil } }
-      try await task.value
-    }
-    try Task.checkCancellation()
-    try checkGeneration(expected)
-    return grant?.accessToken
-  }
-
-  private func refresh(_ current: Grant, _ expected: Int) async throws {
-    do {
-      // Persist uncertainty before a single-use refresh token leaves the device.
-      try persist(refreshPending: true)
-      let next = try await requestToken(
-        ["grant_type": "refresh_token", "client_id": endpoints.clientID, "refresh_token": current.refreshToken],
-        current: current, requested: "")
-      try checkGeneration(expected)
-      grant = next
-      try persist()
-    } catch is CancellationError {
-      throw CancellationError()
-    } catch {
-      log.debug("Refresh failed: \(String(describing: type(of: error)), privacy: .public)")
-      if view.generation == expected {
-        try? invalidate("Please sign in again.", detail: "Refresh could not complete safely.")
-      }
-      throw SessionFailure()
-    }
-  }
-
-  /// One forced refresh after the server rejected `usedHeader`. Refresh failure signs out.
-  fileprivate func renewAfterRejection(_ expected: Int, usedHeader: String) async {
-    guard view.generation == expected, let current = grant,
-      usedHeader == "Bearer \(current.accessToken)", refreshing == nil
-    else { return }
-    grant?.expiresAt = .distantPast
-    _ = try? await accessToken(expected)
   }
 
   /// Clears locally before contacting the server; old requests cannot acquire new tokens.
   @discardableResult
   func signOut() async -> String {
-    let token = grant?.refreshToken ?? grant?.accessToken
-    let localCleared = (try? invalidate("Signing out…")) != nil
-    let expected = view.generation
-    var confirmed = true
-    if let token, endpoints.permitsConnection(endpoints.revoke) {
-      let result = try? await Self.post(endpoints.revoke, ["client_id": endpoints.clientID, "token": token])
-      confirmed = result.map { (200...299).contains($0.0) } ?? false
-    }
+    guard let auth else { return "" }
+    view.userID = nil
+    view.displayName = nil
+    scopes = []
+    publish("Signing out…")
+    let result = await auth.signOut()
+    await sync(auth)
     let message =
-      !localCleared
-      ? "Signed out in memory, but secure storage could not be cleared. Server revocation \(confirmed ? "confirmed" : "unconfirmed")."
-      : confirmed ? "Signed out. Server revocation confirmed."
+      !result.localCleared
+      ? "Signed out in memory, but secure storage could not be cleared. Server revocation \(result.revocationConfirmed ? "confirmed" : "unconfirmed")."
+      : result.revocationConfirmed ? "Signed out. Server revocation confirmed."
       : "Signed out locally. Server revocation could not be confirmed."
-    if view.generation == expected { publish("Signed out.", detail: message) }
+    publish("Signed out.", detail: message)
     return message
+  }
+
+  /// After a failed refresh the SDK has signed out; show it, unless a newer session took over.
+  fileprivate func refreshFailed(_ expected: Int) async {
+    guard let auth, view.generation == expected, await auth.account == nil else { return }
+    await sync(auth)
+    publish("Please sign in again.", detail: "Refresh could not complete safely.")
   }
 
   // MARK: Clients
@@ -394,35 +378,40 @@ struct SessionClient: Sendable {
       }
     #endif
     let transport = GuardedTransport(session: self, expected: expected, inner: URLSessionTransport())
-    // AuthEndpoints validated the origin, so this cannot fail. The SDK sends writes only where
-    // this app's allowlist does (`writesConfigured`).
-    let environment = try! MapRouletteEnvironment(
-      serviceURL: endpoints.api, allowWrites: writesConfigured)
+    // The SDK sends writes only where this app's allowlist does (`writesConfigured`).
+    let environment = Self.environment(endpoints, writes: writesConfigured)
     return SessionClient(
       client: MapRouletteClient(
         environment: environment, transport: transport, allowElementDeletion: deletion,
-        accessToken: { [weak self] in try await self?.accessToken(expected) }))
+        accessToken: { [weak self, auth] in
+          guard let auth else { return nil }
+          do {
+            return try await auth.accessToken(generation: expected)
+          } catch let error as MapRouletteError {
+            await self?.refreshFailed(expected)
+            throw error
+          }
+        }))
   }
 
   /// Enforced below the UI: a lifecycle write leaves the device only for an allowlisted backend
   /// and a grant that includes `tasks:write`. Everything else is refused unsent.
   fileprivate func admit(_ request: HTTPRequest, _ expected: Int) throws {
-    try checkGeneration(expected)
-    if Self.isTaskWrite(request.url),
-      !(writesConfigured && grant?.scopes.contains(Self.writeScope) == true)
-    {
+    if expected != view.generation { throw CancellationError() }
+    if Self.isTaskWrite(request.url), !(writesConfigured && scopes.contains(Self.writeScope)) {
       throw MapRouletteError(.permission)
     }
   }
 
   fileprivate func received(_ request: HTTPRequest, _ response: HTTPResponse, _ expected: Int) async throws {
-    try checkGeneration(expected)
+    if expected != view.generation { throw CancellationError() }
     // The rejected request is never resent: the SDK reports authentication to the caller.
     // osm_reauth_required concerns the server's OSM token, not this MapRoulette token: no refresh.
-    if response.status == 401, !Self.isOsmReauth(response.body),
-      let header = request.headers["Authorization"]
+    if response.status == 401, !Self.isOsmReauth(response.body), let header = request.headers["Authorization"],
+      let auth
     {
-      await renewAfterRejection(expected, usedHeader: header)
+      await auth.renewAfterRejection(generation: expected, usedHeader: header)
+      await refreshFailed(expected)
     }
   }
 
@@ -435,8 +424,7 @@ struct SessionClient: Sendable {
 
   /// A new grant: read plus a subset of what was requested; `osm:tagfix` only with `tasks:write`.
   nonisolated static func acceptableGrant(_ granted: Set<String>, requested: String) -> Bool {
-    granted.contains(readScope) && scopes(requested).isSuperset(of: granted)
-      && (!granted.contains(tagfixScope) || granted.contains(writeScope))
+    MobileSignIn.acceptableGrant(granted, requested: scopes(requested))
   }
 
   /// A writable build whose grant lacks task writes or OSM editing: "Sign in again to save answers".
@@ -475,55 +463,7 @@ struct SessionClient: Sendable {
     Set((value ?? "").split(separator: " ").map(String.init))
   }
 
-  private nonisolated static func randomToken() -> String {
-    var bytes = [UInt8](repeating: 0, count: 32)
-    precondition(SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess)
-    return base64URL(Data(bytes))
-  }
-
-  nonisolated static func challenge(_ verifier: String) -> String {
-    base64URL(Data(SHA256.hash(data: Data(verifier.utf8))))
-  }
-
-  private nonisolated static func base64URL(_ data: Data) -> String {
-    data.base64EncodedString().replacingOccurrences(of: "+", with: "-")
-      .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
-  }
-
-  /// Form POST to an authentication endpoint without cookies, caches or redirects.
-  private nonisolated static func post(_ url: URL, _ form: [String: String]) async throws -> (Int, Data) {
-    var allowed = CharacterSet.alphanumerics
-    allowed.insert(charactersIn: "-._~")
-    let body = form.sorted { $0.key < $1.key }.map {
-      "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: allowed) ?? "")"
-    }.joined(separator: "&")
-    var request = URLRequest(url: url)
-    request.httpMethod = "POST"
-    request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-    request.setValue("application/json", forHTTPHeaderField: "Accept")
-    request.httpBody = Data(body.utf8)
-    let session = URLSession(configuration: authConfiguration, delegate: NoRedirect(), delegateQueue: nil)
-    defer { session.finishTasksAndInvalidate() }
-    let (data, response) = try await session.data(for: request)
-    guard let http = response as? HTTPURLResponse else { throw SessionFailure() }
-    return (http.statusCode, data)
-  }
-
-  private nonisolated static var authConfiguration: URLSessionConfiguration {
-    let c = URLSessionConfiguration.ephemeral
-    c.timeoutIntervalForRequest = 30
-    c.urlCache = nil
-    c.httpCookieStorage = nil
-    c.urlCredentialStorage = nil
-    return c
-  }
-}
-
-private final class NoRedirect: NSObject, URLSessionTaskDelegate, Sendable {
-  func urlSession(
-    _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void
-  ) { completionHandler(nil) }
+  nonisolated static func challenge(_ verifier: String) -> String { MobileSignIn.challenge(verifier) }
 }
 
 /// Binds an SDK transport to one session generation and enforces the write allowlist.

@@ -40,4 +40,38 @@ import Testing
     #expect(TaskLocation.sorted([nowhere, far, near, mid], from: here).map(\.id) == [2, 4, 1, 3])
     #expect(TaskLocation.sorted([nowhere, far, near, mid], from: nil).map(\.id) == [1, 2, 3, 4])
   }
+
+  @Test func mapOrderIsNearestFirstWithALocation() throws {
+    let here = CLLocationCoordinate2D(latitude: 40.76, longitude: -111.89)
+    let far = try task(1, lng: -111.70, lat: 40.76)
+    let near = try task(2, lng: -111.891, lat: 40.76)
+    let mid = try task(4, lng: -111.80, lat: 40.76)
+    #expect(TaskLocation.mapOrder([far, mid, near], from: here).map(\.id) == [2, 4, 1])
+  }
+
+  @Test func mapOrderIsTopToBottomWithoutALocation() throws {
+    let south = try task(1, lng: -111.89, lat: 40.70)
+    let north = try task(2, lng: -111.89, lat: 40.80)
+    let middleEast = try task(3, lng: -111.80, lat: 40.75)
+    let middleWest = try task(4, lng: -111.95, lat: 40.75)
+    let nowhere = try task(5, lng: nil, lat: nil)
+    #expect(TaskLocation.mapOrder([nowhere, south, middleEast, north, middleWest], from: nil).map(\.id) == [2, 4, 3, 1, 5])
+  }
+
+  @MainActor @Test func pinStatesReadTheirState() {
+    typealias Pin = TaskMapView.Pin
+    #expect(Pin(done: false, pending: false) == .toCheck)
+    #expect(Pin(done: false, pending: true) == .toCheck)
+    #expect(Pin(done: true, pending: false) == .done)
+    #expect(Pin(done: true, pending: true) == .pending)
+    #expect(Pin.toCheck.accessibilityValue == "To check")
+    #expect(Pin.toCheck.accessibilityHint == "Opens the questions")
+    #expect(Pin.done.accessibilityValue == "Already checked")
+    #expect(Pin.done.accessibilityHint == nil)
+    #expect(Pin.pending.accessibilityValue == "Saved, not on the map yet")
+    #expect(Pin.pending.accessibilityHint == nil)
+    // The callout keeps its instruction for sighted users.
+    #expect(Pin.toCheck.calloutSubtitle == "Tap to answer")
+    #expect([Pin.toCheck, .done, .pending].map(\.imageName) == ["PinTodo", "PinDone", "PinPending"])
+  }
 }

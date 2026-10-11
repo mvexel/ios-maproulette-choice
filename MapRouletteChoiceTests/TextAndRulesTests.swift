@@ -172,3 +172,66 @@ import Testing
   }
 
 }
+
+@Suite struct GuestUpgradeTextTests {
+  @Test func claimedMessageNamesAccountAndCount() {
+    let status = GuestStatus(
+      guestID: "g", state: .claimed, email: .verified, pendingCount: 0, publishedCount: 12,
+      expiresAt: Date(), claimedAs: ClaimedAccount(displayName: "rosa_slc", osmID: 1))
+    #expect(
+      AppSession.claimedMessage(status)
+        == "You're signed in as rosa_slc. Your 12 answers are on the map. New answers go straight on the map from now on.")
+    #expect(AppSession.claimedMessage(nil).hasPrefix("You're signed in with OpenStreetMap. New answers"))
+  }
+
+  @Test func deadlineCopy() {
+    let stops = Noun.from(match: ["highway": "bus_stop"])
+    #expect(Wording.savedClosing(14, stops, on: Date()).hasPrefix("14 saved stops will be removed on "))
+    #expect(Wording.savedClosing(1, stops, on: Date()).hasSuffix(" unless you finish on a computer."))
+  }
+}
+
+@Suite struct GuestLinkTextTests {
+  @Test func linkSentCopy() {
+    #expect(Wording.linkSent(to: "a@b.org", until: nil) == "Sent to a@b.org. Check your email later.")
+    #expect(Wording.linkSent(to: "a@b.org", until: Date()).hasPrefix("Sent to a@b.org. Check your email later. The link works until "))
+  }
+
+  @Test func nothingSavedIsCalmAndAsksForAnAnswerFirst() {
+    let nothingSaved = MapRouletteError(.conflict, status: 409, reason: "nothing_saved")
+    #expect(Wording.isNothingSaved(nothingSaved))
+    #expect(!Wording.isInputError(nothingSaved))
+    #expect(Wording.linkFailed(nothingSaved) == "Answer a place first, then we can send you the link.")
+    #expect(Wording.linkFailed(nothingSaved, Noun(one: "stop", many: "stops"))
+      == "Answer a stop first, then we can send you the link.")
+    // A claimed guest is a different conflict.
+    let claimed = MapRouletteError(.conflict, status: 409, reason: "guest_claimed")
+    #expect(!Wording.isNothingSaved(claimed))
+    #expect(Wording.linkFailed(claimed) == "These answers are already on the map.")
+    #expect(!Wording.isNothingSaved(MapRouletteError(.validation, reason: "nothing_saved")))
+  }
+
+  @Test func dayNeverWraps() {
+    let day = Wording.day(Date())
+    #expect(!day.contains(" "))
+    #expect(day.contains("\u{00A0}"))
+  }
+}
+
+@Suite struct ProblemsTextTests {
+  /// design/not-here-moved.md §7.
+  @Test func notHereAndMovedCopy() {
+    let stops = Noun.from(match: ["highway": "bus_stop"])
+    #expect(Wording.problemsMessage == "Nothing here changes OpenStreetMap. The organizer checks every report.")
+    #expect(Wording.notHereExplained(stops) == "You're at the spot and there's no stop.")
+    #expect(Wording.movedTitle(stops) == "Where is the stop now?")
+    #expect(Wording.reportMoved(31, stops) == "The stop has moved, about 30 m from where the map has it.")
+    #expect(Wording.someoneReportedMoved(28, stops) == "Someone reported this stop moved, about 30 m.")
+    #expect(Wording.movedFar(212, stops) == "That's 210 m away. If it's a different stop, use “It's not here” instead.")
+  }
+
+  /// Under 100 m to the nearest 5 m, then to the nearest 10 m.
+  @Test func distancesAreRounded() {
+    #expect([2, 31, 33, 97, 104, 156].map(Wording.roundedMeters) == [0, 30, 35, 95, 100, 160])
+  }
+}

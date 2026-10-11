@@ -12,6 +12,8 @@ protocol TaskOps: Sendable {
   func checkChoice(_ id: TaskID) async throws -> ChoiceEligibility
   func submitChoice(_ task: MapRouletteTask, _ submission: ChoiceSubmission) async throws -> ChoiceResult
   func skipTask(_ id: TaskID) async throws
+  /// A guest's answers, stored on the server until the guest puts them on the map.
+  func submitPendingChoice(_ task: MapRouletteTask, _ submission: ChoiceSubmission) async throws -> PendingChoice
 }
 
 /// Bound to one account's client: a controller never sends through a later account's client.
@@ -32,12 +34,36 @@ struct ClientTaskOps: TaskOps {
     try await client.submitChoice(task, submission)
   }
   func skipTask(_ id: TaskID) async throws { try await client.skipTask(id) }
+  func submitPendingChoice(_ task: MapRouletteTask, _ submission: ChoiceSubmission) async throws -> PendingChoice {
+    try await client.submitPendingChoice(task, submission)
+  }
+}
+
+/// Preview mode's ops (design/preview-mode.md §2): reads pass through; every write is refused
+/// here, before the SDK, so a preview can't lock, skip or answer even if a screen asks it to.
+struct PreviewTaskOps: TaskOps {
+  let reads: any TaskOps
+
+  func choiceOutcomes(_ task: MapRouletteTask) -> [ChoiceOutcome] { reads.choiceOutcomes(task) }
+  func getTask(_ id: TaskID) async throws -> MapRouletteTask { try await reads.getTask(id) }
+  func getChallenge(_ task: MapRouletteTask) async throws -> Challenge { try await reads.getChallenge(task) }
+  func checkChoice(_ id: TaskID) async throws -> ChoiceEligibility { try await reads.checkChoice(id) }
+  func submitChoice(_ task: MapRouletteTask, _ submission: ChoiceSubmission) async throws -> ChoiceResult {
+    throw MapRouletteError(.permission)
+  }
+  func skipTask(_ id: TaskID) async throws { throw MapRouletteError(.permission) }
+  func submitPendingChoice(_ task: MapRouletteTask, _ submission: ChoiceSubmission) async throws -> PendingChoice {
+    throw MapRouletteError(.permission)
+  }
 }
 
 enum ChoiceAction: Equatable, Sendable {
   /// Question id → option id; questions left out are "Can't tell".
   case answers([String: String])
+  /// A campaign outcome, Too hard, or the built-in "It's not here" (`ChoiceOutcome.notHere`).
   case outcome(ChoiceOutcome)
+  /// The built-in "It's moved", with the spot the participant picked.
+  case moved(MovedLocation)
   case skip
 
   /// Whether the action edits OpenStreetMap (needs `osm:tagfix`).
@@ -45,15 +71,38 @@ enum ChoiceAction: Equatable, Sendable {
     switch self {
     case .answers: true
     case .outcome(let outcome): outcome.deletesElement
-    case .skip: false
+    case .moved, .skip: false
+    }
+  }
+
+  /// "It's not here" or "It's moved" (design/not-here-moved.md): a report for the organizer.
+  var isReport: Bool {
+    switch self {
+    case .outcome(let outcome): outcome == .notHere
+    case .moved: true
+    case .answers, .skip: false
+    }
+  }
+
+  /// What the SDK sends; nil for a skip.
+  var submission: ChoiceSubmission? {
+    switch self {
+    case .answers(let answers): .answers(answers)
+    case .outcome(let outcome): .outcome(outcome)
+    case .moved(let location): .moved(location)
+    case .skip: nil
     }
   }
 }
 
 /// `me` is the signed-in MapRoulette user id; `canEditOsm`: the grant includes `osm:tagfix`.
+/// A guest (`me` 0) saves answers on the server; they reach OSM once the guest finishes signing up.
 struct Writer: Sendable {
   let me: Int64
   let canEditOsm: Bool
+  var guest = false
+
+  static let guestWriter = Writer(me: 0, canEditOsm: true, guest: true)
 }
 
 /// The questions of a valid choice task.
@@ -103,6 +152,17 @@ enum TaskScreen: Sendable {
     var readFailed: Bool
     var byOther = false
     var checking = false
+    /// A guest's answers: saved on the server, not on the map yet. The task itself is unchanged.
+    var savedForLater = false
+
+    /// The report this records, for lists and maps: not here, or moved to the picked spot.
+    var report: TaskReport? {
+      switch action {
+      case .outcome(let outcome) where outcome == .notHere: .notHere
+      case .moved(let spot): .moved(latitude: spot.latitude, longitude: spot.longitude)
+      default: nil
+      }
+    }
   }
   /// The submission may still land (unknown outcome, pending submission or status). Never resent
   /// automatically; the user re-reads with Check again. `canResend`: the user may send the
@@ -124,6 +184,8 @@ enum TaskScreen: Sendable {
   case notAvailable(LoadedTask, reason: String)
   /// Signed out or read-only: the questions without actions. No eligibility check is made.
   case preview(LoadedTask, ChoiceWork)
+  /// Campaign preview mode: what would have been sent. Nothing was.
+  case previewSaved(LoadedTask, ChoiceForm, ChoiceAction)
   /// Ineligible (stale) at open or submit. No actions.
   case noLongerNeeded(LoadedTask)
   /// The eligibility check failed (network, OSM unavailable, …): not actionable until a retry succeeds.
@@ -147,7 +209,8 @@ enum TaskScreen: Sendable {
     case .loading, .loadFailed: nil
     case .notAvailable(let l, _), .preview(let l, _), .noLongerNeeded(let l), .checkFailed(let l),
       .answering(let l, _, _), .submitting(let l, _, _), .skipped(let l, _), .takenByOther(let l),
-      .staleOwnLock(let l, _, _, _), .signInRequired(let l, _), .elementInUse(let l, _, _):
+      .staleOwnLock(let l, _, _, _), .signInRequired(let l, _), .elementInUse(let l, _, _),
+      .previewSaved(let l, _, _):
       l
     case .done(let d): d.loaded
     case .checkAgain(let c): c.loaded
@@ -167,6 +230,9 @@ enum TaskScreen: Sendable {
 
   @ObservationIgnored private let ops: any TaskOps
   @ObservationIgnored private let writer: Writer?
+  /// Campaign preview mode (design/preview-mode.md): every question is asked, with no eligibility
+  /// check, and nothing is ever sent. There is no writer and the ops refuse writes.
+  @ObservationIgnored let previewing: Bool
   @ObservationIgnored private var job: Task<Void, Never>?
   @ObservationIgnored private var discarded = false
   @ObservationIgnored private let log = Logger(subsystem: "lol.osm.maproulette.choice", category: "task")
@@ -174,10 +240,11 @@ enum TaskScreen: Sendable {
   /// What the campaign checks ("stop", "bench"), for participant messages.
   @ObservationIgnored private let noun: Noun
 
-  init(ops: any TaskOps, writer: Writer?, noun: Noun = .place) {
-    self.ops = ops
-    self.writer = writer
+  init(ops: any TaskOps, writer: Writer?, noun: Noun = .place, previewing: Bool = false) {
+    self.ops = previewing ? PreviewTaskOps(reads: ops) as any TaskOps : ops
+    self.writer = previewing ? nil : writer
     self.noun = noun
+    self.previewing = previewing
   }
 
   var busy: Bool {
@@ -188,7 +255,8 @@ enum TaskScreen: Sendable {
     }
   }
 
-  var canEditOsm: Bool { writer?.canEditOsm == true }
+  /// In preview, as if it could: the organizer sees every answer the campaign offers.
+  var canEditOsm: Bool { previewing || writer?.canEditOsm == true }
 
   /// Waits for the current operation, including a write that outlives `cancel()`. For tests.
   func idle() async { await job?.value }
@@ -220,6 +288,11 @@ enum TaskScreen: Sendable {
     guard task.mobileSupport() == .inPlace,
       let work = ChoiceWork(task.work())
     else { return .notAvailable(loaded, reason: TaskText.unavailableReason(task)) }
+    if previewing {
+      // Every question, every outcome: the draft is tried at a desk, not against current OSM.
+      return .answering(
+        loaded, Self.form(work, outcomes: ops.choiceOutcomes(task), deleteAllowed: true), notice: nil)
+    }
     guard writer != nil else { return .preview(loaded, work) }
     let eligibility: ChoiceEligibility
     do {
@@ -259,15 +332,18 @@ enum TaskScreen: Sendable {
 
   /// Whether `action` may be offered on `form`'s task for this writer.
   func offers(_ task: MapRouletteTask, _ form: ChoiceForm, _ action: ChoiceAction) -> Bool {
-    guard let writer else { return false }
-    if action.editsOsm && !writer.canEditOsm { return false }
+    if !previewing {
+      guard let writer else { return false }
+      if action.editsOsm && !writer.canEditOsm { return false }
+    }
     switch action {
     case .answers(let answers):
       return !answers.isEmpty
         && answers.allSatisfy { q, o in
           form.work.questions.contains { $0.id == q && $0.options.contains { $0.id == o } }
         }
-    case .outcome(let outcome): return form.outcomes.contains(outcome)
+    case .outcome(let outcome): return outcome == .notHere || form.outcomes.contains(outcome)
+    case .moved: return true
     case .skip: return task.canSkip()
     }
   }
@@ -302,7 +378,19 @@ enum TaskScreen: Sendable {
   }
 
   private func submit(_ loaded: LoadedTask, _ form: ChoiceForm, _ action: ChoiceAction) {
-    guard let me = writer?.me, !discarded else { return }
+    if previewing {
+      // Nothing is sent, and nothing changed for maps and lists. A skip only moves on.
+      if !discarded {
+        state = action == .skip ? .skipped(loaded, uncertain: false) : .previewSaved(loaded, form, action)
+      }
+      return
+    }
+    guard let writer, !discarded else { return }
+    if writer.guest {
+      saveForLater(loaded, form, action)
+      return
+    }
+    let me = writer.me
     changed = true  // Before publishing: observers read it while rendering Submitting.
     state = .submitting(loaded, form, action)
     let ops = self.ops
@@ -321,6 +409,60 @@ enum TaskScreen: Sendable {
       }
       publish(next)
     }
+  }
+
+  /// A guest's submission: stored as a pending answer (never an OSM edit, never a lock). Skipping
+  /// only moves on. Resending after a failure is safe: the server keeps one answer per task.
+  private func saveForLater(_ loaded: LoadedTask, _ form: ChoiceForm, _ action: ChoiceAction) {
+    if action == .skip {
+      state = .skipped(loaded, uncertain: false)
+      return
+    }
+    changed = true
+    state = .submitting(loaded, form, action)
+    let ops = self.ops
+    job = Task {
+      let result = await Task.detached { () async -> Result<PendingChoice, any Error> in
+        do {
+          guard let submission = action.submission else { throw CancellationError() }
+          return .success(try await ops.submitPendingChoice(loaded.task, submission))
+        } catch {
+          return .failure(error)
+        }
+      }.value
+      if Task.isCancelled || discarded { return }
+      switch result {
+      case .success:
+        publish(.done(.init(loaded: loaded, action: action, me: 0, changesetID: nil, readFailed: false, savedForLater: true)))
+      case .failure(let error):
+        publish(await failedForLater(loaded, form, action, error))
+      }
+    }
+  }
+
+  private func failedForLater(_ loaded: LoadedTask, _ form: ChoiceForm, _ action: ChoiceAction, _ error: any Error)
+    async -> TaskScreen
+  {
+    guard let error = error as? MapRouletteError else {
+      return .answering(loaded, form, notice: "Couldn't save your answers. Try again.")
+    }
+    switch (error.kind, error.reason) {
+    case (_, "task_completed"?): return await notAccepted(loaded)
+    case (.rateLimit, "pending_limit"?):
+      return .answering(
+        loaded, form,
+        notice: "That's as many \(noun.many) as we can keep before they go on the map. Finish on a computer, or sign in with I already use OpenStreetMap to keep going.")
+    case (.permission, "challenge_not_published"?):
+      return .notAvailable(loaded, reason: "This campaign isn't open for answers yet.")
+    case (.authentication, _):
+      return .answering(loaded, form, notice: "Couldn't save your answers. Try again in a moment.")
+    default: break
+    }
+    // The network may have dropped after the server stored it; sending again replaces it.
+    if error.problem == .outcomeUnknown || error.kind == .network {
+      return .answering(loaded, form, notice: "Couldn't connect. Check your connection and try again.")
+    }
+    return await failed(loaded, form, action, error)
   }
 
   /// Manual re-check after an uncertain result or a failed post-write read. Never resends.
@@ -347,13 +489,11 @@ enum TaskScreen: Sendable {
     -> Result<ChoiceResult?, any Error>
   {
     do {
-      switch action {
-      case .answers(let answers): return .success(try await ops.submitChoice(task, .answers(answers)))
-      case .outcome(let outcome): return .success(try await ops.submitChoice(task, .outcome(outcome)))
-      case .skip:
+      guard let submission = action.submission else {
         try await ops.skipTask(task.id)
         return .success(nil)
       }
+      return .success(try await ops.submitChoice(task, submission))
     } catch {
       return .failure(error)
     }
@@ -409,6 +549,8 @@ enum TaskScreen: Sendable {
       return checkAgain("The connection failed before MapRoulette confirmed the result. It was not sent again.", .unknown)
     case .choice(.invalidSubmission)?:
       return answering("Your answers weren't accepted. Nothing was saved. Try again, or skip this \(noun.one).")
+    case .choice(.movedTooFar)?:
+      return answering(Wording.movedTooFar(noun))
     case .choice(.unsupportedTask)?:
       return .notAvailable(
         loaded, reason: "MapRoulette cannot process this task's questions. Complete it on the MapRoulette website.")
@@ -471,6 +613,7 @@ enum TaskScreen: Sendable {
     switch pending.action {
     case .answers: target = .fixed
     case .outcome(let outcome): target = outcome.resolution
+    case .moved: target = .tooHard
     case .skip:  // Not reached: an uncertain skip goes straight to Skipped.
       publish(.skipped(loaded, uncertain: true))
       return

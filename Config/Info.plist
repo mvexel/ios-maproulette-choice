@@ -27,6 +27,8 @@
 	<string>$(CAMPAIGN_LINK_HOST)</string>
 	<key>MRMapDetailStyleURL</key>
 	<string>$(MAP_DETAIL_STYLE_URL)</string>
+	<key>MRGuests</key>
+	<string>$(MAPROULETTE_GUESTS)</string>
 	<key>MRMapStyleURL</key>
 	<string>$(MAP_STYLE_URL)</string>
 </dict>

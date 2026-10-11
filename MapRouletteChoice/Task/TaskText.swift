@@ -75,6 +75,15 @@ enum TaskText {
       + option.unsetTags.map { "remove \($0)" }).joined(separator: ", ")
   }
 
+  /// The tag changes `answers` would make, in question order ("backrest=yes, material=wood"); nil
+  /// when there are none. Preview's "Would set".
+  static func tagChanges(_ form: ChoiceForm, _ answers: [String: String]) -> String? {
+    let changes = form.work.questions
+      .compactMap { q in q.options.first { $0.id == answers[q.id] }.map(tagChange) }
+      .filter { !$0.isEmpty }
+    return changes.isEmpty ? nil : changes.joined(separator: ", ")
+  }
+
   /// What an outcome records, shown on its button.
   static func outcomeExplanation(_ outcome: ChoiceOutcome, element ref: OSMElementRef, notDeletable: Bool = false)
     -> String

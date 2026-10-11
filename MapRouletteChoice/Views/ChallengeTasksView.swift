@@ -1,16 +1,30 @@
+import AuthenticationServices
 import CoreLocation
 import MapRoulette
 import SwiftUI
 
 /// One campaign: progress, the nearest place still to check, and all its places on a map or in a
 /// list sorted by distance. Checked places stay visible, greyed out.
+/// From a preview link (design/preview-mode.md) a draft opens in preview: a banner, no tally,
+/// no sharing, nothing written or remembered. A published campaign opens normally with a note.
 struct ChallengeTasksView: View {
   let challengeID: ChallengeID
 
   @Environment(AppSession.self) private var session
   @Environment(TaskChanges.self) private var changes
   @Environment(CampaignStore.self) private var campaigns
+  @Environment(\.webAuthenticationSession) private var webAuth
   @AppStorage(SettingsKey.showOSMDetails) private var showDetails = false
+
+  init(challengeID: ChallengeID, preview: CampaignPreview? = nil) {
+    self.challengeID = challengeID
+    _preview = State(initialValue: preview)
+  }
+
+  /// Set while previewing; cleared when the link turns out to open a published campaign.
+  @State private var preview: CampaignPreview?
+  /// The preview link opened a published campaign: answers are real (§3.3). For this visit only.
+  @State private var publishedNote = false
 
   enum Mode: String, CaseIterable, Identifiable {
     case map = "Map", list = "List"
@@ -31,6 +45,11 @@ struct ChallengeTasksView: View {
   /// The campaign's questions (first seen wins), for the welcome card.
   @State private var questions: [ChoiceQuestion] = []
   @State private var hidden = 0
+  /// Open tasks held by someone's saved guest answer: the bounds search leaves them out.
+  @State private var held: Set<Int64> = []
+  /// Tasks someone reported as not here or moved. The campaign status read (E1/E2) will fill
+  /// this; until then only the demo does.
+  @State private var serverReports: [Int64: TaskReport] = [:]
   @State private var truncated = false
   @State private var status = "Loading…"
   @State private var failed = false
@@ -42,55 +61,79 @@ struct ChallengeTasksView: View {
   @State private var sheet: Sheet?
 
   enum Sheet: String, Identifiable {
-    case welcome, share
+    case welcome, share, putOnMap, daySummary
     var id: Self { self }
   }
 
   /// Pages of 100 to read before stopping.
   private static let maxPages = 10
 
-  private var doneIDs: Set<Int64> {
-    Set(tasks.filter { $0.isDone || campaigns.justDone.contains($0.id) }.map(\.id))
+  private var progress: CampaignProgress {
+    CampaignProgress(tasks: tasks, justDone: campaigns.justDone, held: held, answerable: answerable)
   }
-  private var open: [LocatedTask] {
-    TaskLocation.sorted(tasks.filter { $0.isOpen && !campaigns.justDone.contains($0.id) }, from: origin)
+  /// A guest's saved answers: checked here, but not on the map until they finish signing up.
+  private var pendingIDs: Set<Int64> {
+    session.view.guest ? Set(tasks.filter { !$0.isDone && campaigns.justDone.contains($0.id) }.map(\.id)) : []
   }
+  /// Open places; in preview also those whose questions don't parse, so the organizer sees why.
+  private func answerable(_ task: LocatedTask) -> Bool {
+    task.isOpen || (preview != nil && CampaignPreview.invalidSurvey(task.task))
+  }
+  private var doneIDs: Set<Int64> { progress.done }
+  /// Reports from the server, and this device's since launch (design/not-here-moved.md §4).
+  private var reports: [Int64: TaskReport] { serverReports.merging(campaigns.justReported) { $1 } }
+  private var open: [LocatedTask] { TaskLocation.sorted(progress.open, from: origin) }
   private var checked: [LocatedTask] {
     let done = doneIDs
     return TaskLocation.sorted(tasks.filter { done.contains($0.id) }, from: origin)
   }
-  /// Open and checked places; the rest (not answerable here) are left off the map and list.
-  private var shown: [LocatedTask] { tasks.filter { $0.isOpen || doneIDs.contains($0.id) } }
+  /// The campaign's size for progress: held places still count (they're answered, just not on the map yet).
+  private var total: Int { progress.total }
+  /// Open and checked places (and, in preview, broken surveys); the rest are left off the map and list.
+  private var shown: [LocatedTask] { progress.shown }
 
   var body: some View {
     VStack(spacing: 8) {
-      summary
-      Picker("View", selection: $mode) {
-        ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
+      if let preview, preview.phase == .signInNeeded || preview.phase == .noAccess {
+        previewGate(preview)
+        Spacer()
+      } else {
+        summary
+        Picker("View", selection: $mode) {
+          ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal)
+        switch mode {
+        case .map:
+          TaskMapView(
+            styleURL: session.mapStyleURL, tasks: shown, done: doneIDs, pending: pendingIDs,
+            reports: reports, origin: origin, noun: noun) { id in navigate(to: id) }
+            .background(Color(.secondarySystemBackground))
+            .overlay {
+              if tasks.isEmpty && request != nil { ProgressView("Loading…").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) }
+            }
+            .ignoresSafeArea(edges: .bottom)
+        case .list: list
+        }
       }
-      .pickerStyle(.segmented)
-      .padding(.horizontal)
-      switch mode {
-      case .map:
-        TaskMapView(styleURL: session.mapStyleURL, tasks: shown, done: doneIDs, noun: noun) { id in navigate(to: id) }
-          .background(Color(.secondarySystemBackground))
-          .overlay {
-            if tasks.isEmpty && request != nil { ProgressView("Loading…").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) }
-          }
-          .ignoresSafeArea(edges: .bottom)
-      case .list: list
-      }
+    }
+    .safeAreaInset(edge: .top, spacing: 0) {
+      if let preview, preview.showsBanner { PreviewBanner(preview: preview) }
     }
     .navigationTitle(challenge?.name ?? "Campaign")
     .navigationBarTitleDisplayMode(.inline)
     .navigationDestination(item: $selected) { selection in
-      TaskView(taskID: selection.id, candidates: selection.candidates, noun: noun, userLocation: origin)
+      TaskView(
+        taskID: selection.id, candidates: selection.candidates, reports: reports, noun: noun, userLocation: origin,
+        preview: preview)
     }
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
         Menu("More", systemImage: "ellipsis.circle") {
           Button("About this campaign", systemImage: "info.circle") { sheet = .welcome }
-          Button("Share campaign", systemImage: "qrcode") { sheet = .share }
+          // A preview link isn't for participants (§4.2).
+          if preview == nil { Button("Share campaign", systemImage: "qrcode") { sheet = .share } }
           Button("Update my location", systemImage: "location") { locate() }
         }
       }
@@ -98,16 +141,20 @@ struct ChallengeTasksView: View {
     .sheet(item: $sheet) { which in
       switch which {
       case .welcome: welcome
+      case .putOnMap: PutOnMapCard(noun: noun)
+      case .daySummary:
+        DaySummaryCard(
+          checkedToday: campaigns.checkedToday(challengeID.value), done: progress.checked, total: total, noun: noun)
       case .share: share
       }
     }
     .onAppear {
-      campaigns.lastCampaign = challengeID.value
+      campaigns.opened(challengeID.value, preview: preview)
       if client == nil {
         client = session.newClient()
         load()
         // First visit: the welcome card explains location before the system asks.
-        if campaigns.hasSeenWelcome(challengeID.value) { locate() }
+        if campaigns.hasSeenWelcome(challengeID.value, preview: preview) { locate() }
       }
     }
     .onDisappear { locator.stop() }
@@ -115,7 +162,15 @@ struct ChallengeTasksView: View {
       client = session.newClient()
       load()
     }
-    .onChange(of: changes.version) { load() }
+    .onChange(of: session.view.userID) {
+      // Signing in from the preview's sign-in card (or a restore finishing) may open the draft.
+      if preview != nil { load() }
+    }
+    .onChange(of: changes.version) {
+      load()
+      Task { await session.refreshGuestStatus() }
+    }
+    .task { await session.refreshGuestStatus() }
   }
 
   #if DEBUG
@@ -126,9 +181,10 @@ struct ChallengeTasksView: View {
       guard !Self.demoRouted else { return }
       Self.demoRouted = true
       let args = ProcessInfo.processInfo.arguments
+      if args.contains("-demoReported") { serverReports = DemoBackend.seededReports(stops: args.contains("-demoStops")) }
       guard args.contains(where: { ["-demoMap", "-demoList", "-demoTask"].contains($0) }) else { return }
       sheet = nil
-      campaigns.markWelcomeSeen(challengeID.value)
+      campaigns.welcomeClosed(challengeID.value, preview: preview)
       // Closing the welcome card would have asked for the location; distances need it.
       if origin == nil { locate() }
       if args.contains("-demoList") { mode = .list }
@@ -139,39 +195,61 @@ struct ChallengeTasksView: View {
   #endif
 
   private func navigate(to id: Int64) {
-    selected = Selection(id: id, candidates: tasks.filter(\.isOpen))
+    selected = Selection(id: id, candidates: tasks.filter { answerable($0) && !held.contains($0.id) })
   }
 
   // MARK: Summary
 
+  @Environment(\.dynamicTypeSize) private var typeSize
+
   @ViewBuilder private var summary: some View {
     VStack(spacing: 8) {
-      if !shown.isEmpty {
-        let done = doneIDs.count
+      if publishedNote {
+        Text(Wording.previewAlreadyPublished).font(.subheadline.weight(.semibold))
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      // Preview hides the tally: nothing changes it (§4.2).
+      if !shown.isEmpty && preview == nil {
+        let done = progress.checked
         let today = campaigns.checkedToday(challengeID.value)
-        HStack {
-          Text(Wording.progress(done: done, total: shown.count, noun))
-          Spacer()
-          if today > 0 { Text("You've checked \(today) today") }
+        // Side by side until accessibility sizes, then stacked so neither line truncates.
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading)) : AnyLayout(HStackLayout())
+        layout {
+          Text(Wording.progress(done: done, total: total, noun)).foregroundStyle(.primary)
+          if !typeSize.isAccessibilitySize { Spacer() }
+          if today > 0 { Text("You've checked \(today) today").foregroundStyle(.secondary) }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .font(.subheadline)
-        .foregroundStyle(.secondary)
-        ProgressView(value: Double(done), total: Double(max(shown.count, 1)))
-      } else {
+        // The tally above reads the same count; the bar alone is a 4 pt sliver.
+        ProgressView(value: Double(done), total: Double(max(total, 1)))
+          .accessibilityHidden(true)
+      } else if shown.isEmpty {
         HStack {
           if request != nil { ProgressView() }
           Text(status).foregroundStyle(.secondary)
           if failed { Button("Retry") { load() } }
         }
       }
-      if let nearest = open.first {
+      if preview == nil, session.view.guest, let saved = session.guestStatus {
+        if saved.state == .expired {
+          Text(Wording.savedExpired).font(.subheadline).foregroundStyle(.secondary)
+        } else if saved.pendingCount > 0 {
+          savedBanner(saved)
+          Button(Wording.doneForToday) { sheet = .daySummary }.font(.subheadline).frame(minHeight: 44)
+        }
+      }
+      // Reported places stay open but aren't sent to anyone (design/not-here-moved.md §4).
+      if let nearest = open.first(where: { reports[$0.id] == nil }) {
         Button {
           navigate(to: nearest.id)
         } label: {
-          Label(
-            Wording.nearest(noun, distance: TaskLocation.distanceText(origin, nearest.coordinate)),
-            systemImage: "location.north.circle.fill"
-          )
+          // The icon alone reads "Orient To Phone".
+          Label {
+            Text(Wording.nearest(noun, distance: TaskLocation.distanceText(origin, nearest.coordinate)))
+          } icon: {
+            Image(systemName: "location.north.circle.fill").accessibilityHidden(true)
+          }
           .frame(maxWidth: .infinity, minHeight: 44)
         }
         .buttonStyle(.borderedProminent)
@@ -181,6 +259,31 @@ struct ChallengeTasksView: View {
     }
     .padding(.horizontal)
     .padding(.top, 8)
+  }
+
+  /// A guest's saved answers that aren't on the map yet (deferred sign-up §1.4); amber in the
+  /// last 3 days before they are removed (§1.6).
+  private func savedBanner(_ saved: GuestStatus) -> some View {
+    let closing = saved.expiresAt.timeIntervalSinceNow < 3 * 86400
+    let stacked = typeSize.isAccessibilitySize
+    let layout = stacked ? AnyLayout(VStackLayout(alignment: .leading)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline))
+    return layout {
+      Text(
+        closing
+          ? Wording.savedClosing(saved.pendingCount, noun, on: saved.expiresAt)
+          : Wording.savedNotOnMap(saved.pendingCount, noun, until: saved.expiresAt)
+      )
+      .font(.subheadline.weight(.semibold))
+      if !stacked { Spacer() }
+      Button(saved.email == .none ? "Send me the link" : "Resend the link") { sheet = .putOnMap }
+        .font(.subheadline)
+        .frame(minHeight: 44)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(10)
+    .background(
+      closing ? AnyShapeStyle(Color.orange.opacity(0.2)) : AnyShapeStyle(Color(.secondarySystemBackground)),
+      in: RoundedRectangle(cornerRadius: 10))
   }
 
   // MARK: List
@@ -202,7 +305,7 @@ struct ChallengeTasksView: View {
       }
       if !checked.isEmpty {
         Section("Already checked") {
-          ForEach(checked) { task in row(task, done: true) }
+          ForEach(checked) { task in row(task, done: true, pending: pendingIDs.contains(task.id)) }
         }
       }
       if showDetails && (hidden > 0 || truncated) {
@@ -215,7 +318,7 @@ struct ChallengeTasksView: View {
     .refreshable { load(); await request?.value }
   }
 
-  private func row(_ task: LocatedTask, done: Bool) -> some View {
+  private func row(_ task: LocatedTask, done: Bool, pending: Bool = false) -> some View {
     HStack {
       if done {
         Image(systemName: "checkmark.circle.fill").foregroundStyle(.secondary)
@@ -231,10 +334,14 @@ struct ChallengeTasksView: View {
       if let text = TaskLocation.rowText(origin, task.coordinate) {
         // Color.secondary, not .secondary: inside a button label the latter takes the accent tint.
         Text(text).font(.subheadline.monospacedDigit()).foregroundStyle(Color.secondary)
+          // "130 m northeast", without VoiceOver reading the separator.
+          .accessibilityLabel(text.replacingOccurrences(of: " · ", with: " "))
       }
     }
     .accessibilityElement(children: .combine)
-    .accessibilityValue(done ? "Already checked" : "")
+    .accessibilityValue(
+      pending ? "Saved, not on the map yet" : done ? "Already checked"
+        : reports[task.id] != nil ? Wording.needsAnotherLook : "")
   }
 
   private var detailsFooter: String {
@@ -242,6 +349,77 @@ struct ChallengeTasksView: View {
     if hidden > 0 { parts.append("\(hidden) tasks are hidden: locked in a bundle, skipped by status, or not multiple-choice.") }
     if truncated { parts.append("Only the first \(Self.maxPages * 100) tasks were read.") }
     return parts.joined(separator: " ")
+  }
+
+  /// Open tasks held by a guest's saved answer until it goes on the map or expires: the bounds
+  /// search with `includePending` says so per task (backend #16). A backend without it sends no
+  /// `pending`, so the held set is then what the `excludePending` search leaves out. Best effort:
+  /// on failure or a short read, none.
+  private static func heldTasks(_ tasks: [LocatedTask], in challengeID: ChallengeID, client: MapRouletteClient) async
+    -> Set<Int64>
+  {
+    let open = tasks.filter(\.isOpen)
+    guard let bounds = TaskLocation.bounds(open.compactMap(\.coordinate)) else { return [] }
+    let filter = TaskFilter(challengeIDs: [challengeID], bounds: bounds, choiceOnly: true, includePending: true)
+    guard let rows = await boxSearch(filter, client: client) else { return [] }
+    if !rows.isEmpty, rows.allSatisfy({ $0.pending != nil }) {
+      return Set(rows.filter { $0.pending == true }.map(\.id.value))
+    }
+    let unheld = TaskFilter(challengeIDs: [challengeID], bounds: bounds, choiceOnly: true, excludePending: true)
+    guard let listed = await boxSearch(unheld, client: client) else { return [] }
+    return Set(open.map(\.id)).subtracting(listed.map(\.id.value))
+  }
+
+  /// Every page of a bounds search, or nil on failure or a short read.
+  private static func boxSearch(_ filter: TaskFilter, client: MapRouletteClient) async -> [TaskSummary]? {
+    var rows: [TaskSummary] = []
+    var cursor: PageCursor?
+    var pages = 0
+    do {
+      repeat {
+        let page = try await client.findTasksInBounds(filter: filter, pageSize: 100, after: cursor)
+        rows += page.items
+        cursor = page.next
+        pages += 1
+      } while cursor != nil && pages < maxPages
+    } catch {
+      return nil
+    }
+    return cursor == nil ? rows : nil
+  }
+
+  // MARK: Preview
+
+  /// A preview link that can't open the draft yet (§3): sign in, or this account has no access.
+  private func previewGate(_ preview: CampaignPreview) -> some View {
+    let signIn = preview.phase == .signInNeeded
+    return VStack(alignment: .leading, spacing: 16) {
+      Text(signIn ? Wording.previewSignInTitle : Wording.previewNoAccessTitle)
+        .font(.title2.bold())
+        .accessibilityAddTraits(.isHeader)
+      Text(signIn ? Wording.previewSignInText : Wording.previewNoAccessText(Wording.account(session.view.userID, displayName: session.view.displayName)))
+      Button {
+        signInForPreview()
+      } label: {
+        Text(signIn ? Wording.previewSignIn : Wording.switchAccount)
+          .font(.headline).frame(maxWidth: .infinity, minHeight: 50)
+      }
+      .buttonStyle(.borderedProminent)
+      .disabled(!session.signInAvailable)
+      Button(signIn ? Wording.cancel : Wording.close) { preview.exit() }
+        .frame(maxWidth: .infinity, minHeight: 44)
+    }
+    .padding()
+  }
+
+  /// Sign-in (or a switch: the session signs out first). The new account reloads the campaign.
+  private func signInForPreview() {
+    Task {
+      await session.signIn { url in
+        try await webAuth.authenticate(
+          using: url, callbackURLScheme: AuthEndpoints.callbackScheme, preferredBrowserSession: .ephemeral)
+      }
+    }
   }
 
   // MARK: Sheets
@@ -276,9 +454,15 @@ struct ChallengeTasksView: View {
             Text("Instructions for mappers").font(.headline)
             Text(instruction).font(.subheadline).textSelection(.enabled)
           }
-          Label(Wording.answersArePublic, systemImage: "map")
+          Label(session.canAnswerAsGuest ? Wording.guestAnswersArePublic : Wording.answersArePublic, systemImage: "map")
           Label(Wording.locationStaysOnPhone(noun), systemImage: "location")
-          if !session.view.signedIn {
+          if preview != nil {
+            if let account = Wording.account(session.view.userID, displayName: session.view.displayName) {
+              Label(Wording.previewingAs(account), systemImage: "person.crop.circle")
+            }
+          } else if session.canAnswerAsGuest {
+            Label(AppSession.noAccountNeeded(noun), systemImage: "person.crop.circle")
+          } else if !session.view.signedIn {
             Label(Wording.needsAccount, systemImage: "person.crop.circle")
           }
           Button {
@@ -334,8 +518,8 @@ struct ChallengeTasksView: View {
   }
 
   private func closeWelcome() {
-    let first = !campaigns.hasSeenWelcome(challengeID.value)
-    campaigns.markWelcomeSeen(challengeID.value)
+    let first = !campaigns.hasSeenWelcome(challengeID.value, preview: preview)
+    campaigns.welcomeClosed(challengeID.value, preview: preview)
     sheet = nil
     if first || origin == nil { locate() }
   }
@@ -346,10 +530,36 @@ struct ChallengeTasksView: View {
     guard let client = client?.client else { return }
     request?.cancel()
     failed = false
+    if let preview, preview.phase == .signInNeeded || preview.phase == .noAccess { preview.phase = .opening }
     if tasks.isEmpty { status = "Loading…" }
     request = Task {
       do {
         let loadedChallenge = try await client.getChallenge(challengeID)
+        if let preview {
+          try Task.checkCancellation()
+          if CampaignPreview.isPublished(loadedChallenge) {
+            if preview.phase == .opening {
+              // A preview link to a published campaign opens it normally, with a note (§3.3).
+              self.preview = nil
+              publishedNote = true
+              campaigns.opened(challengeID.value, preview: nil)
+            } else {
+              preview.phase = .publishedNow
+            }
+          } else if !session.view.signedIn {
+            preview.phase = .signInNeeded
+            request = nil
+            return
+          }
+        } else if loadedChallenge.enabled == false {
+          // A draft opened without preview (an old link, the last campaign): nothing to answer,
+          // even where the server doesn't refuse writes to drafts yet.
+          challenge = loadedChallenge
+          tasks = []
+          status = Wording.notPublished
+          request = nil
+          return
+        }
         var all: [MapRouletteTask] = []
         var cursor: PageCursor?
         var pages = 0
@@ -361,22 +571,42 @@ struct ChallengeTasksView: View {
         } while cursor != nil && pages < Self.maxPages
         try Task.checkCancellation()
         let located = all.map(LocatedTask.init)
+        let heldNow = await Self.heldTasks(located, in: challengeID, client: client)
+        try Task.checkCancellation()
+        held = heldNow
         challenge = loadedChallenge
         tasks = located
         noun = Noun.from(all)
         questions = Self.questions(all)
         hidden = located.filter { !$0.isOpen && !$0.isDone }.count
         truncated = cursor != nil
-        status = located.contains(where: { $0.isOpen || $0.isDone }) ? "" : "Nothing to check in this campaign yet."
-        if !campaigns.hasSeenWelcome(challengeID.value) && sheet == nil { sheet = .welcome }
+        if let preview = self.preview, preview.phase == .opening {
+          preview.phase = .active
+          UIAccessibility.post(notification: .announcement, argument: Wording.previewAnnouncement)
+        }
+        if self.preview != nil && located.isEmpty {
+          // "Pull down to refresh" needs the list.
+          status = Wording.previewNoPlaces(noun)
+          mode = .list
+        } else {
+          status =
+            located.contains(where: { answerable($0) || $0.isDone }) ? "" : "Nothing to check in this campaign yet."
+        }
+        if !campaigns.hasSeenWelcome(challengeID.value, preview: self.preview) && sheet == nil { sheet = .welcome }
         #if DEBUG
           demoRoute()
         #endif
       } catch is CancellationError {
         return
       } catch {
-        if tasks.isEmpty { status = ChallengePickerView.errorMessage(error) }
-        failed = true
+        if let preview = self.preview, preview.phase != .active, preview.phase != .publishedNow,
+          CampaignPreview.refused(error)
+        {
+          preview.phase = session.view.signedIn ? .noAccess : .signInNeeded
+        } else {
+          if tasks.isEmpty { status = ChallengePickerView.errorMessage(error) }
+          failed = true
+        }
       }
       request = nil
     }

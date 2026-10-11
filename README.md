@@ -48,6 +48,20 @@ xcrun simctl launch booted lol.osm.maproulette.choice -demo -demoList        # c
 xcrun simctl launch booted lol.osm.maproulette.choice -demo -demoTask 185    # a place's first question
 ```
 
+`-demoStops` swaps in the bus stop campaign and `-demoGuest` answers as a guest. Campaign preview
+(design/preview-mode.md): `-demoDraft` serves the demo campaign as an unpublished draft (disabled,
+not tagged `mobile-survey-v1`), so the picker lists nothing and only a preview link opens it.
+`-demoPreview` opens it as the link would. With `-demoGuest` too, preview asks to sign in.
+
+```sh
+xcrun simctl launch booted lol.osm.maproulette.choice -demo -demoStops -demoDraft
+xcrun simctl openurl booted "mrchoice://challenge/3?preview=1"                       # preview the draft
+xcrun simctl launch booted lol.osm.maproulette.choice -demo -demoStops -demoDraft -demoPreview
+```
+
+Without `-demoDraft` the same link opens the published campaign normally, with the "answers are
+saved for real" note.
+
 `MapRouletteChoiceUITests` walks the demo from the picker to "Saved" and attaches a screenshot of
 each screen. To also write them as PNGs:
 
@@ -66,6 +80,7 @@ TEST_RUNNER_SCREENSHOT_DIR="$PWD/screens" xcodebuild -project MapRouletteChoice.
 | `MAPROULETTE_BASE_URL` | `https://mr-api.osm.lol` | Backend API origin. The dev deployment; edits development OSM. Planned rename: `mr-dev.osm.lol` (also allowed). |
 | `MAPROULETTE_OAUTH_CLIENT_ID` | `maproulette-ios-choice` | Native OAuth client registered on the backend (scopes `tasks:read tasks:write osm:tagfix`). Registered on dev; stage/prod need it too. |
 | `MAPROULETTE_OAUTH_CALLBACK_SCHEME` | `lol.osm.maproulette.choice` | Callback is `<scheme>:/oauth2redirect`. |
+| `MAPROULETTE_GUESTS` | `NO` | `YES`: participants answer first; answers are saved on the server and go on the map once they finish signing up (deferred sign-up). Needs a backend with guests on. |
 | `MAPROULETTE_ALLOW_LIVE_WRITES` | `NO` | `YES` lets `mr-stage.osm.lol` / `mr-prod.osm.lol` (real OpenStreetMap) receive answers. |
 | `MAP_STYLE_URL` | `https://tiles.openfreemap.org/styles/positron` | Any MapLibre style URL. The map hides the style's POI and transit symbols so campaign pins are the only things to tap. |
 | `MAP_DETAIL_STYLE_URL` | `https://tiles.openfreemap.org/styles/liberty` | The small map above a task; same symbol hiding. |

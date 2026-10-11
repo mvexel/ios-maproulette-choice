@@ -8,10 +8,11 @@ import CoreLocation
   private var completion: ((Result) -> Void)?
   private var timeout: Task<Void, Never>?
 
-  override init() {
+  /// `accuracy`: the campaign's distances need only about 100 m; "I'm standing at it" asks for more.
+  init(accuracy: CLLocationAccuracy = kCLLocationAccuracyHundredMeters) {
     super.init()
     manager.delegate = self
-    manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+    manager.desiredAccuracy = accuracy
   }
 
   func locate(_ completion: @escaping (Result) -> Void) {

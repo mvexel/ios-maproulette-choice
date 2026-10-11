@@ -37,11 +37,11 @@ func outcomes(_ task: MapRouletteTask, deletion: Bool = false) -> [ChoiceOutcome
 
 /// A task decoded by the SDK, so the payload goes through the real decoder.
 func makeTask(
-  status: Int = 0, lockedBy: Int64? = nil, completedBy: Int64? = nil, payload: [String: Any]? = bench,
+  id: Int64 = 42, status: Int = 0, lockedBy: Int64? = nil, completedBy: Int64? = nil, payload: [String: Any]? = bench,
   bundleID: Int64? = nil, instruction: String? = nil, changesetID: Int64? = nil
 ) async throws -> MapRouletteTask {
   var o: [String: Any] = [
-    "id": 42, "parent": 1, "name": "Bench", "status": status,
+    "id": id, "parent": 1, "name": "Bench", "status": status,
     "geometries": ["type": "FeatureCollection", "features": [Any]()],
   ]
   o["cooperativeWork"] = payload
@@ -50,7 +50,7 @@ func makeTask(
   o["bundleId"] = bundleID
   o["instruction"] = instruction
   o["changesetId"] = changesetID
-  return try await decodingClient(o).getTask(taskID)
+  return try await decodingClient(o).getTask(try TaskID(id))
 }
 
 func makeChallenge() async throws -> Challenge {
@@ -80,6 +80,9 @@ enum Read {
   var check: () throws -> ChoiceEligibility = { ChoiceEligibility(eligible: true, deleteAllowed: true, reason: nil) }
   var submit: (ChoiceSubmission) async throws -> ChoiceResult = { _ in ChoiceResult(status: TaskStatus(code: 1), changesetID: 99) }
   var skip: () throws -> Void = {}
+  var pending: (ChoiceSubmission) async throws -> PendingChoice = { _ in
+    PendingChoice(taskID: taskID, state: .pending, answeredAt: Date())
+  }
 
   init(allowElementDeletion: Bool = false, challenge: Challenge) {
     self.allowElementDeletion = allowElementDeletion
@@ -115,6 +118,11 @@ enum Read {
   func skipTask(_ id: TaskID) async throws {
     calls.append("skip")
     try skip()
+  }
+  func submitPendingChoice(_ task: MapRouletteTask, _ submission: ChoiceSubmission) async throws -> PendingChoice {
+    calls.append("pending")
+    submissions.append(submission)
+    return try await pending(submission)
   }
 }
 

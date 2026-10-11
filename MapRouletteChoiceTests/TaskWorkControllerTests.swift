@@ -457,4 +457,123 @@ import Testing
         #"{"answers":{"backrest":"no"}}"#,
       ])
   }
+
+  // MARK: Guests (deferred sign-up)
+
+  @Test func guestAnswersAreSavedForLaterWithoutLocking() async throws {
+    let o = ops(try await makeTask())
+    let c = await controller(o, writer: .guestWriter)
+    c.select(question: "backrest", option: "yes")
+    c.perform(.answers(["backrest": "yes"]))
+    await c.idle()
+    let done = try #require(c.state.done)
+    #expect(done.savedForLater && !done.byOther && done.changesetID == nil)
+    // Checked like any participant, then one pending write: no start, no status write, no re-read.
+    #expect(o.calls == ["get", "challenge", "check", "pending"])
+    #expect(o.submissions == [.answers(["backrest": "yes"])])
+    #expect(c.changed)
+  }
+
+  @Test func guestSkipOnlyMovesOn() async throws {
+    let o = ops(try await makeTask())
+    let c = await controller(o, writer: .guestWriter)
+    c.perform(.skip)
+    await c.idle()
+    guard case .skipped(_, let uncertain) = c.state, !uncertain else { Issue.record("\(c.state.name)"); return }
+    #expect(o.calls == ["get", "challenge", "check"])
+  }
+
+  @Test func guestFailuresKeepTheAnswers() async throws {
+    let cases: [(MapRouletteError, String)] = [
+      (MapRouletteError(.network, problem: .outcomeUnknown), "connect"),
+      (MapRouletteError(.rateLimit, status: 429, reason: "pending_limit"), "Finish on a computer"),
+      (MapRouletteError(.authentication, status: 401, reason: "invalid_token"), "Try again"),
+    ]
+    for (error, words) in cases {
+      let o = ops(try await makeTask())
+      o.pending = { _ in throw error }
+      let c = await controller(o, writer: .guestWriter)
+      c.select(question: "backrest", option: "yes")
+      c.perform(.answers(["backrest": "yes"]))
+      await c.idle()
+      let notice = try #require(c.state.answering?.2, "\(error)")
+      #expect(notice.contains(words), "\(error)")
+      #expect(try form(c).answers == ["backrest": "yes"])
+    }
+  }
+
+  @Test func guestAnswerForACompletedTaskIsNotAvailable() async throws {
+    let o = ops(try await makeTask(), try await makeTask(status: 1, completedBy: other))
+    o.pending = { _ in throw MapRouletteError(.conflict, status: 409, reason: "task_completed") }
+    let c = await controller(o, writer: .guestWriter)
+    c.perform(.answers(["backrest": "yes"]))
+    await c.idle()
+    guard case .notAvailable = c.state else { Issue.record("\(c.state.name)"); return }
+  }
+
+  @Test func guestIneligibleAnswerIsNoLongerNeeded() async throws {
+    let o = ops(try await makeTask())
+    o.pending = { _ in throw MapRouletteError(.conflict, problem: .choice(.taskIneligible(reason: .keyChanged))) }
+    let c = await controller(o, writer: .guestWriter)
+    c.perform(.answers(["backrest": "yes"]))
+    await c.idle()
+    guard case .noLongerNeeded = c.state else { Issue.record("\(c.state.name)"); return }
+  }
+
+  // MARK: Not here / moved (design/not-here-moved.md)
+
+  @Test func reportsAreOfferedOnEveryChoiceTaskAndNeverEditOsm() async throws {
+    let spot = try MovedLocation(latitude: 40.7612, longitude: -111.8902, source: .tap)
+    for action in [ChoiceAction.outcome(.notHere), .moved(spot)] {
+      let o = ops(try await makeTask(), try await makeTask(status: 6, completedBy: me))
+      let c = await controller(o, writer: Writer(me: me, canEditOsm: false))
+      #expect(c.offers(try task(c), try form(c), action))
+      #expect(!action.editsOsm && action.isReport)
+      c.perform(action)
+      await c.idle()
+      let done = try #require(c.state.done)
+      #expect(o.submissions == [action.submission!])
+      #expect(o.calls == ["get", "challenge", "check", "submit", "get"])
+      #expect(done.report == (action == .outcome(.notHere) ? .notHere : .moved(latitude: 40.7612, longitude: -111.8902)))
+    }
+  }
+
+  @Test func movedTooFarReturnsToAnsweringWithTheReason() async throws {
+    let o = ops(try await makeTask())
+    o.submit = { _ in throw MapRouletteError(.validation, problem: .choice(.movedTooFar)) }
+    let c = await controller(o)
+    c.perform(.moved(try MovedLocation(latitude: 40.8, longitude: -111.8, source: .tap)))
+    await c.idle()
+    #expect(c.state.answering?.2 == "That's too far to be the same place.")
+  }
+
+  @Test func guestReportsAreSavedForLater() async throws {
+    let o = ops(try await makeTask())
+    let c = await controller(o, writer: .guestWriter)
+    c.perform(.outcome(.notHere))
+    await c.idle()
+    #expect(try #require(c.state.done).savedForLater)
+    #expect(o.submissions == [.outcome(.notHere)])
+    #expect(o.calls == ["get", "challenge", "check", "pending"])
+  }
+
+  @Test func previewReportsSendNothing() async throws {
+    let o = ops(try await makeTask())
+    let c = TaskWorkController(ops: o, writer: nil, previewing: true)
+    c.load(taskID)
+    await c.idle()
+    c.perform(.moved(try MovedLocation(latitude: 40.7612, longitude: -111.8902, source: .here)))
+    await c.idle()
+    guard case .previewSaved = c.state else { Issue.record("\(c.state.name)"); return }
+    #expect(o.submissions.isEmpty)
+  }
+
+  @Test func reportedPlacesCountForThePersonButStayOpen() throws {
+    let store = CampaignStore(defaults: UserDefaults(suiteName: "reports-\(UUID())")!)
+    store.recordChecked(1, task: 42, report: .notHere)
+    store.recordChecked(1, task: 42, report: .notHere)
+    #expect(store.checkedToday(1) == 1)
+    #expect(store.justReported == [42: .notHere])
+    #expect(store.justDone.isEmpty)
+  }
 }

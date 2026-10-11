@@ -1,4 +1,5 @@
 import Foundation
+import MapRoulette
 
 /// Per-device campaign state: the campaign to reopen, welcome cards already seen, how many places
 /// this device checked per campaign per day, and tasks finished since the lists last reloaded.
@@ -9,6 +10,10 @@ import Foundation
 
   /// Tasks this device finished (saved or recorded) since launch; shown as done before a reload.
   private(set) var justDone: Set<Int64> = []
+  /// Tasks this device reported as not here or moved since launch (design/not-here-moved.md §4):
+  /// they count in the participant's own total, but not as checked in the campaign, and are never
+  /// offered as "next nearest".
+  private(set) var justReported: [Int64: TaskReport] = [:]
   /// Bumped when a count changes, so views showing counts refresh.
   private(set) var revision = 0
 
@@ -53,10 +58,11 @@ import Foundation
     return defaults.integer(forKey: key(challenge))
   }
 
-  /// Records one finished task; repeated calls for the same task count once.
-  func recordChecked(_ challenge: Int64, task: Int64) {
-    guard !justDone.contains(task) else { return }
-    justDone.insert(task)
+  /// Records one finished task; repeated calls for the same task count once. A `report` (not here
+  /// or moved) counts for the participant but leaves the task open in the campaign.
+  func recordChecked(_ challenge: Int64, task: Int64, report: TaskReport? = nil) {
+    guard !justDone.contains(task), justReported[task] == nil else { return }
+    if let report { justReported[task] = report } else { justDone.insert(task) }
     defaults.set(defaults.integer(forKey: key(challenge)) + 1, forKey: key(challenge))
     revision += 1
   }
@@ -70,4 +76,6 @@ import Foundation
 /// Settings keys shared by views (`@AppStorage`).
 enum SettingsKey {
   static let showOSMDetails = "showOSMDetails"
+  /// The guest's "put them on the map" card was shown after the first saved answer.
+  static let putOnMapCardShown = "putOnMapCardShown"
 }

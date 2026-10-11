@@ -14,6 +14,9 @@ MAPROULETTE_ALLOW_LOOPBACK = NO
 // YES lets the stage and prod backends (mr-stage/mr-prod.osm.lol, which edit the real
 // OpenStreetMap) receive answers. Off until the pilot moves there.
 MAPROULETTE_ALLOW_LIVE_WRITES = NO
+// YES: participants answer first and put their answers on the map later (deferred sign-up).
+// Needs a backend with mobileOAuth.guests.enabled.
+MAPROULETTE_GUESTS = NO
 // The OpenFreeMap (or any MapLibre) style for the task map.
 MAP_STYLE_URL = https:/$()/tiles.openfreemap.org/styles/positron
 // The small map above a task.

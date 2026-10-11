@@ -5,7 +5,7 @@ import UIKit
 
 /// Links that open a campaign: `https://streettally.osm.lol/challenge/<id>` (a universal link;
 /// without the app, the landing page), `mrchoice://challenge/<id>`, and the same path on any
-/// https host.
+/// https host. `?preview=1` asks for preview mode (design/preview-mode.md §3), which only a draft honors.
 enum CampaignLink {
   static let scheme = "mrchoice"
   /// The participant web host (`CAMPAIGN_LINK_HOST`), also the Associated Domains entry.
@@ -15,7 +15,15 @@ enum CampaignLink {
     return value.isEmpty || value.contains("$(") ? "streettally.osm.lol" : value
   }()
 
-  static func url(_ challenge: Int64) -> URL { URL(string: "\(scheme)://challenge/\(challenge)")! }
+  static func url(_ challenge: Int64, preview: Bool = false) -> URL {
+    URL(string: "\(scheme)://challenge/\(challenge)" + (preview ? "?preview=1" : ""))!
+  }
+
+  /// Whether a campaign link asks for preview mode (`preview=1`).
+  static func isPreview(_ url: URL) -> Bool {
+    URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+      .contains { $0.name == "preview" && $0.value == "1" } == true
+  }
 
   /// The link to share and print: opens the app where installed, the landing page elsewhere.
   static func webURL(_ challenge: Int64, host: String = CampaignLink.host) -> URL {
