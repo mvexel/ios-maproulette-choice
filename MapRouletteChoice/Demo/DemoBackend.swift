@@ -12,7 +12,7 @@
   /// `-demoDraft` serves the campaign as an unpublished draft (disabled, not tagged
   /// `mobile-survey-v1`) for preview mode; the picker then lists nothing and only the preview link opens it.
   /// `-demoReported` starts with 187 reported moved (about 30 m) and 185 reported not here
-  /// (design/not-here-moved.md), for the banner and map dot.
+  /// (design/not-here-moved.md), for the banner and map dot (`seededReports`).
   actor DemoBackend: Transport {
     static let challengeID: Int64 = 3
     static let taskIDs: [Int64] = Array(184...191)
@@ -37,8 +37,6 @@
       self.stops = stops
       self.draft = draft
       if reported {
-        let (lat, lng) = Self.coordinate(187, stops: stops)
-        reports = [185: ["reported": "not-here"], 187: ["reported": "moved", "reportedLocation": ["lat": lat + 0.00025, "lon": lng + 0.0001]]]
         status[185] = 6
         status[187] = 6
       }
@@ -53,8 +51,13 @@
     private var completedBy: [Int64: Int64] = [186: 8, 189: 8, 190: 8]
     private var changesets: [Int64: Int64] = [:]
     private var nextChangeset: Int64 = 9001
-    /// Not here / moved reports by task, as the bounds search returns them.
-    private var reports: [Int64: [String: Any]] = [:]
+
+    /// `-demoReported`'s reports. The campaign status read (E1) will serve these; until it exists the
+    /// campaign screen takes them straight from here.
+    static func seededReports(stops: Bool) -> [Int64: TaskReport] {
+      let (lat, lng) = coordinate(187, stops: stops)
+      return [185: .notHere, 187: .moved(latitude: lat + 0.00025, longitude: lng + 0.0001)]
+    }
 
     func execute(_ request: HTTPRequest) async throws -> HTTPResponse {
       try await Task.sleep(for: .milliseconds(250))
@@ -65,7 +68,7 @@
       case (.get, ["challenges", "extendedFind"]): return ok(firstPage ? [challenge] : [])
       case (.get, ["challenge", "3"]): return ok(challenge)
       case (.get, ["challenge", "3", "tasks"]): return ok(firstPage ? Self.taskIDs.map { task($0) } : [])
-      // The bounds search: open tasks not held by a guest, with their reports.
+      // The bounds search: open tasks not held by a guest.
       case (.get, let p) where p.count == 6 && p[0] == "tasks" && p[1] == "box":
         let rows = Self.taskIDs.filter { [0, 3, 6].contains(status[$0] ?? 0) && pending[$0] == nil }.map(summary)
         return ok(["total": firstPage ? rows.count : 0, "tasks": firstPage ? rows : []])
@@ -127,9 +130,6 @@
           let (mappedLat, mappedLng) = coordinate(id)
           let meters = hypot((lat - mappedLat) * 111_320, (lon - mappedLng) * 111_320 * cos(lat * .pi / 180))
           if meters > 500 { return HTTPResponse(status: 422, body: json(["error": "moved_too_far"])) }
-          reports[id] = ["reported": "moved", "reportedLocation": ["lat": lat, "lon": lon]]
-        } else if outcome == "not-here" {
-          reports[id] = ["reported": "not-here"]
         }
         result = ["too-hard", "not-here", "moved"].contains(outcome) ? 6 : delete ? 1 : 2
         if delete { changeset = nextChangeset }
@@ -197,12 +197,10 @@
 
     private func summary(_ id: Int64) -> [String: Any] {
       let (lat, lng) = coordinate(id)
-      var o: [String: Any] = [
+      return [
         "id": id, "parentId": Self.challengeID, "title": "node/\(id + 1000)", "status": status[id] ?? 0,
         "point": ["lat": lat, "lng": lng],
       ]
-      o.merge(reports[id] ?? [:]) { $1 }
-      return o
     }
 
     private func task(_ id: Int64) -> [String: Any] {
