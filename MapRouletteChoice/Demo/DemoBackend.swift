@@ -68,9 +68,17 @@
       case (.get, ["challenges", "extendedFind"]): return ok(firstPage ? [challenge] : [])
       case (.get, ["challenge", "3"]): return ok(challenge)
       case (.get, ["challenge", "3", "tasks"]): return ok(firstPage ? Self.taskIDs.map { task($0) } : [])
-      // The bounds search: open tasks not held by a guest.
+      // The bounds search: open tasks not held by a guest, or with `includePending` all open
+      // tasks, each saying whether one holds it (backend #16).
       case (.get, let p) where p.count == 6 && p[0] == "tasks" && p[1] == "box":
-        let rows = Self.taskIDs.filter { [0, 3, 6].contains(status[$0] ?? 0) && pending[$0] == nil }.map(summary)
+        let includePending = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems?
+          .contains { $0.name == "includePending" && $0.value == "true" } == true
+        let rows = Self.taskIDs.filter { [0, 3, 6].contains(status[$0] ?? 0) && (includePending || pending[$0] == nil) }
+          .map { id in
+            var row = summary(id)
+            if includePending { row["pending"] = pending[id] != nil }
+            return row
+          }
         return ok(["total": firstPage ? rows.count : 0, "tasks": firstPage ? rows : []])
       case (.get, let p) where p.count == 2 && p[0] == "task":
         return id(p[1]).map { ok(task($0)) } ?? notFound
