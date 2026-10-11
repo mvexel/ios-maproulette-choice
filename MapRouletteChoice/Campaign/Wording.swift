@@ -207,6 +207,9 @@ enum Wording {
   static let openForReal = "Open it for real"
   /// An empty draft. `noun` is the campaign's own (`Noun.from`); a draft without places has no
   /// identity guard to name them by, so it is usually the generic "places".
+  /// A draft opened without its preview link.
+  static let notPublished = "This campaign isn't published yet."
+
   static func previewNoPlaces(_ noun: Noun) -> String {
     "No \(noun.many) yet. Add them in the admin, then pull down to refresh."
   }

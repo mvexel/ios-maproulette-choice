@@ -529,6 +529,14 @@ struct ChallengeTasksView: View {
             request = nil
             return
           }
+        } else if loadedChallenge.enabled == false {
+          // A draft opened without preview (an old link, the last campaign): nothing to answer,
+          // even where the server doesn't refuse writes to drafts yet.
+          challenge = loadedChallenge
+          tasks = []
+          status = Wording.notPublished
+          request = nil
+          return
         }
         var all: [MapRouletteTask] = []
         var cursor: PageCursor?

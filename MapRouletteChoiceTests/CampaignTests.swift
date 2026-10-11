@@ -108,10 +108,12 @@ import Testing
 }
 
 @Suite struct PublishedTests {
-  private func challenge(_ id: Int64, type: Int?, tags: [String]? = nil, archived: Bool? = nil) throws -> Challenge {
+  private func challenge(
+    _ id: Int64, type: Int?, tags: [String]? = nil, enabled: Bool? = nil, archived: Bool? = nil
+  ) throws -> Challenge {
     Challenge(
-      id: try ChallengeID(id), projectID: try ProjectID(1), name: "c\(id)", tags: tags, archived: archived,
-      cooperativeType: type)
+      id: try ChallengeID(id), projectID: try ProjectID(1), name: "c\(id)", tags: tags, enabled: enabled,
+      archived: archived, cooperativeType: type)
   }
 
   @Test func onlyTaggedChoiceChallenges() throws {
@@ -121,6 +123,13 @@ import Testing
     let archived = try challenge(4, type: 3, archived: true)
     #expect(ChallengePickerView.published([untagged, other, archived]).isEmpty)
     #expect(ChallengePickerView.published([untagged, tagged, other]).map(\.id.value) == [2])
+  }
+
+  /// Until the server filters drafts (backend #13), the list leaves out a disabled campaign itself.
+  @Test func draftsAreLeftOut() throws {
+    let draft = try challenge(5, type: 3, tags: ["mobile-survey-v1"], enabled: false)
+    let live = try challenge(6, type: 3, tags: ["mobile-survey-v1"], enabled: true)
+    #expect(ChallengePickerView.published([draft, live]).map(\.id.value) == [6])
   }
 }
 

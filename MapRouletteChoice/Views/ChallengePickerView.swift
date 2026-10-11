@@ -27,10 +27,12 @@ struct ChallengePickerView: View {
   /// The tag the admin's "Publish" adds (`maproulette-mobile-admin` SurveyBuilder).
   static let publishedTag = "mobile-survey-v1"
 
-  /// Unarchived choice challenges published for mobile (tagged `mobile-survey-v1`).
+  /// Unarchived choice challenges published for mobile (tagged `mobile-survey-v1`). A disabled
+  /// one is a draft: left out here even where the server's search still lists it.
   nonisolated static func published(_ all: [Challenge]) -> [Challenge] {
     all.filter {
-      $0.cooperativeType == choiceType && $0.archived != true && $0.tags?.contains(publishedTag) == true
+      $0.cooperativeType == choiceType && $0.archived != true && $0.enabled != false
+        && $0.tags?.contains(publishedTag) == true
     }
   }
 
