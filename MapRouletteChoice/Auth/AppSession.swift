@@ -134,9 +134,26 @@ struct SessionClient: Sendable {
         ? SessionView(message: "Demo campaign. Nothing is saved.", guest: true)
         : SessionView(
           signedIn: true, userID: DemoBackend.me, displayName: DemoBackend.displayName,
-          message: "Demo campaign. Nothing is saved.",
+          message: Self.demoClaimOutcome().map(Wording.claimMessage) ?? "Demo campaign. Nothing is saved.",
           canWriteTasks: true, canEditOsm: true)
       deletionSetting = false
+    }
+  #endif
+
+  #if DEBUG
+    /// `-demoClaim started|waiting|gone|reauth|later`: the status line after a phone sign-in
+    /// claimed 3 saved answers (B5), for screenshots.
+    private static func demoClaimOutcome() -> ClaimOutcome? {
+      let args = ProcessInfo.processInfo.arguments
+      guard let i = args.firstIndex(of: "-demoClaim"), i + 1 < args.count else { return nil }
+      switch args[i + 1] {
+      case "started": return .started(pending: 3, waiting: false)
+      case "waiting": return .started(pending: 3, waiting: true)
+      case "gone": return .gone
+      case "reauth": return .reauth
+      case "later": return .later
+      default: return nil
+      }
     }
   #endif
 
