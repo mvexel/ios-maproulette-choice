@@ -141,6 +141,8 @@ struct SessionClient: Sendable {
             ?? "Demo campaign. Nothing is saved.",
           canWriteTasks: true, canEditOsm: true)
       deletionSetting = false
+      // The demo account's grant, so a later status line (claim progress) keeps it writable.
+      if !guest { scopes = [Self.readScope, Self.writeScope, Self.tagfixScope] }
       if !guest, Self.demoClaimArgument() == "progress" { followClaim(DemoBackend.claimID) }
     }
   #endif
