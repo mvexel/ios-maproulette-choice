@@ -521,16 +521,14 @@ import Testing
   }
 
   /// The pending route holds answers only with `liveMissingQuestions` (422 `unsupported_task`).
-  @Test func guestsNeedAnAccountWithoutLiveMissingQuestions() async throws {
+  @Test func guestsOpenEveryCampaignAndTheServerDecides() async throws {
+    // Guests everywhere (G1): no up-front `liveMissingQuestions` check; a 422 on save is the fallback.
     var payload = bench
     payload["liveMissingQuestions"] = nil
     let guest = await controller(ops(try await makeTask(payload: payload)), writer: .guestWriter)
-    guard case .accountNeeded = guest.state else { Issue.record("\(guest.state.name)"); return }
+    #expect(guest.state.answering != nil)
     #expect(Wording.accountNeededTitle(Noun.place) == "Sign in to check this place")
     #expect(Wording.accountNeeded(Noun.place) == "This place needs an OpenStreetMap account. Any answers you've saved stay saved.")
-    // A signed-in participant answers it as before.
-    let signedIn = await controller(ops(try await makeTask(payload: payload)))
-    #expect(signedIn.state.answering != nil)
   }
 
   @Test func guestUnsupportedTaskOnSaveNeedsAnAccount() async throws {
