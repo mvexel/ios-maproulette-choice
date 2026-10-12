@@ -11,7 +11,7 @@ let taskID = try! TaskID(42)
 nonisolated(unsafe) let bench: [String: Any] = try! JSONSerialization.jsonObject(
   with: Data(
     """
-    {"meta":{"version":2,"type":3,"choiceVersion":1},"element":"node/123","match":{"amenity":"bench"},
+    {"meta":{"version":2,"type":3,"choiceVersion":1},"liveMissingQuestions":true,"element":"node/123","match":{"amenity":"bench"},
      "questions":[
       {"id":"backrest","prompt":"Does the bench have a backrest?","expect":{"backrest":null},
        "options":[{"id":"yes","label":"Yes","setTags":{"backrest":"yes"}},{"id":"no","label":"No","setTags":{"backrest":"no"}}]},
