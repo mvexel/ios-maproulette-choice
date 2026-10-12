@@ -16,22 +16,25 @@ final class WoodbineUITests: XCTestCase {
     let app = launch()
     XCTAssert(app.staticTexts["Woodbine entrance doors"].waitForExistence(timeout: 20))
     app.staticTexts["Woodbine entrance doors"].tap()
-    let start = app.buttons["Let's go"]
-    XCTAssert(start.waitForExistence(timeout: 10))
-    start.tap()
-    allowLocationIfAsked(app)
-    XCTAssert(text(app, "3 of 8 entrances checked").waitForExistence(timeout: 20))
+    startCampaign(app)
+    let tally = text(app, "3 of 8 entrances checked")
+    XCTAssert(tally.waitForExistence(timeout: 20))
+    XCTAssert(tally.isHittable, "the tally is behind a sheet")
     sleep(3)  // map tiles
     shot(app, "woodbine-campaign")
     // Under a full-suite run the first tap on the segmented control can be lost while the map
     // is still settling (and the segment doesn't report isSelected), so tap List again until
-    // the list's "Already checked" section shows. A lazy list may need a swipe to build it.
-    let checked = app.staticTexts["Already checked"]
-    for _ in 0..<3 where !checked.exists {
-      app.buttons["List"].tap()
-      for _ in 0..<2 where !checked.waitForExistence(timeout: 5) { app.swipeUp() }
+    // the list's "To check" header shows. Only then swipe, and only the list: a swipe that lands
+    // on the map just pans it. A lazy list may need a swipe to build "Already checked".
+    let toCheck = app.staticTexts["To check"]
+    for _ in 0..<3 where !toCheck.exists {
+      app.segmentedControls.buttons["List"].tap()
+      _ = toCheck.waitForExistence(timeout: 5)
     }
-    XCTAssert(checked.waitForExistence(timeout: 5))
+    XCTAssert(toCheck.exists, "the list didn't open")
+    let checked = app.staticTexts["Already checked"]
+    for _ in 0..<3 where !checked.waitForExistence(timeout: 3) { app.collectionViews.firstMatch.swipeUp() }
+    XCTAssert(checked.exists)
     shot(app, "woodbine-list")
   }
 
@@ -89,6 +92,19 @@ final class WoodbineUITests: XCTestCase {
   /// Answer and sheet buttons read "<label>, <description>", so match the start of the label.
   @MainActor private func option(_ app: XCUIApplication, _ label: String) -> XCUIElement {
     app.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", label, label + ",")).firstMatch
+  }
+
+  /// Under a full-suite run the "Let's go" tap can be lost and the welcome card stays up, with the
+  /// campaign screen in the tree behind it. Tap until the card is gone.
+  @MainActor private func startCampaign(_ app: XCUIApplication) {
+    let start = app.buttons["Let's go"]
+    XCTAssert(start.waitForExistence(timeout: 10))
+    for _ in 0..<3 where start.exists {
+      if start.isHittable { start.tap() }
+      allowLocationIfAsked(app)
+      _ = start.waitForNonExistence(timeout: 5)
+    }
+    XCTAssertFalse(start.exists, "the welcome card didn't close")
   }
 
   @MainActor private func allowLocationIfAsked(_ app: XCUIApplication) {
