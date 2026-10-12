@@ -49,6 +49,8 @@ struct ChallengeTasksView: View {
   @State private var hidden = 0
   /// Open tasks held by someone's saved guest answer: shown and counted as checked.
   @State private var held: Set<Int64> = []
+  /// Open tasks held by someone's saved report (an outcome that sets status 6): need another look.
+  @State private var heldReports: Set<Int64> = []
   /// Tasks someone reported as not here or moved. The campaign status read (E1/E2) will fill
   /// this; until then only the demo does.
   @State private var serverReports: [Int64: TaskReport] = [:]
@@ -74,10 +76,10 @@ struct ChallengeTasksView: View {
   private static let maxPages = 10
 
   private var progress: CampaignProgress {
-    // This phone's own pending reports need another look, not "checked" (not-here-moved.md).
+    // Pending reports, this phone's or another guest's, need another look, not "checked"
+    // (not-here-moved.md).
     CampaignProgress(
-      tasks: tasks, justDone: campaigns.justDone, held: held.subtracting(campaigns.justReported.keys),
-      answerable: answerable)
+      tasks: tasks, justDone: campaigns.justDone, held: held.subtracting(lookAgain), answerable: answerable)
   }
   /// A guest's saved answers: checked here, but not on the map until they finish signing up.
   private var pendingIDs: Set<Int64> {
@@ -99,7 +101,7 @@ struct ChallengeTasksView: View {
   private var doneIDs: Set<Int64> { progress.done }
   /// Reports from the server, and this device's since launch (design/not-here-moved.md §4).
   private var reports: [Int64: TaskReport] { serverReports.merging(campaigns.justReported) { $1 } }
-  private var lookAgain: Set<Int64> { campaigns.lookAgain(reports) }
+  private var lookAgain: Set<Int64> { campaigns.lookAgain(reports).union(heldReports) }
   private var open: [LocatedTask] { TaskLocation.sorted(progress.open, from: origin) }
   private var checked: [LocatedTask] {
     let done = doneIDs
@@ -147,7 +149,7 @@ struct ChallengeTasksView: View {
           case .map:
             TaskMapView(
               styleURL: session.mapStyleURL, tasks: shown, done: doneIDs, pending: pendingIDs,
-              reports: reports, flagged: campaigns.justFlagged, origin: origin, noun: noun
+              reports: reports, flagged: campaigns.justFlagged.union(heldReports), origin: origin, noun: noun
             ) { id in navigate(to: id) }
               .background(Color(.secondarySystemBackground))
               .overlay {
@@ -171,8 +173,8 @@ struct ChallengeTasksView: View {
       typeSize.isAccessibilitySize ? AnyShapeStyle(Color(.systemBackground)) : AnyShapeStyle(.bar), for: .navigationBar)
     .navigationDestination(item: $selected) { selection in
       TaskView(
-        taskID: selection.id, candidates: selection.candidates, reports: reports, noun: noun, userLocation: origin,
-        preview: preview)
+        taskID: selection.id, candidates: selection.candidates, reports: reports, heldReports: heldReports,
+        noun: noun, userLocation: origin, preview: preview)
     }
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
@@ -421,22 +423,27 @@ struct ChallengeTasksView: View {
   }
 
   /// Open tasks held by a guest's saved answer until it goes on the map or expires: the bounds
-  /// search with `includePending` says so per task (backend #16). A backend without it sends no
-  /// `pending`, so the held set is then what the `excludePending` search leaves out. Best effort:
+  /// search with `includePending` says so per task (backend #16), and `heldKind` whether the hold
+  /// is a report (T-002). A backend without `pending` leaves the held set to what the
+  /// `excludePending` search leaves out; without `heldKind`, every hold is an answer. Best effort:
   /// on failure or a short read, none.
-  private static func heldTasks(_ tasks: [LocatedTask], in challengeID: ChallengeID, client: MapRouletteClient) async
-    -> Set<Int64>
+  private static func heldTasks(_ tasks: [LocatedTask], in challengeID: ChallengeID, client: MapRouletteClient)
+    async -> (answers: Set<Int64>, reports: Set<Int64>)
   {
     let open = tasks.filter(\.isOpen)
-    guard let bounds = TaskLocation.bounds(open.compactMap(\.coordinate)) else { return [] }
+    guard let bounds = TaskLocation.bounds(open.compactMap(\.coordinate)) else { return ([], []) }
     let filter = TaskFilter(challengeIDs: [challengeID], bounds: bounds, choiceOnly: true, includePending: true)
-    guard let rows = await boxSearch(filter, client: client) else { return [] }
+    guard let rows = await boxSearch(filter, client: client) else { return ([], []) }
     if !rows.isEmpty, rows.allSatisfy({ $0.pending != nil }) {
-      return Set(rows.filter { $0.pending == true }.map(\.id.value))
+      let holds = rows.filter { $0.pending == true }
+      return (
+        Set(holds.filter { $0.heldKind != .report }.map(\.id.value)),
+        Set(holds.filter { $0.heldKind == .report }.map(\.id.value))
+      )
     }
     let unheld = TaskFilter(challengeIDs: [challengeID], bounds: bounds, choiceOnly: true, excludePending: true)
-    guard let listed = await boxSearch(unheld, client: client) else { return [] }
-    return Set(open.map(\.id)).subtracting(listed.map(\.id.value))
+    guard let listed = await boxSearch(unheld, client: client) else { return ([], []) }
+    return (Set(open.map(\.id)).subtracting(listed.map(\.id.value)), [])
   }
 
   /// Every page of a bounds search, or nil on failure or a short read.
@@ -645,7 +652,8 @@ struct ChallengeTasksView: View {
         let located = all.map(LocatedTask.init)
         let heldNow = await Self.heldTasks(located, in: challengeID, client: client)
         try Task.checkCancellation()
-        held = heldNow
+        held = heldNow.answers
+        heldReports = heldNow.reports
         challenge = loadedChallenge
         tasks = located
         noun = Noun.from(all)

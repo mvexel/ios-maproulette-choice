@@ -49,6 +49,13 @@ struct Noun: Hashable, Sendable {
 /// wording stays in `TaskText` and shows only with "Show OSM details".
 enum Wording {
   static let notSure = "I'm not sure"
+  /// 403 mobile_writes_disabled: the server has saving switched off (copy-fixes-2026-10-11.md).
+  /// On save, above the kept form; on opening a place, in place of the form.
+  static let writesPaused =
+    "Saving answers is paused right now. This answer wasn't saved, and nothing changed on the map. Please try again later."
+  static func writesPausedOnOpen(_ noun: Noun) -> String {
+    "Saving answers is paused right now, so this \(noun.one) can't be checked. Nothing changed on the map. Please try again later."
+  }
   static let notSureShort = "Not sure"
   static let somethingWrong = "Something's wrong here"
   /// A guest in a campaign where every open place needs an account.
