@@ -280,6 +280,12 @@ import Testing
       == "2 of 5 are on the map. 2 weren't added, \(changed) those places after you checked. The rest are still saved.")
     #expect(line(.failed, published: 3, skipped: 1)
       == "3 of 5 are on the map. 1 wasn't added, \(changed) that place after you checked. The rest are still saved.")
+    #expect(line(.failed, published: 1) == "1 of 5 is on the map. The rest are still saved.")
+    #expect(line(.done, published: 1, skipped: 1, failed: 1)
+      == "1 of 5 is on the map. 1 wasn't added, \(changed) that place after you checked. The rest are still saved.")
+    #expect(line(.failed, published: 0, skipped: 2)
+      == "None of your answers are on the map yet. 2 weren't added, \(changed) those places after you checked. "
+        + "The rest are still saved.")
     #expect(Wording.claimStillGoing
       == "Your answers are still going on the map. You can carry on; this finishes on its own.")
   }

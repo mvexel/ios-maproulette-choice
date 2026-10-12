@@ -223,8 +223,9 @@ enum Wording {
     case .waiting, .queued, .running:
       return "Putting your answers on the map\u{2026} \(k) of \(n)"
     case .failed, .done where status.failed > 0:
+      let some = k == 0 ? "None of your answers are on the map yet." : "\(k) of \(n) \(k == 1 ? "is" : "are") on the map."
       if m > 0 {
-        return "\(k) of \(n) are on the map. "
+        return some + " "
           + (m == 1
             ? "1 wasn't added, because someone changed that place after you checked."
             : "\(m) weren't added, because someone changed those places after you checked.")
@@ -235,7 +236,7 @@ enum Wording {
           ? "Your answer isn't on the map yet. It's still saved."
           : "None of your answers are on the map yet. They're still saved."
       }
-      return "\(k) of \(n) are on the map. The rest are still saved."
+      return some + " The rest are still saved."
     case .done:
       let on = k == 1 ? "\u{2713} 1 answer is on the map." : "\u{2713} \(k) answers are on the map."
       guard m > 0 else { return on }
