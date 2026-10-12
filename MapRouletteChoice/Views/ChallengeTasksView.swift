@@ -38,6 +38,8 @@ struct ChallengeTasksView: View {
   }
 
   @State private var mode = Mode.map
+  /// The top section's own height, so its scroll view at accessibility sizes hugs it.
+  @State private var summaryHeight: CGFloat?
   @State private var client: SessionClient?
   @State private var challenge: Challenge?
   @State private var tasks: [LocatedTask] = []
@@ -109,34 +111,49 @@ struct ChallengeTasksView: View {
   private var shown: [LocatedTask] { progress.shown }
 
   var body: some View {
-    VStack(spacing: 8) {
-      if let preview, preview.phase == .signInNeeded || preview.phase == .noAccess {
-        previewGate(preview)
-        Spacer()
-      } else {
-        summary
-        if let locationNote {
-          Text(locationNote).font(.subheadline).foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal)
-        }
-        Picker("View", selection: $mode) {
-          ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
-        }
-        .pickerStyle(.segmented)
-        .padding(.horizontal)
-        switch mode {
-        case .map:
-          TaskMapView(
-            styleURL: session.mapStyleURL, tasks: shown, done: doneIDs, pending: pendingIDs,
-            reports: reports, flagged: campaigns.justFlagged, origin: origin, noun: noun
-          ) { id in navigate(to: id) }
-            .background(Color(.secondarySystemBackground))
-            .overlay {
-              if tasks.isEmpty && request != nil { ProgressView("Loading…").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) }
+    GeometryReader { geo in
+      VStack(spacing: 8) {
+        if let preview, preview.phase == .signInNeeded || preview.phase == .noAccess {
+          previewGate(preview)
+          Spacer()
+        } else {
+          if typeSize.isAccessibilitySize {
+            // At accessibility sizes the top section can outgrow the screen and push the tally under
+            // the navigation bar; it hugs its content up to half the height, then scrolls.
+            ScrollView {
+              summary.onGeometryChange(for: CGFloat.self, of: \.size.height) { summaryHeight = $0 }
             }
-            .ignoresSafeArea(edges: .bottom)
-        case .list: list
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(height: min(summaryHeight ?? geo.size.height / 2, geo.size.height / 2))
+            // The primary action stays on screen however far the text above it runs.
+            if guestShutOut { signInButton.padding(.horizontal) }
+          } else {
+            summary
+          }
+          if let locationNote, !guestShutOut {
+            Text(locationNote).font(.subheadline).foregroundStyle(.secondary)
+              .fixedSize(horizontal: false, vertical: true)
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .padding(.horizontal)
+          }
+          Picker("View", selection: $mode) {
+            ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
+          }
+          .pickerStyle(.segmented)
+          .padding(.horizontal)
+          switch mode {
+          case .map:
+            TaskMapView(
+              styleURL: session.mapStyleURL, tasks: shown, done: doneIDs, pending: pendingIDs,
+              reports: reports, flagged: campaigns.justFlagged, origin: origin, noun: noun
+            ) { id in navigate(to: id) }
+              .background(Color(.secondarySystemBackground))
+              .overlay {
+                if tasks.isEmpty && request != nil { ProgressView("Loading…").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) }
+              }
+              .ignoresSafeArea(edges: .bottom)
+          case .list: list
+          }
         }
       }
     }
@@ -224,6 +241,16 @@ struct ChallengeTasksView: View {
 
   @Environment(\.dynamicTypeSize) private var typeSize
 
+  private var signInButton: some View {
+    Button { signInForPreview() } label: {
+      Text("Sign in with OpenStreetMap").multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, minHeight: 44)
+    }
+    .buttonStyle(.borderedProminent)
+    .disabled(!session.signInAvailable)
+  }
+
   @ViewBuilder private var summary: some View {
     VStack(spacing: 8) {
       if publishedNote {
@@ -255,14 +282,11 @@ struct ChallengeTasksView: View {
       }
       if guestShutOut {
         VStack(alignment: .leading, spacing: 8) {
-          Text(Wording.guestCampaignTitle).font(.headline)
-          Text(Wording.guestCampaignText(noun))
-          Button { signInForPreview() } label: {
-            Text("Sign in with OpenStreetMap").frame(maxWidth: .infinity, minHeight: 44)
-          }
-          .buttonStyle(.borderedProminent)
-          .disabled(!session.signInAvailable)
+          Text(Wording.guestCampaignTitle).font(.headline).fixedSize(horizontal: false, vertical: true)
+          Text(Wording.guestCampaignText(noun)).fixedSize(horizontal: false, vertical: true)
+          if !typeSize.isAccessibilitySize { signInButton }
           Text(session.accountHint).font(.footnote).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
       }
@@ -274,8 +298,10 @@ struct ChallengeTasksView: View {
           Button(Wording.doneForToday) { sheet = .daySummary }.font(.subheadline).frame(minHeight: 44)
         }
       }
-      // Reported places stay open but aren't sent to anyone (design/not-here-moved.md §4).
-      if let nearest = open.first(where: { !lookAgain.contains($0.id) }) {
+      // Reported places stay open but aren't sent to anyone (design/not-here-moved.md §4). A shut-out
+      // guest gets the sign-in block instead.
+      if guestShutOut {
+      } else if let nearest = open.first(where: { !lookAgain.contains($0.id) }) {
         Button {
           if origin != nil { navigate(to: nearest.id) }
           else { mode = .list }
