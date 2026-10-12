@@ -114,7 +114,7 @@ struct ChallengeTasksView: View {
         Spacer()
       } else {
         summary
-        if let locationNote {
+        if let locationNote, !guestShutOut {
           Text(locationNote).font(.subheadline).foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal)
@@ -275,7 +275,8 @@ struct ChallengeTasksView: View {
       }
       // Reported places stay open but aren't sent to anyone (design/not-here-moved.md §4). A shut-out
       // guest gets the sign-in block instead.
-      if !guestShutOut, let nearest = open.first(where: { reports[$0.id] == nil }) {
+      if guestShutOut {
+      } else if let nearest = open.first(where: { reports[$0.id] == nil }) {
         Button {
           if origin != nil { navigate(to: nearest.id) }
           else { mode = .list }
