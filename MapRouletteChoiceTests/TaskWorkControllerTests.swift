@@ -321,6 +321,22 @@ import Testing
     #expect(try #require(c.state.answering?.2).contains("Your answers are kept"))
   }
 
+  @Test func writesPausedOnOpenSaysSoWithoutAForm() async throws {
+    let o = ops(try await makeTask())
+    o.check = { throw failure(.permission, .writesPaused) }
+    let c = await controller(o)
+    guard case .writesPaused = c.state else { Issue.record("\(c.state.name)"); return }
+    #expect(Wording.writesPausedOnOpen(.place).hasPrefix("Saving answers is paused right now, so this place can't be checked."))
+  }
+
+  @Test func writesPausedSaysSoAndKeepsTheAnswers() async throws {
+    let o = ops(try await makeTask())
+    o.submit = { _ in throw failure(.permission, .writesPaused) }
+    let c = await answered(o)
+    #expect(try form(c).answers == ["backrest": "yes"])
+    #expect(c.state.answering?.2 == Wording.writesPaused)
+  }
+
   @Test func elementInUseOffersTheSameOutcomeWithoutDeletion() async throws {
     let o = ops(deletion: true, try await makeTask(), try await makeTask(status: 2, completedBy: me))
     o.submit = { submission in

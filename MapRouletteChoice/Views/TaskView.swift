@@ -317,6 +317,9 @@ struct TaskView: View {
       backButton()
     case .elementInUse(let loaded, let form, let outcome):
       elementInUse(c, loaded, form, outcome)
+    case .writesPaused:
+      Text(Wording.writesPausedOnOpen(noun))
+      bigButton("OK", prominent: true) { dismiss() }
     }
   }
 
