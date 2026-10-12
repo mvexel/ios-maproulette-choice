@@ -248,6 +248,48 @@ import Testing
     #expect(Wording.signedIn("rosa_slc") == "You're signed in as rosa_slc.")
   }
 
+  /// A claim's progress and result after a phone sign-in (B5 progress).
+  @Test func claimProgressMessages() {
+    func line(
+      _ state: ClaimState, total: Int = 5, published: Int, skipped: Int = 0, superseded: Int = 0, failed: Int = 0
+    ) -> String {
+      Wording.claimProgress(
+        ClaimStatus(
+          claimID: 1, state: state, total: total, published: published, skipped: skipped, superseded: superseded,
+          failed: failed, items: []))
+    }
+    let changed = "because someone changed"
+    #expect(line(.queued, published: 0) == "Putting your answers on the map\u{2026} 0 of 5")
+    #expect(line(.running, published: 2, superseded: 1) == "Putting your answers on the map\u{2026} 2 of 4")
+    #expect(line(.done, published: 5) == "\u{2713} 5 answers are on the map.")
+    #expect(line(.done, total: 1, published: 1) == "\u{2713} 1 answer is on the map.")
+    #expect(line(.done, published: 4, superseded: 1) == "\u{2713} 4 answers are on the map.")
+    #expect(line(.done, published: 3, skipped: 2)
+      == "\u{2713} 3 answers are on the map. 2 weren't added, \(changed) those places on the map after you checked.")
+    #expect(line(.done, published: 4, skipped: 1)
+      == "\u{2713} 4 answers are on the map. 1 wasn't added, \(changed) that place on the map after you checked.")
+    #expect(line(.done, total: 2, published: 0, skipped: 2)
+      == "None of your answers were added, \(changed) those places on the map after you checked.")
+    #expect(line(.done, total: 1, published: 0, skipped: 1)
+      == "Your answer wasn't added, \(changed) that place on the map after you checked.")
+    #expect(line(.done, published: 3, failed: 2) == "3 of 5 are on the map. The rest are still saved.")
+    #expect(line(.failed, published: 2) == "2 of 5 are on the map. The rest are still saved.")
+    #expect(line(.failed, published: 0) == "None of your answers are on the map yet. They're still saved.")
+    #expect(line(.failed, total: 1, published: 0) == "Your answer isn't on the map yet. It's still saved.")
+    #expect(line(.done, published: 2, skipped: 2, failed: 1)
+      == "2 of 5 are on the map. 2 weren't added, \(changed) those places after you checked. The rest are still saved.")
+    #expect(line(.failed, published: 3, skipped: 1)
+      == "3 of 5 are on the map. 1 wasn't added, \(changed) that place after you checked. The rest are still saved.")
+    #expect(line(.failed, published: 1) == "1 of 5 is on the map. The rest are still saved.")
+    #expect(line(.done, published: 1, skipped: 1, failed: 1)
+      == "1 of 5 is on the map. 1 wasn't added, \(changed) that place after you checked. The rest are still saved.")
+    #expect(line(.failed, published: 0, skipped: 2)
+      == "None of your answers are on the map yet. 2 weren't added, \(changed) those places after you checked. "
+        + "The rest are still saved.")
+    #expect(Wording.claimStillGoing
+      == "Your answers are still going on the map. You can carry on; this finishes on its own.")
+  }
+
   @Test func dayNeverWraps() {
     let day = Wording.day(Date())
     #expect(!day.contains(" "))

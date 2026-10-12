@@ -212,6 +212,47 @@ enum Wording {
       return "\(who) Your answers are still saved. We'll try again next time you open the app."
     }
   }
+  /// A claim's progress and result on the status line (design/copy-fixes-2026-10-11.md, "Phone
+  /// claim status line" and its edge cases; no "You're signed in" prefix). Superseded answers
+  /// were replaced by newer ones, so they don't count. Answers that failed are still saved.
+  static func claimProgress(_ status: ClaimStatus) -> String {
+    let n = max(status.total - status.superseded, 0)
+    let k = status.published
+    let m = status.skipped
+    switch status.state {
+    case .waiting, .queued, .running:
+      return "Putting your answers on the map\u{2026} \(k) of \(n)"
+    case .failed, .done where status.failed > 0:
+      let some = k == 0 ? "None of your answers are on the map yet." : "\(k) of \(n) \(k == 1 ? "is" : "are") on the map."
+      if m > 0 {
+        return some + " "
+          + (m == 1
+            ? "1 wasn't added, because someone changed that place after you checked."
+            : "\(m) weren't added, because someone changed those places after you checked.")
+          + " The rest are still saved."
+      }
+      guard k > 0 else {
+        return n == 1
+          ? "Your answer isn't on the map yet. It's still saved."
+          : "None of your answers are on the map yet. They're still saved."
+      }
+      return some + " The rest are still saved."
+    case .done:
+      let on = k == 1 ? "\u{2713} 1 answer is on the map." : "\u{2713} \(k) answers are on the map."
+      guard m > 0 else { return on }
+      guard k > 0 else {
+        return m == 1
+          ? "Your answer wasn't added, because someone changed that place on the map after you checked."
+          : "None of your answers were added, because someone changed those places on the map after you checked."
+      }
+      return on + " "
+        + (m == 1
+          ? "1 wasn't added, because someone changed that place on the map after you checked."
+          : "\(m) weren't added, because someone changed those places on the map after you checked.")
+    }
+  }
+  /// When the app stops reading a claim that hasn't finished: the "…" line would look live.
+  static let claimStillGoing = "Your answers are still going on the map. You can carry on; this finishes on its own."
   /// Only a bad address is the participant's to fix (shown in red); the rest are calm.
   static func isInputError(_ error: any Error) -> Bool { (error as? MapRouletteError)?.kind == .validation }
   /// The backend sends the link only once the guest has a saved answer (409 `nothing_saved`).

@@ -8,6 +8,19 @@ final class ParticipantFlowUITests: XCTestCase {
     continueAfterFailure = false
   }
 
+  /// After a phone sign-in claimed saved answers, the status line follows the claim (B5 progress).
+  @MainActor func testClaimProgressReachesTheResult() throws {
+    let app = launch("-demoClaim", "progress")
+    let progress = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'Putting your answers on the map'"))
+      .firstMatch
+    XCTAssert(progress.waitForExistence(timeout: 15), "progress shows k of n")
+    let result = app.staticTexts.containing(
+      NSPredicate(format: "label BEGINSWITH %@", "\u{2713} 2 answers are on the map. 1 wasn't added")
+    ).firstMatch
+    XCTAssert(result.waitForExistence(timeout: 20), "the result replaces the progress line")
+    shot(app, "claim-result")
+  }
+
   @MainActor func testAnswerABenchFromThePicker() throws {
     let app = launch()
     XCTAssert(app.staticTexts["Downtown bench check"].waitForExistence(timeout: 10))

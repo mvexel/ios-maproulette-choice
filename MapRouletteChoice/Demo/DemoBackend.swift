@@ -23,6 +23,10 @@
     enum Campaign: Sendable { case benches, stops, woodbine }
 
     static let challengeID: Int64 = 3
+    /// `-demoClaim progress`'s claim: 3 answers, one more on the map per read, then done with one
+    /// not added (changed meanwhile).
+    static let claimID: Int64 = 41
+    private var claimReads = 0
     static let taskIDs: [Int64] = Array(184...191)
     /// The demo account: MapRoulette user 7, OpenStreetMap username "rosa_slc".
     static let me: Int64 = 7
@@ -132,6 +136,14 @@
           "holdUntil": stamp(now.addingTimeInterval(14 * 86400)),
         ])
       case (.get, ["mobile-guest", "me"]): return ok(guestStatus)
+      case (.get, ["mobile-claim", String(Self.claimID)]):
+        claimReads += 1
+        let done = claimReads >= 3
+        let published = min(claimReads, 2)
+        return ok([
+          "claimId": Self.claimID, "state": done ? "done" : "running", "total": 3, "published": published,
+          "skipped": done ? 1 : 0, "superseded": 0, "failed": 0, "items": [Any](),
+        ])
       case (.put, ["mobile-guest", "email"]):
         if ProcessInfo.processInfo.arguments.contains("-demoClaimed") {
           return HTTPResponse(status: 409, body: json(["error": "guest_claimed"]))
