@@ -164,9 +164,11 @@ struct ChallengeTasksView: View {
     }
     .navigationTitle(challenge?.name ?? "Campaign")
     .navigationBarTitleDisplayMode(.inline)
-    // The top section's scroll view runs under the bar; an opaque bar keeps scrolled text from
-    // showing through it.
+    // The top section's scroll view runs under the bar; an opaque bar (solid, not the system
+    // material) keeps scrolled text from showing through it.
     .toolbarBackground(typeSize.isAccessibilitySize ? .visible : .automatic, for: .navigationBar)
+    .toolbarBackground(
+      typeSize.isAccessibilitySize ? AnyShapeStyle(Color(.systemBackground)) : AnyShapeStyle(.bar), for: .navigationBar)
     .navigationDestination(item: $selected) { selection in
       TaskView(
         taskID: selection.id, candidates: selection.candidates, reports: reports, noun: noun, userLocation: origin,
