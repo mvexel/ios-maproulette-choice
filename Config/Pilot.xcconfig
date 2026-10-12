@@ -1,0 +1,11 @@
+// The Woodbine pilot build (TestFlight): App.xcconfig plus the production backend.
+// Used only by scripts/archive-pilot.sh (`xcodebuild -xcconfig`); Xcode's Debug and Release
+// builds keep App.xcconfig's dev defaults. Public values only; signing comes from the team ID.
+#include "App.xcconfig"
+
+// Production: real OpenStreetMap. The backend needs the maproulette-ios-choice OAuth client
+// (registered on dev and stage; prod still needs it) and guests enabled.
+MAPROULETTE_BASE_URL = https:/$()/mr-prod.osm.lol
+MAPROULETTE_ALLOW_LIVE_WRITES = YES
+MAPROULETTE_GUESTS = YES
+MAPROULETTE_ALLOW_LOOPBACK = NO
