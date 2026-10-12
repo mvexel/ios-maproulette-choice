@@ -251,13 +251,14 @@ struct ChallengeTasksView: View {
       if guestShutOut {
         VStack(alignment: .leading, spacing: 8) {
           Text(Wording.guestCampaignTitle).font(.headline)
-          Text(Wording.guestCampaignText(noun))
+          Text(Wording.guestCampaignText(noun)).fixedSize(horizontal: false, vertical: true)
           Button { signInForPreview() } label: {
             Text("Sign in with OpenStreetMap").frame(maxWidth: .infinity, minHeight: 44)
           }
           .buttonStyle(.borderedProminent)
           .disabled(!session.signInAvailable)
           Text(session.accountHint).font(.footnote).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
       }
@@ -269,8 +270,9 @@ struct ChallengeTasksView: View {
           Button(Wording.doneForToday) { sheet = .daySummary }.font(.subheadline).frame(minHeight: 44)
         }
       }
-      // Reported places stay open but aren't sent to anyone (design/not-here-moved.md §4).
-      if let nearest = open.first(where: { reports[$0.id] == nil }) {
+      // Reported places stay open but aren't sent to anyone (design/not-here-moved.md §4). A shut-out
+      // guest gets the sign-in block instead.
+      if !guestShutOut, let nearest = open.first(where: { reports[$0.id] == nil }) {
         Button {
           if origin != nil { navigate(to: nearest.id) }
           else { mode = .list }
