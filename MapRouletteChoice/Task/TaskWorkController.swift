@@ -163,6 +163,12 @@ enum TaskScreen: Sendable {
       default: nil
       }
     }
+    /// Another outcome that sets status 6 (a campaign's "There's no door", Too hard): needs another
+    /// look like a report, but records no report. Status 2 outcomes count as checked.
+    var flagged: Bool {
+      guard report == nil, case .outcome(let outcome) = action else { return false }
+      return outcome.resolution == .tooHard
+    }
   }
   /// The submission may still land (unknown outcome, pending submission or status). Never resent
   /// automatically; the user re-reads with Check again. `canResend`: the user may send the

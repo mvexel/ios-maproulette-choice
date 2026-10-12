@@ -601,4 +601,33 @@ import Testing
     #expect(store.justReported == [42: .notHere])
     #expect(store.justDone.isEmpty)
   }
+
+  /// not-here-moved.md §3.3: an outcome follows its status. Status 6 (Woodbine's "There's no
+  /// door", Too hard) needs another look; status 2 counts as checked.
+  @Test func statusSixOutcomesNeedAnotherLook() async throws {
+    var seen: Set<TaskResolution> = []
+    for id in ["not-a-bench", "too-hard"] {
+      let o = ops(try await makeTask(), try await makeTask(status: 6, completedBy: me))
+      let c = await controller(o)
+      let outcome = try outcome(c, id)
+      seen.insert(outcome.resolution)
+      c.perform(.outcome(outcome))
+      await c.idle()
+      let done = try #require(c.state.done)
+      #expect(done.report == nil)
+      #expect(done.flagged == (outcome.resolution == .tooHard), "\(id)")
+    }
+    #expect(seen == [.notAnIssue, .tooHard])
+  }
+
+  @Test func flaggedPlacesCountForThePersonButStayOpen() throws {
+    let store = CampaignStore(defaults: UserDefaults(suiteName: "flagged-\(UUID())")!)
+    store.recordChecked(1, task: 42, flagged: true)
+    store.recordChecked(1, task: 42, flagged: true)
+    store.recordChecked(1, task: 43, report: .notHere)
+    #expect(store.checkedToday(1) == 2)
+    #expect(store.justFlagged == [42])
+    #expect(store.justDone.isEmpty)
+    #expect(store.lookAgain(store.justReported) == [42, 43])
+  }
 }

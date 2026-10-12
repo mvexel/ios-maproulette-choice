@@ -45,7 +45,7 @@ struct ChallengeTasksView: View {
   /// The campaign's questions (first seen wins), for the welcome card.
   @State private var questions: [ChoiceQuestion] = []
   @State private var hidden = 0
-  /// Open tasks held by someone's saved guest answer: the bounds search leaves them out.
+  /// Open tasks held by someone's saved guest answer: shown and counted as checked.
   @State private var held: Set<Int64> = []
   /// Tasks someone reported as not here or moved. The campaign status read (E1/E2) will fill
   /// this; until then only the demo does.
@@ -72,7 +72,10 @@ struct ChallengeTasksView: View {
   private static let maxPages = 10
 
   private var progress: CampaignProgress {
-    CampaignProgress(tasks: tasks, justDone: campaigns.justDone, held: held, answerable: answerable)
+    // This phone's own pending reports need another look, not "checked" (not-here-moved.md).
+    CampaignProgress(
+      tasks: tasks, justDone: campaigns.justDone, held: held.subtracting(campaigns.justReported.keys),
+      answerable: answerable)
   }
   /// A guest's saved answers: checked here, but not on the map until they finish signing up.
   private var pendingIDs: Set<Int64> {
@@ -85,6 +88,7 @@ struct ChallengeTasksView: View {
   private var doneIDs: Set<Int64> { progress.done }
   /// Reports from the server, and this device's since launch (design/not-here-moved.md §4).
   private var reports: [Int64: TaskReport] { serverReports.merging(campaigns.justReported) { $1 } }
+  private var lookAgain: Set<Int64> { campaigns.lookAgain(reports) }
   private var open: [LocatedTask] { TaskLocation.sorted(progress.open, from: origin) }
   private var checked: [LocatedTask] {
     let done = doneIDs
@@ -92,7 +96,7 @@ struct ChallengeTasksView: View {
   }
   /// The campaign's size for progress: held places still count (they're answered, just not on the map yet).
   private var total: Int { progress.total }
-  /// Open and checked places (and, in preview, broken surveys); the rest are left off the map and list.
+  /// Open, held and checked places (and, in preview, broken surveys); the rest are left off the map and list.
   private var shown: [LocatedTask] { progress.shown }
 
   var body: some View {
@@ -116,7 +120,8 @@ struct ChallengeTasksView: View {
         case .map:
           TaskMapView(
             styleURL: session.mapStyleURL, tasks: shown, done: doneIDs, pending: pendingIDs,
-            reports: reports, origin: origin, noun: noun) { id in navigate(to: id) }
+            reports: reports, flagged: campaigns.justFlagged, origin: origin, noun: noun
+          ) { id in navigate(to: id) }
             .background(Color(.secondarySystemBackground))
             .overlay {
               if tasks.isEmpty && request != nil { ProgressView("Loading…").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) }
@@ -248,7 +253,7 @@ struct ChallengeTasksView: View {
         }
       }
       // Reported places stay open but aren't sent to anyone (design/not-here-moved.md §4).
-      if let nearest = open.first(where: { reports[$0.id] == nil }) {
+      if let nearest = open.first(where: { !lookAgain.contains($0.id) }) {
         Button {
           if origin != nil { navigate(to: nearest.id) }
           else { mode = .list }
@@ -332,6 +337,9 @@ struct ChallengeTasksView: View {
       }
       VStack(alignment: .leading, spacing: 2) {
         Text(Wording.placeName(task.task, noun)).foregroundStyle(done ? Color.secondary : Color.primary)
+        if !done && !pending && lookAgain.contains(task.id) {
+          Text(Wording.needsAnotherLook).font(.footnote).foregroundStyle(Color.secondary)
+        }
         if showDetails {
           Text(verbatim: "\(task.task.name) · Task \(task.id) · \(TaskText.status(task.task.status?.code))")
             .font(.footnote).foregroundStyle(.secondary)
@@ -347,8 +355,7 @@ struct ChallengeTasksView: View {
     }
     .accessibilityElement(children: .combine)
     .accessibilityValue(
-      pending ? "Saved, not on the map yet" : done ? "Already checked"
-        : reports[task.id] != nil ? Wording.needsAnotherLook : "")
+      pending ? "Saved, not on the map yet" : done ? "Already checked" : "")
   }
 
   private var detailsFooter: String {
