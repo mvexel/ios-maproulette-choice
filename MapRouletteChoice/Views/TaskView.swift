@@ -305,6 +305,16 @@ struct TaskView: View {
       Text(reason)
       bigButton("Sign in again") { signIn() }
       backButton()
+    case .accountNeeded:
+      // copy-fixes-2026-10-11.md, "Guest on a task that needs an account": most guests have no
+      // account, so Next nearest leads.
+      Text(Wording.accountNeededTitle(noun)).font(.headline)
+      Text(Wording.accountNeeded(noun))
+      // No "That was the last one" here: nothing was checked.
+      if nextPlace != nil { nextButton() }
+      bigButton("Sign in with OpenStreetMap", prominent: nextPlace == nil) { signIn() }
+      Text(session.accountHint).font(.footnote).foregroundStyle(.secondary)
+      backButton()
     case .elementInUse(let loaded, let form, let outcome):
       elementInUse(c, loaded, form, outcome)
     }
@@ -739,6 +749,11 @@ struct TaskView: View {
 
   /// Next nearest place (prominent), with distance and direction from this one, then back to the campaign.
   @ViewBuilder private func nextButtons(prominent: Bool = true) -> some View {
+    nextButton(prominent: prominent)
+    backButton()
+  }
+
+  @ViewBuilder private func nextButton(prominent: Bool = true) -> some View {
     if let next = nextPlace {
       bigButton(
         Wording.next(noun, distance: TaskLocation.directionText(here, next.coordinate), hasOrigin: here != nil), prominent: prominent
@@ -749,7 +764,6 @@ struct TaskView: View {
     } else {
       Text("That was the last \(noun.one) to check. Thank you!").foregroundStyle(.secondary)
     }
-    backButton()
   }
 
   private func backButton() -> some View {

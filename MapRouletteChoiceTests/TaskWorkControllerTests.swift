@@ -520,6 +520,33 @@ import Testing
     guard case .noLongerNeeded = c.state else { Issue.record("\(c.state.name)"); return }
   }
 
+  /// The pending route holds answers only with `liveMissingQuestions` (422 `unsupported_task`).
+  @Test func guestsNeedAnAccountWithoutLiveMissingQuestions() async throws {
+    var payload = bench
+    payload["liveMissingQuestions"] = nil
+    let guest = await controller(ops(try await makeTask(payload: payload)), writer: .guestWriter)
+    guard case .accountNeeded = guest.state else { Issue.record("\(guest.state.name)"); return }
+    #expect(Wording.accountNeededTitle(Noun.place) == "Sign in to check this place")
+    #expect(Wording.accountNeeded(Noun.place) == "This place needs an OpenStreetMap account. Any answers you've saved stay saved.")
+    // A signed-in participant answers it as before.
+    let signedIn = await controller(ops(try await makeTask(payload: payload)))
+    #expect(signedIn.state.answering != nil)
+  }
+
+  @Test func guestUnsupportedTaskOnSaveNeedsAnAccount() async throws {
+    for error in [
+      MapRouletteError(.validation, status: 422, reason: "unsupported_task"),
+      MapRouletteError(.validation, status: 422, problem: .choice(.unsupportedTask)),
+    ] {
+      let o = ops(try await makeTask())
+      o.pending = { _ in throw error }
+      let c = await controller(o, writer: .guestWriter)
+      c.perform(.answers(["backrest": "yes"]))
+      await c.idle()
+      guard case .accountNeeded = c.state else { Issue.record("\(c.state.name)"); continue }
+    }
+  }
+
   // MARK: Not here / moved (design/not-here-moved.md)
 
   @Test func reportsAreOfferedOnEveryChoiceTaskAndNeverEditOsm() async throws {
