@@ -26,6 +26,8 @@ struct TaskView: View {
   private let candidates: [LocatedTask]
   /// Places someone reported as not here or moved: never offered as next, and a banner on open.
   private let reports: [Int64: TaskReport]
+  /// Open places another guest's pending report holds: kept out of Next nearest.
+  private let heldReports: Set<Int64>
   private let noun: Noun
   /// The participant's position when the first place was opened from the campaign, for
   /// "130 m northeast of you". Not live: after "Next nearest" they have moved, so it is hidden.
@@ -54,13 +56,14 @@ struct TaskView: View {
   @State private var afterProblems: (() -> Void)?
 
   init(
-    taskID: Int64, candidates: [LocatedTask], reports: [Int64: TaskReport] = [:], noun: Noun,
-    userLocation: CLLocationCoordinate2D? = nil, preview: CampaignPreview? = nil
+    taskID: Int64, candidates: [LocatedTask], reports: [Int64: TaskReport] = [:], heldReports: Set<Int64> = [],
+    noun: Noun, userLocation: CLLocationCoordinate2D? = nil, preview: CampaignPreview? = nil
   ) {
     _taskID = State(initialValue: taskID)
     _visited = State(initialValue: [taskID])
     self.candidates = candidates
     self.reports = reports
+    self.heldReports = heldReports
     self.noun = noun
     self.userLocation = userLocation
     firstTaskID = taskID
@@ -219,7 +222,7 @@ struct TaskView: View {
 
   private var nextPlace: LocatedTask? {
     TaskLocation.nearest(
-      from: here, in: candidates, excluding: visited.union(campaigns.justDone).union(allReports.keys))
+      from: here, in: candidates, excluding: visited.union(campaigns.justDone).union(campaigns.lookAgain(allReports)).union(heldReports))
   }
 
   private func open(_ next: LocatedTask) {
@@ -305,8 +308,21 @@ struct TaskView: View {
       Text(reason)
       bigButton("Sign in again") { signIn() }
       backButton()
+    case .accountNeeded:
+      // copy-fixes-2026-10-11.md, "Guest on a task that needs an account": most guests have no
+      // account, so Next nearest leads.
+      Text(Wording.accountNeededTitle(noun)).font(.headline)
+      Text(Wording.accountNeeded(noun))
+      // No "That was the last one" here: nothing was checked.
+      if nextPlace != nil { nextButton() }
+      bigButton("Sign in with OpenStreetMap", prominent: nextPlace == nil) { signIn() }
+      Text(session.accountHint).font(.footnote).foregroundStyle(.secondary)
+      backButton()
     case .elementInUse(let loaded, let form, let outcome):
       elementInUse(c, loaded, form, outcome)
+    case .writesPaused:
+      Text(Wording.writesPausedOnOpen(noun))
+      bigButton("OK", prominent: true) { dismiss() }
     }
   }
 
@@ -314,7 +330,7 @@ struct TaskView: View {
   private static func showsChecked(_ state: TaskScreen) -> Bool {
     switch state {
     // A report leaves the place open: it needs another look.
-    case .done(let d) where d.action.isReport: false
+    case .done(let d) where d.action.isReport || d.flagged: false
     case .noLongerNeeded, .done: true
     default: state.loaded.map { LocatedTask($0.task).isDone } ?? false
     }
@@ -739,14 +755,21 @@ struct TaskView: View {
 
   /// Next nearest place (prominent), with distance and direction from this one, then back to the campaign.
   @ViewBuilder private func nextButtons(prominent: Bool = true) -> some View {
+    nextButton(prominent: prominent)
+    backButton()
+  }
+
+  @ViewBuilder private func nextButton(prominent: Bool = true) -> some View {
     if let next = nextPlace {
       bigButton(
-        Wording.next(noun, distance: TaskLocation.directionText(here, next.coordinate)), prominent: prominent
-      ) { open(next) }
+        Wording.next(noun, distance: TaskLocation.directionText(here, next.coordinate), hasOrigin: here != nil), prominent: prominent
+      ) {
+        if here != nil { open(next) }
+        else { dismiss() }
+      }
     } else {
       Text("That was the last \(noun.one) to check. Thank you!").foregroundStyle(.secondary)
     }
-    backButton()
   }
 
   private func backButton() -> some View {

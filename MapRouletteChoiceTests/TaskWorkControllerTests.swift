@@ -321,6 +321,22 @@ import Testing
     #expect(try #require(c.state.answering?.2).contains("Your answers are kept"))
   }
 
+  @Test func writesPausedOnOpenSaysSoWithoutAForm() async throws {
+    let o = ops(try await makeTask())
+    o.check = { throw failure(.permission, .writesPaused) }
+    let c = await controller(o)
+    guard case .writesPaused = c.state else { Issue.record("\(c.state.name)"); return }
+    #expect(Wording.writesPausedOnOpen(.place).hasPrefix("Saving answers is paused right now, so this place can't be checked."))
+  }
+
+  @Test func writesPausedSaysSoAndKeepsTheAnswers() async throws {
+    let o = ops(try await makeTask())
+    o.submit = { _ in throw failure(.permission, .writesPaused) }
+    let c = await answered(o)
+    #expect(try form(c).answers == ["backrest": "yes"])
+    #expect(c.state.answering?.2 == Wording.writesPaused)
+  }
+
   @Test func elementInUseOffersTheSameOutcomeWithoutDeletion() async throws {
     let o = ops(deletion: true, try await makeTask(), try await makeTask(status: 2, completedBy: me))
     o.submit = { submission in
@@ -520,6 +536,33 @@ import Testing
     guard case .noLongerNeeded = c.state else { Issue.record("\(c.state.name)"); return }
   }
 
+  /// The pending route holds answers only with `liveMissingQuestions` (422 `unsupported_task`).
+  @Test func guestsNeedAnAccountWithoutLiveMissingQuestions() async throws {
+    var payload = bench
+    payload["liveMissingQuestions"] = nil
+    let guest = await controller(ops(try await makeTask(payload: payload)), writer: .guestWriter)
+    guard case .accountNeeded = guest.state else { Issue.record("\(guest.state.name)"); return }
+    #expect(Wording.accountNeededTitle(Noun.place) == "Sign in to check this place")
+    #expect(Wording.accountNeeded(Noun.place) == "This place needs an OpenStreetMap account. Any answers you've saved stay saved.")
+    // A signed-in participant answers it as before.
+    let signedIn = await controller(ops(try await makeTask(payload: payload)))
+    #expect(signedIn.state.answering != nil)
+  }
+
+  @Test func guestUnsupportedTaskOnSaveNeedsAnAccount() async throws {
+    for error in [
+      MapRouletteError(.validation, status: 422, reason: "unsupported_task"),
+      MapRouletteError(.validation, status: 422, problem: .choice(.unsupportedTask)),
+    ] {
+      let o = ops(try await makeTask())
+      o.pending = { _ in throw error }
+      let c = await controller(o, writer: .guestWriter)
+      c.perform(.answers(["backrest": "yes"]))
+      await c.idle()
+      guard case .accountNeeded = c.state else { Issue.record("\(c.state.name)"); continue }
+    }
+  }
+
   // MARK: Not here / moved (design/not-here-moved.md)
 
   @Test func reportsAreOfferedOnEveryChoiceTaskAndNeverEditOsm() async throws {
@@ -575,5 +618,34 @@ import Testing
     #expect(store.checkedToday(1) == 1)
     #expect(store.justReported == [42: .notHere])
     #expect(store.justDone.isEmpty)
+  }
+
+  /// not-here-moved.md §3.3: an outcome follows its status. Status 6 (Woodbine's "There's no
+  /// door", Too hard) needs another look; status 2 counts as checked.
+  @Test func statusSixOutcomesNeedAnotherLook() async throws {
+    var seen: Set<TaskResolution> = []
+    for id in ["not-a-bench", "too-hard"] {
+      let o = ops(try await makeTask(), try await makeTask(status: 6, completedBy: me))
+      let c = await controller(o)
+      let outcome = try outcome(c, id)
+      seen.insert(outcome.resolution)
+      c.perform(.outcome(outcome))
+      await c.idle()
+      let done = try #require(c.state.done)
+      #expect(done.report == nil)
+      #expect(done.flagged == (outcome.resolution == .tooHard), "\(id)")
+    }
+    #expect(seen == [.notAnIssue, .tooHard])
+  }
+
+  @Test func flaggedPlacesCountForThePersonButStayOpen() throws {
+    let store = CampaignStore(defaults: UserDefaults(suiteName: "flagged-\(UUID())")!)
+    store.recordChecked(1, task: 42, flagged: true)
+    store.recordChecked(1, task: 42, flagged: true)
+    store.recordChecked(1, task: 43, report: .notHere)
+    #expect(store.checkedToday(1) == 2)
+    #expect(store.justFlagged == [42])
+    #expect(store.justDone.isEmpty)
+    #expect(store.lookAgain(store.justReported) == [42, 43])
   }
 }

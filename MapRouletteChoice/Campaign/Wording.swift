@@ -9,8 +9,9 @@ struct Noun: Hashable, Sendable {
 
   static let place = Noun(one: "place", many: "places")
 
-  /// Known identity tags, most specific first.
-  private static let known: [(key: String, value: String, noun: Noun)] = [
+  /// Known identity tags, most specific first. A nil value matches any value of the key
+  /// (`entrance=main`, `entrance=yes`).
+  private static let known: [(key: String, value: String?, noun: Noun)] = [
     ("highway", "bus_stop", Noun(one: "stop", many: "stops")),
     ("public_transport", "platform", Noun(one: "stop", many: "stops")),
     ("railway", "platform", Noun(one: "platform", many: "platforms")),
@@ -22,10 +23,11 @@ struct Noun: Hashable, Sendable {
     ("amenity", "shelter", Noun(one: "shelter", many: "shelters")),
     ("leisure", "playground", Noun(one: "playground", many: "playgrounds")),
     ("leisure", "park", Noun(one: "park", many: "parks")),
+    ("entrance", nil, Noun(one: "entrance", many: "entrances")),
   ]
 
   static func from(match: [String: String]) -> Noun {
-    known.first { match[$0.key] == $0.value }?.noun ?? .place
+    known.first { k in match[k.key].map { k.value == nil || $0 == k.value } ?? false }?.noun ?? .place
   }
 
   /// The noun for a campaign: from the first choice task's identity guard.
@@ -39,14 +41,38 @@ struct Noun: Hashable, Sendable {
   /// "1 stop", "7 stops".
   func count(_ n: Int) -> String { "\(n) \(n == 1 ? one : many)" }
   var One: String { one.prefix(1).uppercased() + one.dropFirst() }
+  /// "a stop", "an entrance". Every known noun starts with a letter that sounds as written.
+  var aOne: String { ("aeiou".contains(one.prefix(1)) ? "an " : "a ") + one }
 }
 
 /// Participant-facing copy (docs: /mnt/project-files/design/personas-and-design.md §4). Expert
 /// wording stays in `TaskText` and shows only with "Show OSM details".
 enum Wording {
   static let notSure = "I'm not sure"
+  /// 403 mobile_writes_disabled: the server has saving switched off (copy-fixes-2026-10-11.md).
+  /// On save, above the kept form; on opening a place, in place of the form.
+  static let writesPaused =
+    "Saving answers is paused right now. This answer wasn't saved, and nothing changed on the map. Please try again later."
+  static func writesPausedOnOpen(_ noun: Noun) -> String {
+    "Saving answers is paused right now, so this \(noun.one) can't be checked. Nothing changed on the map. Please try again later."
+  }
   static let notSureShort = "Not sure"
   static let somethingWrong = "Something's wrong here"
+  /// A guest in a campaign where every open place needs an account.
+  /// A campaign guests can't answer, said once (guest-vs-signed-in-review.md).
+  static let needsAccountBadge = "Needs an OpenStreetMap account"
+  static let campaignNeedsAccount = "This campaign needs an OpenStreetMap account."
+  /// Shown only while open places remain (guest-vs-signed-in-review.md point 3); a complete
+  /// tally gets the normal all-checked line instead.
+  static let guestCampaignTitle = "Sign in to check the rest"
+  static func guestCampaignText(_ noun: Noun) -> String {
+    "The \(noun.many) still open in this campaign need an OpenStreetMap account. Any answers you've saved stay saved."
+  }
+  /// A guest on a task that can't hold answers until sign-in.
+  static func accountNeededTitle(_ noun: Noun) -> String { "Sign in to check this \(noun.one)" }
+  static func accountNeeded(_ noun: Noun) -> String {
+    "This \(noun.one) needs an OpenStreetMap account. Any answers you've saved stay saved."
+  }
   static func cantCheck(_ noun: Noun) -> String { "I can't check this \(noun.one)" }
 
   // MARK: "Something's wrong here" (design/not-here-moved.md §2, §7)
@@ -119,7 +145,7 @@ enum Wording {
   static let guestAnswersArePublic =
     "Your answers go on OpenStreetMap, the free map anyone can use, when you finish on a computer. Map edits are public and show the username you choose then."
   static func locationStaysOnPhone(_ noun: Noun) -> String {
-    "We use your location to find the nearest \(noun.many). It stays on your phone, unless you tap “I'm standing at it” to show where a \(noun.one) has moved."
+    "We use your location to find the nearest \(noun.many). It stays on your phone, unless you tap “I'm standing at it” to show where \(noun.aOne) has moved."
   }
 
   static func skip(_ noun: Noun) -> String { "Skip this \(noun.one)" }
@@ -144,7 +170,7 @@ enum Wording {
     "Saved. That's \(noun.count(todayCount)) today."
   }
   static let putOnMapIntro =
-    "To put them on the map, finish on a computer. It takes about 3 minutes. We'll email you a link."
+    "To put them on the map, finish on a computer. We can email you a link."
   static let emailUse = "We only email you about these answers, and delete your address once they're on the map or removed."
   static func linkSent(to email: String, until: Date?) -> String {
     "Sent to \(email). Check your email later." + (until.map { " The link works until \(day($0))." } ?? "")
@@ -155,7 +181,78 @@ enum Wording {
     date.formatted(.dateTime.month(.abbreviated).day()).replacingOccurrences(of: " ", with: "\u{00A0}")
   }
   static let enterEmailAgain = "Enter your email again and we'll send a new link."
+  /// Phone sign-in claims the saved answers (B5), so the original line is true again
+  /// (design/copy-fixes-2026-10-11.md row 5).
   static let signInPutsOnMap = "Sign in now and your saved answers go on the map right away."
+  /// The account line after sign-in (copy-fixes-2026-10-11.md): the OSM name when known.
+  static func signedIn(_ name: String?) -> String {
+    name.map { "You're signed in as \($0)." } ?? "You're signed in with OpenStreetMap."
+  }
+  /// After a phone sign-in with saved answers (B5; design/copy-fixes-2026-10-11.md, "Phone claim
+  /// status line"). `name` is the signed-in OSM account, which matters when the answers turn out
+  /// to be linked to another one.
+  static func claimMessage(_ outcome: AppSession.ClaimOutcome, name: String?) -> String {
+    let who = signedIn(name)
+    switch outcome {
+    case .started(let pending, let waiting):
+      guard pending > 0 else { return "\(who) New answers go straight on the map from now on." }
+      let one = pending == 1
+      if waiting {
+        return "\(who) \(one ? "Your saved answer is" : "Your \(pending) saved answers are") now linked to your "
+          + "account. \(one ? "It'll" : "They'll") go on the map later."
+      }
+      return "\(who) Putting \(one ? "your saved answer" : "your \(pending) saved answers") on the map\u{2026}"
+    case .gone:
+      return "\(who) We couldn't find your saved answers. "
+        + "They may have expired, or they're linked to a different OpenStreetMap account."
+    case .reauth:
+      // Not signed in in any useful sense, so no "You're signed in as" prefix.
+      return "Sign in again so we can put your saved answers on the map."
+    case .later:
+      return "\(who) Your answers are still saved. We'll try again next time you open the app."
+    }
+  }
+  /// A claim's progress and result on the status line (design/copy-fixes-2026-10-11.md, "Phone
+  /// claim status line" and its edge cases; no "You're signed in" prefix). Superseded answers
+  /// were replaced by newer ones, so they don't count. Answers that failed are still saved.
+  static func claimProgress(_ status: ClaimStatus) -> String {
+    let n = max(status.total - status.superseded, 0)
+    let k = status.published
+    let m = status.skipped
+    switch status.state {
+    case .waiting, .queued, .running:
+      return "Putting your answers on the map\u{2026} \(k) of \(n)"
+    case .failed, .done where status.failed > 0:
+      let some = k == 0 ? "None of your answers are on the map yet." : "\(k) of \(n) \(k == 1 ? "is" : "are") on the map."
+      if m > 0 {
+        return some + " "
+          + (m == 1
+            ? "1 wasn't added, because someone changed that place after you checked."
+            : "\(m) weren't added, because someone changed those places after you checked.")
+          + " The rest are still saved."
+      }
+      guard k > 0 else {
+        return n == 1
+          ? "Your answer isn't on the map yet. It's still saved."
+          : "None of your answers are on the map yet. They're still saved."
+      }
+      return some + " The rest are still saved."
+    case .done:
+      let on = k == 1 ? "\u{2713} 1 answer is on the map." : "\u{2713} \(k) answers are on the map."
+      guard m > 0 else { return on }
+      guard k > 0 else {
+        return m == 1
+          ? "Your answer wasn't added, because someone changed that place on the map after you checked."
+          : "None of your answers were added, because someone changed those places on the map after you checked."
+      }
+      return on + " "
+        + (m == 1
+          ? "1 wasn't added, because someone changed that place on the map after you checked."
+          : "\(m) weren't added, because someone changed those places on the map after you checked.")
+    }
+  }
+  /// When the app stops reading a claim that hasn't finished: the "…" line would look live.
+  static let claimStillGoing = "Your answers are still going on the map. You can carry on; this finishes on its own."
   /// Only a bad address is the participant's to fix (shown in red); the rest are calm.
   static func isInputError(_ error: any Error) -> Bool { (error as? MapRouletteError)?.kind == .validation }
   /// The backend sends the link only once the guest has a saved answer (409 `nothing_saved`).
@@ -165,12 +262,14 @@ enum Wording {
     return error.kind == .conflict && error.reason == "nothing_saved"
   }
   static func linkFailed(_ error: any Error, _ noun: Noun = .place) -> String {
-    if isNothingSaved(error) { return "Answer a \(noun.one) first, then we can send you the link." }
+    if isNothingSaved(error) { return "Answer \(noun.aOne) first, then we can send you the link." }
+    if let error = error as? MapRouletteError, error.kind == .conflict, error.reason == "guest_claimed" {
+      return "These answers are already linked to an OpenStreetMap account. Sign in with it to see them."
+    }
     return switch (error as? MapRouletteError)?.kind {
     case .validation?: "That doesn't look like an email address."
     case .rateLimit?: "We've sent a few links already. Try again tomorrow."
     case .network?: "Couldn't connect. Check your connection and try again."
-    case .conflict?: "These answers are already on the map."
     default: "Couldn't send the link right now. Try again later."
     }
   }
@@ -184,7 +283,7 @@ enum Wording {
   }
   static func daySummarySaved(until: Date?) -> String {
     (until.map { "They're saved until \(day($0))." } ?? "They're saved for now.")
-      + " Open the email we sent to put them on the map. It takes about 3 minutes on a computer."
+      + " If we emailed you a link, open it on a computer to put them on the map."
   }
   static let doneForToday = "I'm done for today"
   /// Deferred sign-up §1.6, in the last 3 days.
@@ -206,11 +305,17 @@ enum Wording {
   static func checkedByOtherFirst(_ noun: Noun) -> String {
     "Someone else checked this \(noun.one) first, so your answers weren't saved."
   }
-  static func next(_ noun: Noun, distance: String?) -> String {
-    "Next nearest \(noun.one)" + (distance.map { " · \($0)" } ?? "")
+  static func next(_ noun: Noun, distance: String?, hasOrigin: Bool) -> String {
+    guard hasOrigin else { return "Choose another \(noun.one)" }
+    return "Next nearest \(noun.one)" + (distance.map { " · \($0)" } ?? "")
   }
-  static func nearest(_ noun: Noun, distance: String?) -> String {
-    "Nearest \(noun.one)" + (distance.map { " · \($0)" } ?? "")
+  static func nearest(_ noun: Noun, distance: String?, hasOrigin: Bool) -> String {
+    guard hasOrigin else { return "Choose \(noun.aOne)" }
+    return "Nearest \(noun.one)" + (distance.map { " · \($0)" } ?? "")
+  }
+  static func locationUnavailable(_ noun: Noun, isOff: Bool) -> String {
+    (isOff ? "Location is off." : "Your location isn't available yet.")
+      + " Choose \(noun.aOne) on the map or in the list."
   }
   static func progress(done: Int, total: Int, _ noun: Noun) -> String {
     "The tally: \(done) of \(noun.count(total)) checked"

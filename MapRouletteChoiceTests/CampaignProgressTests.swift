@@ -3,20 +3,20 @@ import Testing
 
 @testable import MapRouletteChoice
 
-/// "N of M" progress (design rule H1): held places count toward M but stay off the map and list.
+/// "N of M" progress (design rule H1): held places are checked, counted and shown, never offered.
 @Suite struct CampaignProgressTests {
   private func open(_ id: Int64) async throws -> LocatedTask { LocatedTask(try await makeTask(id: id)) }
   private func done(_ id: Int64, status: Int = 1) async throws -> LocatedTask {
     LocatedTask(try await makeTask(id: id, status: status))
   }
 
-  @Test func heldPlacesCountInTotalButAreNotShown() async throws {
+  @Test func heldPlacesShowAsChecked() async throws {
     let tasks = [try await open(1), try await open(2), try await open(3)]
     let p = CampaignProgress(tasks: tasks, justDone: [], held: [2])
     #expect(p.total == 3)
     #expect(p.checked == 1)
-    #expect(p.done.isEmpty)
-    #expect(p.shown.map(\.id) == [1, 3])
+    #expect(p.done == [2])
+    #expect(p.shown.map(\.id) == [1, 2, 3])
     #expect(p.open.map(\.id) == [1, 3])
   }
 
@@ -53,8 +53,8 @@ import Testing
     let p = CampaignProgress(tasks: tasks, justDone: [3], held: [2])
     #expect(p.total == 4)
     #expect(p.checked == 3)
-    #expect(p.done == [3, 4])
-    #expect(p.shown.map(\.id) == [1, 3, 4])
+    #expect(p.done == [2, 3, 4])
+    #expect(p.shown.map(\.id) == [1, 2, 3, 4])
     #expect(p.open.map(\.id) == [1])
   }
 }

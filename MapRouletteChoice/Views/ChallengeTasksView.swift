@@ -38,6 +38,8 @@ struct ChallengeTasksView: View {
   }
 
   @State private var mode = Mode.map
+  /// The top section's own height, so its scroll view at accessibility sizes hugs it.
+  @State private var summaryHeight: CGFloat?
   @State private var client: SessionClient?
   @State private var challenge: Challenge?
   @State private var tasks: [LocatedTask] = []
@@ -45,8 +47,10 @@ struct ChallengeTasksView: View {
   /// The campaign's questions (first seen wins), for the welcome card.
   @State private var questions: [ChoiceQuestion] = []
   @State private var hidden = 0
-  /// Open tasks held by someone's saved guest answer: the bounds search leaves them out.
+  /// Open tasks held by someone's saved guest answer: shown and counted as checked.
   @State private var held: Set<Int64> = []
+  /// Open tasks held by someone's saved report (an outcome that sets status 6): need another look.
+  @State private var heldReports: Set<Int64> = []
   /// Tasks someone reported as not here or moved. The campaign status read (E1/E2) will fill
   /// this; until then only the demo does.
   @State private var serverReports: [Int64: TaskReport] = [:]
@@ -55,7 +59,10 @@ struct ChallengeTasksView: View {
   @State private var failed = false
   @State private var request: Task<Void, Never>?
   @State private var origin: CLLocationCoordinate2D?
-  @State private var locationNote: String?
+  @State private var locationIsOff = false
+  private var locationNote: String? {
+    origin == nil ? Wording.locationUnavailable(noun, isOff: locationIsOff) : nil
+  }
   @State private var locator = Locator()
   @State private var selected: Selection?
   @State private var sheet: Sheet?
@@ -69,7 +76,10 @@ struct ChallengeTasksView: View {
   private static let maxPages = 10
 
   private var progress: CampaignProgress {
-    CampaignProgress(tasks: tasks, justDone: campaigns.justDone, held: held, answerable: answerable)
+    // Pending reports, this phone's or another guest's, need another look, not "checked"
+    // (not-here-moved.md).
+    CampaignProgress(
+      tasks: tasks, justDone: campaigns.justDone, held: held.subtracting(lookAgain), answerable: answerable)
   }
   /// A guest's saved answers: checked here, but not on the map until they finish signing up.
   private var pendingIDs: Set<Int64> {
@@ -79,9 +89,19 @@ struct ChallengeTasksView: View {
   private func answerable(_ task: LocatedTask) -> Bool {
     task.isOpen || (preview != nil && CampaignPreview.invalidSurvey(task.task))
   }
+  /// Answering as a guest: already one, or about to become one on the first place opened.
+  private var asGuest: Bool { session.view.guest || session.canAnswerAsGuest }
+  /// A guest in a campaign whose open places all need an account (no `liveMissingQuestions`;
+  /// guest-vs-signed-in-review.md): said once, on the welcome card and above the map. Places stay
+  /// visible and say so when opened.
+  private var guestShutOut: Bool {
+    preview == nil && asGuest && !progress.open.isEmpty
+      && !progress.open.contains { TaskWorkController.guestAnswerable($0.task) }
+  }
   private var doneIDs: Set<Int64> { progress.done }
   /// Reports from the server, and this device's since launch (design/not-here-moved.md §4).
   private var reports: [Int64: TaskReport] { serverReports.merging(campaigns.justReported) { $1 } }
+  private var lookAgain: Set<Int64> { campaigns.lookAgain(reports).union(heldReports) }
   private var open: [LocatedTask] { TaskLocation.sorted(progress.open, from: origin) }
   private var checked: [LocatedTask] {
     let done = doneIDs
@@ -89,32 +109,55 @@ struct ChallengeTasksView: View {
   }
   /// The campaign's size for progress: held places still count (they're answered, just not on the map yet).
   private var total: Int { progress.total }
-  /// Open and checked places (and, in preview, broken surveys); the rest are left off the map and list.
+  /// Open, held and checked places (and, in preview, broken surveys); the rest are left off the map and list.
   private var shown: [LocatedTask] { progress.shown }
 
   var body: some View {
-    VStack(spacing: 8) {
-      if let preview, preview.phase == .signInNeeded || preview.phase == .noAccess {
-        previewGate(preview)
-        Spacer()
-      } else {
-        summary
-        Picker("View", selection: $mode) {
-          ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
-        }
-        .pickerStyle(.segmented)
-        .padding(.horizontal)
-        switch mode {
-        case .map:
-          TaskMapView(
-            styleURL: session.mapStyleURL, tasks: shown, done: doneIDs, pending: pendingIDs,
-            reports: reports, origin: origin, noun: noun) { id in navigate(to: id) }
-            .background(Color(.secondarySystemBackground))
-            .overlay {
-              if tasks.isEmpty && request != nil { ProgressView("Loading…").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) }
+    GeometryReader { geo in
+      VStack(spacing: 8) {
+        if let preview, preview.phase == .signInNeeded || preview.phase == .noAccess {
+          previewGate(preview)
+          Spacer()
+        } else {
+          if typeSize.isAccessibilitySize {
+            // At accessibility sizes the top section can outgrow the screen and push the tally under
+            // the navigation bar; it hugs its content up to half the height, then scrolls.
+            ScrollView {
+              summary.onGeometryChange(for: CGFloat.self, of: \.size.height) { summaryHeight = $0 }
             }
-            .ignoresSafeArea(edges: .bottom)
-        case .list: list
+            .scrollBounceBehavior(.basedOnSize)
+            // Room so the last line clears the pinned button when scrolled to the end.
+            .contentMargins(.bottom, 16, for: .scrollContent)
+            .frame(height: min(summaryHeight.map { $0 + 16 } ?? geo.size.height / 2, geo.size.height / 2))
+            // The primary action stays on screen however far the text above it runs.
+            if guestShutOut { signInButton.padding(.horizontal) }
+          } else {
+            summary
+          }
+          if let locationNote, !guestShutOut {
+            Text(locationNote).font(.subheadline).foregroundStyle(.secondary)
+              .fixedSize(horizontal: false, vertical: true)
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .padding(.horizontal)
+          }
+          Picker("View", selection: $mode) {
+            ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
+          }
+          .pickerStyle(.segmented)
+          .padding(.horizontal)
+          switch mode {
+          case .map:
+            TaskMapView(
+              styleURL: session.mapStyleURL, tasks: shown, done: doneIDs, pending: pendingIDs,
+              reports: reports, flagged: campaigns.justFlagged.union(heldReports), origin: origin, noun: noun
+            ) { id in navigate(to: id) }
+              .background(Color(.secondarySystemBackground))
+              .overlay {
+                if tasks.isEmpty && request != nil { ProgressView("Loading…").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) }
+              }
+              .ignoresSafeArea(edges: .bottom)
+          case .list: list
+          }
         }
       }
     }
@@ -123,10 +166,15 @@ struct ChallengeTasksView: View {
     }
     .navigationTitle(challenge?.name ?? "Campaign")
     .navigationBarTitleDisplayMode(.inline)
+    // The top section's scroll view runs under the bar; an opaque bar (solid, not the system
+    // material) keeps scrolled text from showing through it.
+    .toolbarBackground(typeSize.isAccessibilitySize ? .visible : .automatic, for: .navigationBar)
+    .toolbarBackground(
+      typeSize.isAccessibilitySize ? AnyShapeStyle(Color(.systemBackground)) : AnyShapeStyle(.bar), for: .navigationBar)
     .navigationDestination(item: $selected) { selection in
       TaskView(
-        taskID: selection.id, candidates: selection.candidates, reports: reports, noun: noun, userLocation: origin,
-        preview: preview)
+        taskID: selection.id, candidates: selection.candidates, reports: reports, heldReports: heldReports,
+        noun: noun, userLocation: origin, preview: preview)
     }
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
@@ -181,7 +229,7 @@ struct ChallengeTasksView: View {
       guard !Self.demoRouted else { return }
       Self.demoRouted = true
       let args = ProcessInfo.processInfo.arguments
-      if args.contains("-demoReported") { serverReports = DemoBackend.seededReports(stops: args.contains("-demoStops")) }
+      if args.contains("-demoReported") { serverReports = DemoBackend.seededReports(DemoBackend.demoCampaign(args)) }
       guard args.contains(where: { ["-demoMap", "-demoList", "-demoTask"].contains($0) }) else { return }
       sheet = nil
       campaigns.welcomeClosed(challengeID.value, preview: preview)
@@ -201,6 +249,16 @@ struct ChallengeTasksView: View {
   // MARK: Summary
 
   @Environment(\.dynamicTypeSize) private var typeSize
+
+  private var signInButton: some View {
+    Button { signInForPreview() } label: {
+      Text("Sign in with OpenStreetMap").multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, minHeight: 44)
+    }
+    .buttonStyle(.borderedProminent)
+    .disabled(!session.signInAvailable)
+  }
 
   @ViewBuilder private var summary: some View {
     VStack(spacing: 8) {
@@ -231,6 +289,16 @@ struct ChallengeTasksView: View {
           if failed { Button("Retry") { load() } }
         }
       }
+      if guestShutOut {
+        VStack(alignment: .leading, spacing: 8) {
+          Text(Wording.guestCampaignTitle).font(.headline).fixedSize(horizontal: false, vertical: true)
+          Text(Wording.guestCampaignText(noun)).fixedSize(horizontal: false, vertical: true)
+          if !typeSize.isAccessibilitySize { signInButton }
+          Text(session.accountHint).font(.footnote).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
       if preview == nil, session.view.guest, let saved = session.guestStatus {
         if saved.state == .expired {
           Text(Wording.savedExpired).font(.subheadline).foregroundStyle(.secondary)
@@ -239,16 +307,19 @@ struct ChallengeTasksView: View {
           Button(Wording.doneForToday) { sheet = .daySummary }.font(.subheadline).frame(minHeight: 44)
         }
       }
-      // Reported places stay open but aren't sent to anyone (design/not-here-moved.md §4).
-      if let nearest = open.first(where: { reports[$0.id] == nil }) {
+      // Reported places stay open but aren't sent to anyone (design/not-here-moved.md §4). A shut-out
+      // guest gets the sign-in block instead.
+      if guestShutOut {
+      } else if let nearest = open.first(where: { !lookAgain.contains($0.id) }) {
         Button {
-          navigate(to: nearest.id)
+          if origin != nil { navigate(to: nearest.id) }
+          else { mode = .list }
         } label: {
           // The icon alone reads "Orient To Phone".
           Label {
-            Text(Wording.nearest(noun, distance: TaskLocation.distanceText(origin, nearest.coordinate)))
+            Text(Wording.nearest(noun, distance: TaskLocation.distanceText(origin, nearest.coordinate), hasOrigin: origin != nil))
           } icon: {
-            Image(systemName: "location.north.circle.fill").accessibilityHidden(true)
+            Image(systemName: origin != nil ? "location.north.circle.fill" : "list.bullet").accessibilityHidden(true)
           }
           .frame(maxWidth: .infinity, minHeight: 44)
         }
@@ -300,8 +371,6 @@ struct ChallengeTasksView: View {
         }
       } header: {
         if !open.isEmpty { Text("To check") }
-      } footer: {
-        if let locationNote { Text(locationNote) }
       }
       if !checked.isEmpty {
         Section("Already checked") {
@@ -325,6 +394,9 @@ struct ChallengeTasksView: View {
       }
       VStack(alignment: .leading, spacing: 2) {
         Text(Wording.placeName(task.task, noun)).foregroundStyle(done ? Color.secondary : Color.primary)
+        if !done && !pending && lookAgain.contains(task.id) {
+          Text(Wording.needsAnotherLook).font(.footnote).foregroundStyle(Color.secondary)
+        }
         if showDetails {
           Text(verbatim: "\(task.task.name) · Task \(task.id) · \(TaskText.status(task.task.status?.code))")
             .font(.footnote).foregroundStyle(.secondary)
@@ -340,8 +412,7 @@ struct ChallengeTasksView: View {
     }
     .accessibilityElement(children: .combine)
     .accessibilityValue(
-      pending ? "Saved, not on the map yet" : done ? "Already checked"
-        : reports[task.id] != nil ? Wording.needsAnotherLook : "")
+      pending ? "Saved, not on the map yet" : done ? "Already checked" : "")
   }
 
   private var detailsFooter: String {
@@ -352,22 +423,27 @@ struct ChallengeTasksView: View {
   }
 
   /// Open tasks held by a guest's saved answer until it goes on the map or expires: the bounds
-  /// search with `includePending` says so per task (backend #16). A backend without it sends no
-  /// `pending`, so the held set is then what the `excludePending` search leaves out. Best effort:
+  /// search with `includePending` says so per task (backend #16), and `heldKind` whether the hold
+  /// is a report (T-002). A backend without `pending` leaves the held set to what the
+  /// `excludePending` search leaves out; without `heldKind`, every hold is an answer. Best effort:
   /// on failure or a short read, none.
-  private static func heldTasks(_ tasks: [LocatedTask], in challengeID: ChallengeID, client: MapRouletteClient) async
-    -> Set<Int64>
+  private static func heldTasks(_ tasks: [LocatedTask], in challengeID: ChallengeID, client: MapRouletteClient)
+    async -> (answers: Set<Int64>, reports: Set<Int64>)
   {
     let open = tasks.filter(\.isOpen)
-    guard let bounds = TaskLocation.bounds(open.compactMap(\.coordinate)) else { return [] }
+    guard let bounds = TaskLocation.bounds(open.compactMap(\.coordinate)) else { return ([], []) }
     let filter = TaskFilter(challengeIDs: [challengeID], bounds: bounds, choiceOnly: true, includePending: true)
-    guard let rows = await boxSearch(filter, client: client) else { return [] }
+    guard let rows = await boxSearch(filter, client: client) else { return ([], []) }
     if !rows.isEmpty, rows.allSatisfy({ $0.pending != nil }) {
-      return Set(rows.filter { $0.pending == true }.map(\.id.value))
+      let holds = rows.filter { $0.pending == true }
+      return (
+        Set(holds.filter { $0.heldKind != .report }.map(\.id.value)),
+        Set(holds.filter { $0.heldKind == .report }.map(\.id.value))
+      )
     }
     let unheld = TaskFilter(challengeIDs: [challengeID], bounds: bounds, choiceOnly: true, excludePending: true)
-    guard let listed = await boxSearch(unheld, client: client) else { return [] }
-    return Set(open.map(\.id)).subtracting(listed.map(\.id.value))
+    guard let listed = await boxSearch(unheld, client: client) else { return ([], []) }
+    return (Set(open.map(\.id)).subtracting(listed.map(\.id.value)), [])
   }
 
   /// Every page of a bounds search, or nil on failure or a short read.
@@ -412,7 +488,8 @@ struct ChallengeTasksView: View {
     .padding()
   }
 
-  /// Sign-in (or a switch: the session signs out first). The new account reloads the campaign.
+  /// Sign-in (or a switch: the session signs out first), for preview and for guests. The new
+  /// account reloads the campaign.
   private func signInForPreview() {
     Task {
       await session.signIn { url in
@@ -460,6 +537,8 @@ struct ChallengeTasksView: View {
             if let account = Wording.account(session.view.userID, displayName: session.view.displayName) {
               Label(Wording.previewingAs(account), systemImage: "person.crop.circle")
             }
+          } else if session.canAnswerAsGuest && guestShutOut {
+            Label(Wording.campaignNeedsAccount, systemImage: "person.crop.circle")
           } else if session.canAnswerAsGuest {
             Label(AppSession.noAccountNeeded(noun), systemImage: "person.crop.circle")
           } else if !session.view.signedIn {
@@ -573,7 +652,8 @@ struct ChallengeTasksView: View {
         let located = all.map(LocatedTask.init)
         let heldNow = await Self.heldTasks(located, in: challengeID, client: client)
         try Task.checkCancellation()
-        held = heldNow
+        held = heldNow.answers
+        heldReports = heldNow.reports
         challenge = loadedChallenge
         tasks = located
         noun = Noun.from(all)
@@ -613,15 +693,14 @@ struct ChallengeTasksView: View {
   }
 
   private func locate() {
-    locationNote = "Finding your location…"
+    origin = nil
+    locationIsOff = false
     locator.locate { result in
       switch result {
       case .found(let coordinate):
         origin = coordinate
-        locationNote = "Nearest first."
-      case .denied: locationNote = "Location is off, so the list isn't sorted by distance."
-      case .unavailable: locationNote = "Your location isn't available right now, so the list isn't sorted by distance."
-      case .timedOut: locationNote = "No location yet, so the list isn't sorted by distance."
+      case .denied: locationIsOff = true
+      case .unavailable, .timedOut: break
       }
     }
   }

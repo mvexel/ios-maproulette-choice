@@ -163,6 +163,12 @@ enum TaskScreen: Sendable {
       default: nil
       }
     }
+    /// Another outcome that sets status 6 (a campaign's "There's no door", Too hard): needs another
+    /// look like a report, but records no report. Status 2 outcomes count as checked.
+    var flagged: Bool {
+      guard report == nil, case .outcome(let outcome) = action else { return false }
+      return outcome.resolution == .tooHard
+    }
   }
   /// The submission may still land (unknown outcome, pending submission or status). Never resent
   /// automatically; the user re-reads with Check again. `canResend`: the user may send the
@@ -201,16 +207,22 @@ enum TaskScreen: Sendable {
   case checkAgain(CheckAgain)
   /// OSM re-consent or a missing scope. Nothing was changed.
   case signInRequired(LoadedTask, reason: String)
+  /// A guest on a task the server won't hold answers for (no `liveMissingQuestions`, or 422
+  /// `unsupported_task` on the pending route): sign in to answer it, or move on.
+  case accountNeeded(LoadedTask)
   /// A delete was refused (the node is in a way or relation); the same outcome may be sent without deletion.
   case elementInUse(LoadedTask, ChoiceForm, ChoiceOutcome)
+  /// The server has saving switched off (403 mobile_writes_disabled on the choice check): nothing
+  /// can be checked; back to the campaign.
+  case writesPaused(LoadedTask)
 
   var loaded: LoadedTask? {
     switch self {
     case .loading, .loadFailed: nil
     case .notAvailable(let l, _), .preview(let l, _), .noLongerNeeded(let l), .checkFailed(let l),
       .answering(let l, _, _), .submitting(let l, _, _), .skipped(let l, _), .takenByOther(let l),
-      .staleOwnLock(let l, _, _, _), .signInRequired(let l, _), .elementInUse(let l, _, _),
-      .previewSaved(let l, _, _):
+      .staleOwnLock(let l, _, _, _), .signInRequired(let l, _), .accountNeeded(let l), .elementInUse(let l, _, _),
+      .previewSaved(let l, _, _), .writesPaused(let l):
       l
     case .done(let d): d.loaded
     case .checkAgain(let c): c.loaded
@@ -293,10 +305,13 @@ enum TaskScreen: Sendable {
       return .answering(
         loaded, Self.form(work, outcomes: ops.choiceOutcomes(task), deleteAllowed: true), notice: nil)
     }
-    guard writer != nil else { return .preview(loaded, work) }
+    guard let writer else { return .preview(loaded, work) }
+    if writer.guest && !Self.guestAnswerable(task) { return .accountNeeded(loaded) }
     let eligibility: ChoiceEligibility
     do {
       eligibility = try await ops.checkChoice(task.id)
+    } catch let error as MapRouletteError where error.problem == .writesPaused {
+      return .writesPaused(loaded)
     } catch {
       // Not checked: not offered (spec §5a). Type only: messages may carry server text.
       log.debug("Choice check for task \(task.id.value) failed: \(String(describing: type(of: error)), privacy: .public)")
@@ -446,12 +461,14 @@ enum TaskScreen: Sendable {
     guard let error = error as? MapRouletteError else {
       return .answering(loaded, form, notice: "Couldn't save your answers. Try again.")
     }
+    if case .choice(.unsupportedTask)? = error.problem { return .accountNeeded(loaded) }
     switch (error.kind, error.reason) {
     case (_, "task_completed"?): return await notAccepted(loaded)
+    case (_, "unsupported_task"?): return .accountNeeded(loaded)
     case (.rateLimit, "pending_limit"?):
       return .answering(
         loaded, form,
-        notice: "That's as many \(noun.many) as we can keep before they go on the map. Finish on a computer, or sign in with I already use OpenStreetMap to keep going.")
+        notice: "That's as many \(noun.many) as we can keep before they go on the map. Finish on a computer, or tap “I already use OpenStreetMap” to sign in and keep going.")
     case (.permission, "challenge_not_published"?):
       return .notAvailable(loaded, reason: "This campaign isn't open for answers yet.")
     case (.authentication, _):
@@ -463,6 +480,13 @@ enum TaskScreen: Sendable {
       return .answering(loaded, form, notice: "Couldn't connect. Check your connection and try again.")
     }
     return await failed(loaded, form, action, error)
+  }
+
+  /// The pending route holds a guest's answers only where the campaign re-checks live OSM per
+  /// question (`cooperativeWork.liveMissingQuestions`, deferred-signup.md §4.3).
+  nonisolated static func guestAnswerable(_ task: MapRouletteTask) -> Bool {
+    guard case .object(let work)? = task.cooperativeWork else { return false }
+    return work["liveMissingQuestions"] == .bool(true)
   }
 
   /// Manual re-check after an uncertain result or a failed post-write read. Never resends.
@@ -537,6 +561,8 @@ enum TaskScreen: Sendable {
     case .choice(.osmUnavailable)?:
       return answering(
         "Saving is paused right now. Your answers are kept. Try again in a bit.")
+    case .writesPaused?:
+      return answering(Wording.writesPaused)
     case .choice(.submissionPending)?:
       return checkAgain(
         "Your last answers for this \(noun.one) are still being saved. Wait a moment, then try again.", .submissionPending)

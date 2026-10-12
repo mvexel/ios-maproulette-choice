@@ -207,8 +207,87 @@ import Testing
     // A claimed guest is a different conflict.
     let claimed = MapRouletteError(.conflict, status: 409, reason: "guest_claimed")
     #expect(!Wording.isNothingSaved(claimed))
-    #expect(Wording.linkFailed(claimed) == "These answers are already on the map.")
+    #expect(Wording.linkFailed(claimed)
+      == "These answers are already linked to an OpenStreetMap account. Sign in with it to see them.")
+    // Any other conflict is not a promise about the map.
+    #expect(Wording.linkFailed(MapRouletteError(.conflict, status: 409, reason: "other"))
+      == "Couldn't send the link right now. Try again later.")
     #expect(!Wording.isNothingSaved(MapRouletteError(.validation, reason: "nothing_saved")))
+  }
+
+  /// design/copy-fixes-2026-10-11.md rows 2, 3, 5: no unmeasured time, no claim an email went out,
+  /// no promise that phone sign-in puts saved answers on the map.
+  @Test func noUnbackedPromises() {
+    #expect(Wording.putOnMapIntro == "To put them on the map, finish on a computer. We can email you a link.")
+    #expect(Wording.daySummarySaved(until: nil)
+      == "They're saved for now. If we emailed you a link, open it on a computer to put them on the map.")
+    // Phone sign-in claims the saved answers (B5), so row 5's original line is back.
+    #expect(Wording.signInPutsOnMap == "Sign in now and your saved answers go on the map right away.")
+    for text in [Wording.putOnMapIntro, Wording.daySummarySaved(until: Date()), Wording.signInPutsOnMap] {
+      #expect(!text.contains("minutes"))
+      #expect(!text.contains("email we sent"))
+    }
+  }
+
+  /// After a phone sign-in with saved answers (B5).
+  @Test func claimMessages() {
+    let who = "You're signed in as rosa_slc. "
+    func line(_ outcome: AppSession.ClaimOutcome) -> String { Wording.claimMessage(outcome, name: "rosa_slc") }
+    #expect(line(.started(pending: 3, waiting: false)) == who + "Putting your 3 saved answers on the map\u{2026}")
+    #expect(line(.started(pending: 1, waiting: false)) == who + "Putting your saved answer on the map\u{2026}")
+    #expect(line(.started(pending: 0, waiting: false)) == who + "New answers go straight on the map from now on.")
+    #expect(line(.started(pending: 2, waiting: true))
+      == who + "Your 2 saved answers are now linked to your account. They'll go on the map later.")
+    #expect(line(.started(pending: 1, waiting: true))
+      == who + "Your saved answer is now linked to your account. It'll go on the map later.")
+    #expect(line(.gone) == who + "We couldn't find your saved answers. "
+      + "They may have expired, or they're linked to a different OpenStreetMap account.")
+    #expect(line(.reauth) == "Sign in again so we can put your saved answers on the map.")
+    #expect(line(.later) == who + "Your answers are still saved. We'll try again next time you open the app.")
+    #expect(Wording.claimMessage(.later, name: nil).hasPrefix("You're signed in with OpenStreetMap. "))
+    #expect(Wording.signedIn("rosa_slc") == "You're signed in as rosa_slc.")
+  }
+
+  /// A claim's progress and result after a phone sign-in (B5 progress).
+  @Test func claimProgressMessages() {
+    func line(
+      _ state: ClaimState, total: Int = 5, published: Int, skipped: Int = 0, superseded: Int = 0, failed: Int = 0
+    ) -> String {
+      Wording.claimProgress(
+        ClaimStatus(
+          claimID: 1, state: state, total: total, published: published, skipped: skipped, superseded: superseded,
+          failed: failed, items: []))
+    }
+    let changed = "because someone changed"
+    #expect(line(.queued, published: 0) == "Putting your answers on the map\u{2026} 0 of 5")
+    #expect(line(.running, published: 2, superseded: 1) == "Putting your answers on the map\u{2026} 2 of 4")
+    #expect(line(.done, published: 5) == "\u{2713} 5 answers are on the map.")
+    #expect(line(.done, total: 1, published: 1) == "\u{2713} 1 answer is on the map.")
+    #expect(line(.done, published: 4, superseded: 1) == "\u{2713} 4 answers are on the map.")
+    #expect(line(.done, published: 3, skipped: 2)
+      == "\u{2713} 3 answers are on the map. 2 weren't added, \(changed) those places on the map after you checked.")
+    #expect(line(.done, published: 4, skipped: 1)
+      == "\u{2713} 4 answers are on the map. 1 wasn't added, \(changed) that place on the map after you checked.")
+    #expect(line(.done, total: 2, published: 0, skipped: 2)
+      == "None of your answers were added, \(changed) those places on the map after you checked.")
+    #expect(line(.done, total: 1, published: 0, skipped: 1)
+      == "Your answer wasn't added, \(changed) that place on the map after you checked.")
+    #expect(line(.done, published: 3, failed: 2) == "3 of 5 are on the map. The rest are still saved.")
+    #expect(line(.failed, published: 2) == "2 of 5 are on the map. The rest are still saved.")
+    #expect(line(.failed, published: 0) == "None of your answers are on the map yet. They're still saved.")
+    #expect(line(.failed, total: 1, published: 0) == "Your answer isn't on the map yet. It's still saved.")
+    #expect(line(.done, published: 2, skipped: 2, failed: 1)
+      == "2 of 5 are on the map. 2 weren't added, \(changed) those places after you checked. The rest are still saved.")
+    #expect(line(.failed, published: 3, skipped: 1)
+      == "3 of 5 are on the map. 1 wasn't added, \(changed) that place after you checked. The rest are still saved.")
+    #expect(line(.failed, published: 1) == "1 of 5 is on the map. The rest are still saved.")
+    #expect(line(.done, published: 1, skipped: 1, failed: 1)
+      == "1 of 5 is on the map. 1 wasn't added, \(changed) that place after you checked. The rest are still saved.")
+    #expect(line(.failed, published: 0, skipped: 2)
+      == "None of your answers are on the map yet. 2 weren't added, \(changed) those places after you checked. "
+        + "The rest are still saved.")
+    #expect(Wording.claimStillGoing
+      == "Your answers are still going on the map. You can carry on; this finishes on its own.")
   }
 
   @Test func dayNeverWraps() {
@@ -233,5 +312,31 @@ import Testing
   /// Under 100 m to the nearest 5 m, then to the nearest 10 m.
   @Test func distancesAreRounded() {
     #expect([2, 31, 33, 97, 104, 156].map(Wording.roundedMeters) == [0, 30, 35, 95, 100, 160])
+  }
+}
+
+@Suite struct PlaceSelectionTextTests {
+  @Test func noOriginOffersManualChoiceWithoutInventingDistance() {
+    let stops = Noun(one: "stop", many: "stops")
+    #expect(Wording.nearest(stops, distance: nil, hasOrigin: false) == "Choose a stop")
+    #expect(Wording.next(stops, distance: nil, hasOrigin: false) == "Choose another stop")
+    // A leftover distance cannot restore a nearest claim without a valid origin.
+    #expect(Wording.nearest(stops, distance: "100 m", hasOrigin: false) == "Choose a stop")
+    #expect(Wording.next(.place, distance: "100 m north", hasOrigin: false) == "Choose another place")
+  }
+
+  @Test func realOriginKeepsNearestCopyEvenWhenPlaceHasNoDistance() {
+    #expect(Wording.nearest(.place, distance: "100 m", hasOrigin: true) == "Nearest place · 100 m")
+    #expect(Wording.nearest(.place, distance: nil, hasOrigin: true) == "Nearest place")
+    #expect(Wording.next(.place, distance: "100 m north", hasOrigin: true) == "Next nearest place · 100 m north")
+    #expect(Wording.next(.place, distance: nil, hasOrigin: true) == "Next nearest place")
+  }
+
+  @Test func locationNotesExplainManualMapAndListSelection() {
+    let benches = Noun(one: "bench", many: "benches")
+    #expect(Wording.locationUnavailable(benches, isOff: true)
+      == "Location is off. Choose a bench on the map or in the list.")
+    #expect(Wording.locationUnavailable(.place, isOff: false)
+      == "Your location isn't available yet. Choose a place on the map or in the list.")
   }
 }

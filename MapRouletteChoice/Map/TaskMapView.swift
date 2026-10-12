@@ -19,6 +19,8 @@ struct TaskMapView: UIViewRepresentable {
   var pending: Set<Int64> = []
   /// Reported as not here or moved.
   var reports: [Int64: TaskReport] = [:]
+  /// Closed here with another status-6 outcome: "Needs another look", with no dot.
+  var flagged: Set<Int64> = []
   /// The user's location, for the VoiceOver reading order.
   var origin: CLLocationCoordinate2D?
   var noun = Noun.place
@@ -53,7 +55,8 @@ struct TaskMapView: UIViewRepresentable {
     context.coordinator.open = open
     if map.showsUserLocation != Self.locationAllowed { map.showsUserLocation = Self.locationAllowed }
     context.coordinator.show(
-      tasks, done: done, pending: pending, reports: reports, origin: origin, noun: noun, on: map)
+      tasks, done: done, pending: pending, reports: reports, flagged: flagged, origin: origin, noun: noun,
+      on: map)
   }
 
   private static var locationAllowed: Bool {
@@ -198,6 +201,7 @@ struct TaskMapView: UIViewRepresentable {
     private var shownDone: Set<Int64> = []
     private var shownPending: Set<Int64> = []
     private var shownReports: [Int64: TaskReport] = [:]
+    private var shownFlagged: Set<Int64> = []
     /// Pin to reported spot, for each moved place; drawn once the style has loaded.
     private var reportLines: [[CLLocationCoordinate2D]] = []
     private var shownOrigin: CLLocationCoordinate2D?
@@ -207,17 +211,18 @@ struct TaskMapView: UIViewRepresentable {
 
     func show(
       _ tasks: [LocatedTask], done: Set<Int64>, pending: Set<Int64>, reports: [Int64: TaskReport],
-      origin: CLLocationCoordinate2D?, noun: Noun, on map: MLNMapView
+      flagged: Set<Int64>, origin: CLLocationCoordinate2D?, noun: Noun, on map: MLNMapView
     ) {
       let ids = tasks.map(\.id)
       let moved = origin?.latitude != shownOrigin?.latitude || origin?.longitude != shownOrigin?.longitude
-      guard ids != shown || done != shownDone || pending != shownPending || reports != shownReports || moved
+      guard ids != shown || done != shownDone || pending != shownPending || reports != shownReports || flagged != shownFlagged || moved
       else { return }
       let refit = ids != shown && !fitted
       shown = ids
       shownDone = done
       shownPending = pending
       shownReports = reports
+      shownFlagged = flagged
       shownOrigin = origin
       if let old = map.annotations?.filter({ $0 is TaskAnnotation || $0 is ReportedSpot }), !old.isEmpty {
         map.removeAnnotations(old)
@@ -230,7 +235,7 @@ struct TaskMapView: UIViewRepresentable {
         let a = TaskAnnotation()
         a.taskID = task.id
         a.pin = Pin(
-          done: done.contains(task.id), pending: pending.contains(task.id), reported: reports[task.id] != nil)
+          done: done.contains(task.id), pending: pending.contains(task.id), reported: reports[task.id] != nil || flagged.contains(task.id))
         a.coordinate = coordinate
         a.title = Wording.placeName(task.task, noun)
         a.subtitle = a.pin.calloutSubtitle

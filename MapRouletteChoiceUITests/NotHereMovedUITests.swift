@@ -71,6 +71,20 @@ final class NotHereMovedUITests: XCTestCase {
     shot(app, "nhm-banner")
   }
 
+  /// Another guest's saved report (T-002) needs another look; their saved answer reads checked.
+  @MainActor func testHeldReportNeedsAnotherLook() throws {
+    let app = launch("-demoHeldReport", "-demoMap")
+    let map = app.descendants(matching: .any)["TaskMap"]
+    XCTAssert(map.waitForExistence(timeout: 10))
+    let report = map.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH '900 E & Bryan Ave'")).firstMatch
+    XCTAssert(report.waitForExistence(timeout: 10))
+    XCTAssertEqual(report.value as? String, "Needs another look")
+    let answer = map.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH '900 E & 1300 S'")).firstMatch
+    XCTAssert(answer.exists)
+    XCTAssertNotEqual(answer.value as? String, "To check")
+    XCTAssertNotEqual(answer.value as? String, "Needs another look")
+  }
+
   // MARK: Helpers
 
   @MainActor private func launch(_ arguments: String...) -> XCUIApplication {

@@ -19,15 +19,15 @@ struct MapRouletteChoiceApp: App {
   @MainActor private static func makeSession() -> AppSession {
     #if DEBUG
       // `-demo`: an in-process mock campaign for screenshots and design review. No network.
-      // `-demoStops` uses the bus stop campaign, `-demoGuest` answers as a guest, `-demoClosing`
+      // `-demoStops` uses the bus stop campaign, `-demoWoodbine` the Woodbine entrances, `-demoGuest` answers as a guest, `-demoClosing`
       // gives the guest saved answers that expire in about 2 days, and `-demoDraft` serves the
       // campaign as an unpublished draft (for preview mode). `-demoReported` adds not-here and
-      // moved reports, and `-demoHere` a location fix for "I'm standing at it".
+      // moved reports, `-demoHeldReport` another guest's held report and answer, and `-demoHere` a location fix for "I'm standing at it".
       let args = ProcessInfo.processInfo.arguments
       if args.contains("-demo") {
         let backend = DemoBackend(
-          stops: args.contains("-demoStops"), closing: args.contains("-demoClosing"), draft: args.contains("-demoDraft"),
-          reported: args.contains("-demoReported"))
+          campaign: DemoBackend.demoCampaign(args), closing: args.contains("-demoClosing"), draft: args.contains("-demoDraft"),
+          reported: args.contains("-demoReported"), heldReport: args.contains("-demoHeldReport"))
         return AppSession(demo: backend, guest: args.contains("-demoGuest"))
       }
     #endif

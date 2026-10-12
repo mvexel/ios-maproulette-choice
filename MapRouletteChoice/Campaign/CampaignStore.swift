@@ -14,6 +14,10 @@ import MapRoulette
   /// they count in the participant's own total, but not as checked in the campaign, and are never
   /// offered as "next nearest".
   private(set) var justReported: [Int64: TaskReport] = [:]
+  /// Tasks this device closed with another status-6 outcome since launch ("There's no door", "I
+  /// can't check this"): like a report, "Needs another look", out of the tally and never next
+  /// nearest, but with no banner or dot (not-here-moved.md §3.3).
+  private(set) var justFlagged: Set<Int64> = []
   /// Bumped when a count changes, so views showing counts refresh.
   private(set) var revision = 0
 
@@ -52,6 +56,10 @@ import MapRoulette
     Set((defaults.array(forKey: "welcomeSeen") as? [NSNumber] ?? []).map(\.int64Value))
   }
 
+  /// Places that need another look: reported (`reports`, from the list or this device) or flagged
+  /// here.
+  func lookAgain(_ reports: [Int64: TaskReport]) -> Set<Int64> { justFlagged.union(reports.keys) }
+
   /// Places this device checked in `challenge` today (local calendar day).
   func checkedToday(_ challenge: Int64) -> Int {
     _ = revision
@@ -59,10 +67,13 @@ import MapRoulette
   }
 
   /// Records one finished task; repeated calls for the same task count once. A `report` (not here
-  /// or moved) counts for the participant but leaves the task open in the campaign.
-  func recordChecked(_ challenge: Int64, task: Int64, report: TaskReport? = nil) {
-    guard !justDone.contains(task), justReported[task] == nil else { return }
-    if let report { justReported[task] = report } else { justDone.insert(task) }
+  /// or moved) or a `flagged` outcome counts for the participant but leaves the task open in the
+  /// campaign.
+  func recordChecked(_ challenge: Int64, task: Int64, report: TaskReport? = nil, flagged: Bool = false) {
+    guard !justDone.contains(task), justReported[task] == nil, !justFlagged.contains(task) else { return }
+    if let report { justReported[task] = report } else if flagged { justFlagged.insert(task) } else {
+      justDone.insert(task)
+    }
     defaults.set(defaults.integer(forKey: key(challenge)) + 1, forKey: key(challenge))
     revision += 1
   }
