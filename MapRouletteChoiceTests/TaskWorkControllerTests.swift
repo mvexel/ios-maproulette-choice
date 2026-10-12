@@ -321,6 +321,14 @@ import Testing
     #expect(try #require(c.state.answering?.2).contains("Your answers are kept"))
   }
 
+  @Test func writesPausedSaysSoAndKeepsTheAnswers() async throws {
+    let o = ops(try await makeTask())
+    o.submit = { _ in throw failure(.permission, .writesPaused) }
+    let c = await answered(o)
+    #expect(try form(c).answers == ["backrest": "yes"])
+    #expect(c.state.answering?.2 == Wording.writesPaused)
+  }
+
   @Test func elementInUseOffersTheSameOutcomeWithoutDeletion() async throws {
     let o = ops(deletion: true, try await makeTask(), try await makeTask(status: 2, completedBy: me))
     o.submit = { submission in

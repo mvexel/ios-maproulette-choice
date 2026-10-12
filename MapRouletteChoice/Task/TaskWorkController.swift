@@ -550,6 +550,8 @@ enum TaskScreen: Sendable {
     case .choice(.osmUnavailable)?:
       return answering(
         "Saving is paused right now. Your answers are kept. Try again in a bit.")
+    case .writesPaused?:
+      return answering(Wording.writesPaused)
     case .choice(.submissionPending)?:
       return checkAgain(
         "Your last answers for this \(noun.one) are still being saved. Wait a moment, then try again.", .submissionPending)
