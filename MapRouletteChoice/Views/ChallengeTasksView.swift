@@ -126,7 +126,9 @@ struct ChallengeTasksView: View {
               summary.onGeometryChange(for: CGFloat.self, of: \.size.height) { summaryHeight = $0 }
             }
             .scrollBounceBehavior(.basedOnSize)
-            .frame(height: min(summaryHeight ?? geo.size.height / 2, geo.size.height / 2))
+            // Room so the last line clears the pinned button when scrolled to the end.
+            .contentMargins(.bottom, 16, for: .scrollContent)
+            .frame(height: min(summaryHeight.map { $0 + 16 } ?? geo.size.height / 2, geo.size.height / 2))
             // The primary action stays on screen however far the text above it runs.
             if guestShutOut { signInButton.padding(.horizontal) }
           } else {
@@ -164,6 +166,11 @@ struct ChallengeTasksView: View {
     }
     .navigationTitle(challenge?.name ?? "Campaign")
     .navigationBarTitleDisplayMode(.inline)
+    // The top section's scroll view runs under the bar; an opaque bar (solid, not the system
+    // material) keeps scrolled text from showing through it.
+    .toolbarBackground(typeSize.isAccessibilitySize ? .visible : .automatic, for: .navigationBar)
+    .toolbarBackground(
+      typeSize.isAccessibilitySize ? AnyShapeStyle(Color(.systemBackground)) : AnyShapeStyle(.bar), for: .navigationBar)
     .navigationDestination(item: $selected) { selection in
       TaskView(
         taskID: selection.id, candidates: selection.candidates, reports: reports, heldReports: heldReports,
