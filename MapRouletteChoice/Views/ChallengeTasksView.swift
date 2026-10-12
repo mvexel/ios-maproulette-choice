@@ -38,6 +38,8 @@ struct ChallengeTasksView: View {
   }
 
   @State private var mode = Mode.map
+  /// The top section's own height, so its scroll view at accessibility sizes hugs it.
+  @State private var summaryHeight: CGFloat?
   @State private var client: SessionClient?
   @State private var challenge: Challenge?
   @State private var tasks: [LocatedTask] = []
@@ -115,13 +117,17 @@ struct ChallengeTasksView: View {
           previewGate(preview)
           Spacer()
         } else {
-          // At large text sizes the top section can outgrow the screen and push the tally under the
-          // navigation bar; past half the height it scrolls instead.
-          ViewThatFits(in: .vertical) {
+          if typeSize.isAccessibilitySize {
+            // At accessibility sizes the top section can outgrow the screen and push the tally under
+            // the navigation bar; it hugs its content up to half the height, then scrolls.
+            ScrollView {
+              summary.onGeometryChange(for: CGFloat.self, of: \.size.height) { summaryHeight = $0 }
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(height: min(summaryHeight ?? geo.size.height / 2, geo.size.height / 2))
+          } else {
             summary
-            ScrollView { summary }.scrollBounceBehavior(.basedOnSize)
           }
-          .frame(maxHeight: geo.size.height / 2)
           if let locationNote, !guestShutOut {
             Text(locationNote).font(.subheadline).foregroundStyle(.secondary)
               .frame(maxWidth: .infinity, alignment: .leading)
