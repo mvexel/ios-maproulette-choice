@@ -334,6 +334,9 @@ struct ChallengeTasksView: View {
       }
       VStack(alignment: .leading, spacing: 2) {
         Text(Wording.placeName(task.task, noun)).foregroundStyle(done ? Color.secondary : Color.primary)
+        if !done && !pending && lookAgain.contains(task.id) {
+          Text(Wording.needsAnotherLook).font(.footnote).foregroundStyle(Color.secondary)
+        }
         if showDetails {
           Text(verbatim: "\(task.task.name) · Task \(task.id) · \(TaskText.status(task.task.status?.code))")
             .font(.footnote).foregroundStyle(.secondary)
@@ -349,8 +352,7 @@ struct ChallengeTasksView: View {
     }
     .accessibilityElement(children: .combine)
     .accessibilityValue(
-      pending ? "Saved, not on the map yet" : done ? "Already checked"
-        : lookAgain.contains(task.id) ? Wording.needsAnotherLook : "")
+      pending ? "Saved, not on the map yet" : done ? "Already checked" : "")
   }
 
   private var detailsFooter: String {
