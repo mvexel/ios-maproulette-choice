@@ -125,11 +125,14 @@ struct ChallengeTasksView: View {
             }
             .scrollBounceBehavior(.basedOnSize)
             .frame(height: min(summaryHeight ?? geo.size.height / 2, geo.size.height / 2))
+            // The primary action stays on screen however far the text above it runs.
+            if guestShutOut { signInButton.padding(.horizontal) }
           } else {
             summary
           }
           if let locationNote, !guestShutOut {
             Text(locationNote).font(.subheadline).foregroundStyle(.secondary)
+              .fixedSize(horizontal: false, vertical: true)
               .frame(maxWidth: .infinity, alignment: .leading)
               .padding(.horizontal)
           }
@@ -238,6 +241,16 @@ struct ChallengeTasksView: View {
 
   @Environment(\.dynamicTypeSize) private var typeSize
 
+  private var signInButton: some View {
+    Button { signInForPreview() } label: {
+      Text("Sign in with OpenStreetMap").multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, minHeight: 44)
+    }
+    .buttonStyle(.borderedProminent)
+    .disabled(!session.signInAvailable)
+  }
+
   @ViewBuilder private var summary: some View {
     VStack(spacing: 8) {
       if publishedNote {
@@ -271,13 +284,7 @@ struct ChallengeTasksView: View {
         VStack(alignment: .leading, spacing: 8) {
           Text(Wording.guestCampaignTitle).font(.headline).fixedSize(horizontal: false, vertical: true)
           Text(Wording.guestCampaignText(noun)).fixedSize(horizontal: false, vertical: true)
-          Button { signInForPreview() } label: {
-            Text("Sign in with OpenStreetMap").multilineTextAlignment(.center)
-              .fixedSize(horizontal: false, vertical: true)
-              .frame(maxWidth: .infinity, minHeight: 44)
-          }
-          .buttonStyle(.borderedProminent)
-          .disabled(!session.signInAvailable)
+          if !typeSize.isAccessibilitySize { signInButton }
           Text(session.accountHint).font(.footnote).foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
         }
