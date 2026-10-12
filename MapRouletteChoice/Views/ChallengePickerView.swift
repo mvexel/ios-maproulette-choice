@@ -5,6 +5,7 @@ import SwiftUI
 /// Account, the backend's mapping campaigns (multiple-choice challenges), and settings.
 struct ChallengePickerView: View {
   @Environment(AppSession.self) private var session
+  @Environment(\.dynamicTypeSize) private var typeSize
   @Environment(\.webAuthenticationSession) private var webAuth
 
   @State private var client: SessionClient?
@@ -57,7 +58,8 @@ struct ChallengePickerView: View {
                 Text(Wording.needsAccountBadge).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
               }
               if let blurb = Self.blurb(challenge) {
-                Text(blurb).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
+                // Two lines keep the list short; at accessibility sizes two lines hold a few words.
+                Text(blurb).font(.footnote).foregroundStyle(.secondary).lineLimit(typeSize.isAccessibilitySize ? 6 : 2)
               }
             }
           }
