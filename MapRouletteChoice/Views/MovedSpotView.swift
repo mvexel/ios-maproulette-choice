@@ -134,6 +134,8 @@ struct MovedSpotView: View {
   /// "About 30 m northeast of where the map has it", for VoiceOver.
   private var spotDescription: String {
     guard let spot, let distance else { return "" }
+    // Under 5 m a compass direction is noise.
+    guard distance >= 5 else { return "Where the map has it" }
     let rounded = Wording.roundedMeters(distance)
     return "About \(rounded) m \(TaskLocation.compass(TaskLocation.bearing(from: mapped, to: spot))) of where the map has it"
   }
