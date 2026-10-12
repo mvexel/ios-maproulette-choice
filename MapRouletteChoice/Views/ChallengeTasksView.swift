@@ -108,33 +108,41 @@ struct ChallengeTasksView: View {
   private var shown: [LocatedTask] { progress.shown }
 
   var body: some View {
-    VStack(spacing: 8) {
-      if let preview, preview.phase == .signInNeeded || preview.phase == .noAccess {
-        previewGate(preview)
-        Spacer()
-      } else {
-        summary
-        if let locationNote, !guestShutOut {
-          Text(locationNote).font(.subheadline).foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal)
-        }
-        Picker("View", selection: $mode) {
-          ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
-        }
-        .pickerStyle(.segmented)
-        .padding(.horizontal)
-        switch mode {
-        case .map:
-          TaskMapView(
-            styleURL: session.mapStyleURL, tasks: shown, done: doneIDs, pending: pendingIDs,
-            reports: reports, origin: origin, noun: noun) { id in navigate(to: id) }
-            .background(Color(.secondarySystemBackground))
-            .overlay {
-              if tasks.isEmpty && request != nil { ProgressView("Loading…").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) }
-            }
-            .ignoresSafeArea(edges: .bottom)
-        case .list: list
+    GeometryReader { geo in
+      VStack(spacing: 8) {
+        if let preview, preview.phase == .signInNeeded || preview.phase == .noAccess {
+          previewGate(preview)
+          Spacer()
+        } else {
+          // At large text sizes the top section can outgrow the screen and push the tally under the
+          // navigation bar; past half the height it scrolls instead.
+          ViewThatFits(in: .vertical) {
+            summary
+            ScrollView { summary }.scrollBounceBehavior(.basedOnSize)
+          }
+          .frame(maxHeight: geo.size.height / 2)
+          if let locationNote, !guestShutOut {
+            Text(locationNote).font(.subheadline).foregroundStyle(.secondary)
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .padding(.horizontal)
+          }
+          Picker("View", selection: $mode) {
+            ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
+          }
+          .pickerStyle(.segmented)
+          .padding(.horizontal)
+          switch mode {
+          case .map:
+            TaskMapView(
+              styleURL: session.mapStyleURL, tasks: shown, done: doneIDs, pending: pendingIDs,
+              reports: reports, origin: origin, noun: noun) { id in navigate(to: id) }
+              .background(Color(.secondarySystemBackground))
+              .overlay {
+                if tasks.isEmpty && request != nil { ProgressView("Loading…").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) }
+              }
+              .ignoresSafeArea(edges: .bottom)
+          case .list: list
+          }
         }
       }
     }
@@ -253,10 +261,12 @@ struct ChallengeTasksView: View {
       }
       if guestShutOut {
         VStack(alignment: .leading, spacing: 8) {
-          Text(Wording.guestCampaignTitle).font(.headline)
+          Text(Wording.guestCampaignTitle).font(.headline).fixedSize(horizontal: false, vertical: true)
           Text(Wording.guestCampaignText(noun)).fixedSize(horizontal: false, vertical: true)
           Button { signInForPreview() } label: {
-            Text("Sign in with OpenStreetMap").frame(maxWidth: .infinity, minHeight: 44)
+            Text("Sign in with OpenStreetMap").multilineTextAlignment(.center)
+              .fixedSize(horizontal: false, vertical: true)
+              .frame(maxWidth: .infinity, minHeight: 44)
           }
           .buttonStyle(.borderedProminent)
           .disabled(!session.signInAvailable)
