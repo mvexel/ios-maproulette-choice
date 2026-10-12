@@ -206,6 +206,9 @@ enum TaskScreen: Sendable {
   case accountNeeded(LoadedTask)
   /// A delete was refused (the node is in a way or relation); the same outcome may be sent without deletion.
   case elementInUse(LoadedTask, ChoiceForm, ChoiceOutcome)
+  /// The server has saving switched off (403 mobile_writes_disabled on the choice check): nothing
+  /// can be checked; back to the campaign.
+  case writesPaused(LoadedTask)
 
   var loaded: LoadedTask? {
     switch self {
@@ -213,7 +216,7 @@ enum TaskScreen: Sendable {
     case .notAvailable(let l, _), .preview(let l, _), .noLongerNeeded(let l), .checkFailed(let l),
       .answering(let l, _, _), .submitting(let l, _, _), .skipped(let l, _), .takenByOther(let l),
       .staleOwnLock(let l, _, _, _), .signInRequired(let l, _), .accountNeeded(let l), .elementInUse(let l, _, _),
-      .previewSaved(let l, _, _):
+      .previewSaved(let l, _, _), .writesPaused(let l):
       l
     case .done(let d): d.loaded
     case .checkAgain(let c): c.loaded
@@ -301,6 +304,8 @@ enum TaskScreen: Sendable {
     let eligibility: ChoiceEligibility
     do {
       eligibility = try await ops.checkChoice(task.id)
+    } catch let error as MapRouletteError where error.problem == .writesPaused {
+      return .writesPaused(loaded)
     } catch {
       // Not checked: not offered (spec §5a). Type only: messages may carry server text.
       log.debug("Choice check for task \(task.id.value) failed: \(String(describing: type(of: error)), privacy: .public)")

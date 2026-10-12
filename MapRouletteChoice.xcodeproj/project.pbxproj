@@ -487,7 +487,7 @@
 			repositoryURL = "https://github.com/mvexel/maproulette-mobile-sdk";
 			requirement = {
 				kind = revision;
-				revision = f5f58042348e117b9d4b818edbb524075e327a92;
+				revision = 2518bdee449a8e9c6cbf3b7abf8a96391a3bf730;
 			};
 		};
 		AA0000000000000000000202 /* XCRemoteSwiftPackageReference "maplibre-gl-native-distribution" */ = {
