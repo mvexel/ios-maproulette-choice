@@ -45,7 +45,7 @@ struct ChallengeTasksView: View {
   /// The campaign's questions (first seen wins), for the welcome card.
   @State private var questions: [ChoiceQuestion] = []
   @State private var hidden = 0
-  /// Open tasks held by someone's saved guest answer: the bounds search leaves them out.
+  /// Open tasks held by someone's saved guest answer: shown and counted as checked.
   @State private var held: Set<Int64> = []
   /// Tasks someone reported as not here or moved. The campaign status read (E1/E2) will fill
   /// this; until then only the demo does.
@@ -72,7 +72,10 @@ struct ChallengeTasksView: View {
   private static let maxPages = 10
 
   private var progress: CampaignProgress {
-    CampaignProgress(tasks: tasks, justDone: campaigns.justDone, held: held, answerable: answerable)
+    // This phone's own pending reports need another look, not "checked" (not-here-moved.md).
+    CampaignProgress(
+      tasks: tasks, justDone: campaigns.justDone, held: held.subtracting(campaigns.justReported.keys),
+      answerable: answerable)
   }
   /// A guest's saved answers: checked here, but not on the map until they finish signing up.
   private var pendingIDs: Set<Int64> {
@@ -101,7 +104,7 @@ struct ChallengeTasksView: View {
   }
   /// The campaign's size for progress: held places still count (they're answered, just not on the map yet).
   private var total: Int { progress.total }
-  /// Open and checked places (and, in preview, broken surveys); the rest are left off the map and list.
+  /// Open, held and checked places (and, in preview, broken surveys); the rest are left off the map and list.
   private var shown: [LocatedTask] { progress.shown }
 
   var body: some View {
