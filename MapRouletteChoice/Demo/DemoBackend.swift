@@ -155,7 +155,7 @@
           let meters = hypot((lat - mappedLat) * 111_320, (lon - mappedLng) * 111_320 * cos(lat * .pi / 180))
           if meters > 500 { return HTTPResponse(status: 422, body: json(["error": "moved_too_far"])) }
         }
-        result = ["too-hard", "not-here", "moved"].contains(outcome) ? 6 : delete ? 1 : 2
+        result = ["too-hard", "not-here", "moved"].contains(outcome) ? 6 : delete ? 1 : outcomeStatus(outcome) ?? 2
         if delete { changeset = nextChangeset }
       }
       if changeset != nil { nextChangeset += 1 }
@@ -163,6 +163,18 @@
       completedBy[id] = Self.me
       changesets[id] = changeset
       return ok(["status": result, "changesetId": changeset.map { $0 as Any } ?? NSNull()])
+    }
+
+    /// The status a campaign outcome declares in the payload, as the server sets it
+    /// (Woodbine's "There's no door" is 6).
+    private func outcomeStatus(_ id: String?) -> Int? {
+      let work: [String: Any] =
+        switch campaign {
+        case .benches: payload(element: 0)
+        case .stops: stopPayload(element: 0)
+        case .woodbine: woodbinePayload(element: 0, entrance: "yes")
+        }
+      return (work["outcomes"] as? [[String: Any]])?.first { $0["id"] as? String == id }?["status"] as? Int
     }
 
     private var guestStatus: [String: Any] {

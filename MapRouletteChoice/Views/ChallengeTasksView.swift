@@ -97,6 +97,7 @@ struct ChallengeTasksView: View {
   private var doneIDs: Set<Int64> { progress.done }
   /// Reports from the server, and this device's since launch (design/not-here-moved.md §4).
   private var reports: [Int64: TaskReport] { serverReports.merging(campaigns.justReported) { $1 } }
+  private var lookAgain: Set<Int64> { campaigns.lookAgain(reports) }
   private var open: [LocatedTask] { TaskLocation.sorted(progress.open, from: origin) }
   private var checked: [LocatedTask] {
     let done = doneIDs
@@ -135,7 +136,8 @@ struct ChallengeTasksView: View {
           case .map:
             TaskMapView(
               styleURL: session.mapStyleURL, tasks: shown, done: doneIDs, pending: pendingIDs,
-              reports: reports, origin: origin, noun: noun) { id in navigate(to: id) }
+              reports: reports, flagged: campaigns.justFlagged, origin: origin, noun: noun
+            ) { id in navigate(to: id) }
               .background(Color(.secondarySystemBackground))
               .overlay {
                 if tasks.isEmpty && request != nil { ProgressView("Loading…").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) }
@@ -286,7 +288,7 @@ struct ChallengeTasksView: View {
       // Reported places stay open but aren't sent to anyone (design/not-here-moved.md §4). A shut-out
       // guest gets the sign-in block instead.
       if guestShutOut {
-      } else if let nearest = open.first(where: { reports[$0.id] == nil }) {
+      } else if let nearest = open.first(where: { !lookAgain.contains($0.id) }) {
         Button {
           if origin != nil { navigate(to: nearest.id) }
           else { mode = .list }
@@ -370,6 +372,9 @@ struct ChallengeTasksView: View {
       }
       VStack(alignment: .leading, spacing: 2) {
         Text(Wording.placeName(task.task, noun)).foregroundStyle(done ? Color.secondary : Color.primary)
+        if !done && !pending && lookAgain.contains(task.id) {
+          Text(Wording.needsAnotherLook).font(.footnote).foregroundStyle(Color.secondary)
+        }
         if showDetails {
           Text(verbatim: "\(task.task.name) · Task \(task.id) · \(TaskText.status(task.task.status?.code))")
             .font(.footnote).foregroundStyle(.secondary)
@@ -385,8 +390,7 @@ struct ChallengeTasksView: View {
     }
     .accessibilityElement(children: .combine)
     .accessibilityValue(
-      pending ? "Saved, not on the map yet" : done ? "Already checked"
-        : reports[task.id] != nil ? Wording.needsAnotherLook : "")
+      pending ? "Saved, not on the map yet" : done ? "Already checked" : "")
   }
 
   private var detailsFooter: String {
