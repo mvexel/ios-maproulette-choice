@@ -25,13 +25,17 @@ final class WoodbineUITests: XCTestCase {
     shot(app, "woodbine-campaign")
     // Under a full-suite run the first tap on the segmented control can be lost while the map
     // is still settling (and the segment doesn't report isSelected), so tap List again until
-    // the list's "Already checked" section shows. A lazy list may need a swipe to build it.
-    let checked = app.staticTexts["Already checked"]
-    for _ in 0..<3 where !checked.exists {
-      app.buttons["List"].tap()
-      for _ in 0..<2 where !checked.waitForExistence(timeout: 5) { app.swipeUp() }
+    // the list's "To check" header shows. Only then swipe, and only the list: a swipe that lands
+    // on the map just pans it. A lazy list may need a swipe to build "Already checked".
+    let toCheck = app.staticTexts["To check"]
+    for _ in 0..<3 where !toCheck.exists {
+      app.segmentedControls.buttons["List"].tap()
+      _ = toCheck.waitForExistence(timeout: 5)
     }
-    XCTAssert(checked.waitForExistence(timeout: 5))
+    XCTAssert(toCheck.exists, "the list didn't open")
+    let checked = app.staticTexts["Already checked"]
+    for _ in 0..<3 where !checked.waitForExistence(timeout: 3) { app.collectionViews.firstMatch.swipeUp() }
+    XCTAssert(checked.exists)
     shot(app, "woodbine-list")
   }
 
