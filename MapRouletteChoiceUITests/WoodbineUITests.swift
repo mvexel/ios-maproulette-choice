@@ -16,11 +16,10 @@ final class WoodbineUITests: XCTestCase {
     let app = launch()
     XCTAssert(app.staticTexts["Woodbine entrance doors"].waitForExistence(timeout: 20))
     app.staticTexts["Woodbine entrance doors"].tap()
-    let start = app.buttons["Let's go"]
-    XCTAssert(start.waitForExistence(timeout: 10))
-    start.tap()
-    allowLocationIfAsked(app)
-    XCTAssert(text(app, "3 of 8 entrances checked").waitForExistence(timeout: 20))
+    startCampaign(app)
+    let tally = text(app, "3 of 8 entrances checked")
+    XCTAssert(tally.waitForExistence(timeout: 20))
+    XCTAssert(tally.isHittable, "the tally is behind a sheet")
     sleep(3)  // map tiles
     shot(app, "woodbine-campaign")
     // Under a full-suite run the first tap on the segmented control can be lost while the map
@@ -93,6 +92,19 @@ final class WoodbineUITests: XCTestCase {
   /// Answer and sheet buttons read "<label>, <description>", so match the start of the label.
   @MainActor private func option(_ app: XCUIApplication, _ label: String) -> XCUIElement {
     app.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", label, label + ",")).firstMatch
+  }
+
+  /// Under a full-suite run the "Let's go" tap can be lost and the welcome card stays up, with the
+  /// campaign screen in the tree behind it. Tap until the card is gone.
+  @MainActor private func startCampaign(_ app: XCUIApplication) {
+    let start = app.buttons["Let's go"]
+    XCTAssert(start.waitForExistence(timeout: 10))
+    for _ in 0..<3 where start.exists {
+      if start.isHittable { start.tap() }
+      allowLocationIfAsked(app)
+      _ = start.waitForNonExistence(timeout: 5)
+    }
+    XCTAssertFalse(start.exists, "the welcome card didn't close")
   }
 
   @MainActor private func allowLocationIfAsked(_ app: XCUIApplication) {
