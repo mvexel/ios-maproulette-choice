@@ -26,6 +26,8 @@ struct TaskView: View {
   private let candidates: [LocatedTask]
   /// Places someone reported as not here or moved: never offered as next, and a banner on open.
   private let reports: [Int64: TaskReport]
+  /// Open places another guest's pending report holds: kept out of Next nearest.
+  private let heldReports: Set<Int64>
   private let noun: Noun
   /// The participant's position when the first place was opened from the campaign, for
   /// "130 m northeast of you". Not live: after "Next nearest" they have moved, so it is hidden.
@@ -54,13 +56,14 @@ struct TaskView: View {
   @State private var afterProblems: (() -> Void)?
 
   init(
-    taskID: Int64, candidates: [LocatedTask], reports: [Int64: TaskReport] = [:], noun: Noun,
-    userLocation: CLLocationCoordinate2D? = nil, preview: CampaignPreview? = nil
+    taskID: Int64, candidates: [LocatedTask], reports: [Int64: TaskReport] = [:], heldReports: Set<Int64> = [],
+    noun: Noun, userLocation: CLLocationCoordinate2D? = nil, preview: CampaignPreview? = nil
   ) {
     _taskID = State(initialValue: taskID)
     _visited = State(initialValue: [taskID])
     self.candidates = candidates
     self.reports = reports
+    self.heldReports = heldReports
     self.noun = noun
     self.userLocation = userLocation
     firstTaskID = taskID
@@ -219,7 +222,7 @@ struct TaskView: View {
 
   private var nextPlace: LocatedTask? {
     TaskLocation.nearest(
-      from: here, in: candidates, excluding: visited.union(campaigns.justDone).union(campaigns.lookAgain(allReports)))
+      from: here, in: candidates, excluding: visited.union(campaigns.justDone).union(campaigns.lookAgain(allReports)).union(heldReports))
   }
 
   private func open(_ next: LocatedTask) {

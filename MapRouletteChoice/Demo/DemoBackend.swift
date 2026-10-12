@@ -13,6 +13,8 @@
   /// `mobile-survey-v1`) for preview mode; the picker then lists nothing and only the preview link opens it.
   /// `-demoReported` starts with 187 reported moved (about 30 m) and 185 reported not here
   /// (design/not-here-moved.md), for the banner and map dot (`seededReports`).
+  /// `-demoHeldReport` has another guest holding 188 with a saved report (`heldKind` "report", T-002)
+  /// and 184 with a saved answer, for "Needs another look" against "checked".
   /// `-demoClaimed` answers the finish-link request with 409 `guest_claimed`, for the claimed copy.
   /// `-demoWoodbine` serves the first pilot, "Woodbine entrance doors" (design/woodbine-campaign.md),
   /// on eight real entrance nodes around Woodbine Food Hall; 188 already has `door`, so only the
@@ -44,9 +46,16 @@
     /// When the guest's saved answers are removed.
     private var expiresAt = Date().addingTimeInterval(14 * 86400)
 
-    init(campaign: Campaign = .benches, closing: Bool = false, draft: Bool = false, reported: Bool = false) {
+    /// Places another guest's saved answer or report holds, by `heldKind`.
+    private var othersHolds: [Int64: String] = [:]
+
+    init(
+      campaign: Campaign = .benches, closing: Bool = false, draft: Bool = false, reported: Bool = false,
+      heldReport: Bool = false
+    ) {
       self.campaign = campaign
       self.draft = draft
+      if heldReport { othersHolds = [184: "answer", 188: "report"] }
       if reported {
         status[185] = 6
         status[187] = 6
@@ -84,10 +93,14 @@
       case (.get, let p) where p.count == 6 && p[0] == "tasks" && p[1] == "box":
         let includePending = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems?
           .contains { $0.name == "includePending" && $0.value == "true" } == true
-        let rows = Self.taskIDs.filter { [0, 3, 6].contains(status[$0] ?? 0) && (includePending || pending[$0] == nil) }
+        func held(_ id: Int64) -> Bool { pending[id] != nil || othersHolds[id] != nil }
+        let rows = Self.taskIDs.filter { [0, 3, 6].contains(status[$0] ?? 0) && (includePending || !held($0)) }
           .map { id in
             var row = summary(id)
-            if includePending { row["pending"] = pending[id] != nil }
+            if includePending {
+              row["pending"] = held(id)
+              if held(id) { row["heldKind"] = othersHolds[id] ?? "answer" }
+            }
             return row
           }
         return ok(["total": firstPage ? rows.count : 0, "tasks": firstPage ? rows : []])
