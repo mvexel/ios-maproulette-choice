@@ -272,8 +272,16 @@ import Testing
       == "None of your answers were added, \(changed) those places on the map after you checked.")
     #expect(line(.done, total: 1, published: 0, skipped: 1)
       == "Your answer wasn't added, \(changed) that place on the map after you checked.")
-    #expect(line(.done, published: 3, skipped: 1, failed: 1) == "3 of 5 are on the map. The rest are still saved.")
-    #expect(line(.failed, published: 0) == "0 of 5 are on the map. The rest are still saved.")
+    #expect(line(.done, published: 3, failed: 2) == "3 of 5 are on the map. The rest are still saved.")
+    #expect(line(.failed, published: 2) == "2 of 5 are on the map. The rest are still saved.")
+    #expect(line(.failed, published: 0) == "None of your answers are on the map yet. They're still saved.")
+    #expect(line(.failed, total: 1, published: 0) == "Your answer isn't on the map yet. It's still saved.")
+    #expect(line(.done, published: 2, skipped: 2, failed: 1)
+      == "2 of 5 are on the map. 2 weren't added, \(changed) those places after you checked. The rest are still saved.")
+    #expect(line(.failed, published: 3, skipped: 1)
+      == "3 of 5 are on the map. 1 wasn't added, \(changed) that place after you checked. The rest are still saved.")
+    #expect(Wording.claimStillGoing
+      == "Your answers are still going on the map. You can carry on; this finishes on its own.")
   }
 
   @Test func dayNeverWraps() {

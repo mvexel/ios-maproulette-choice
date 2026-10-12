@@ -314,8 +314,8 @@ struct SessionClient: Sendable {
   nonisolated static let claimPollInterval = Duration.seconds(3)
 
   /// Reads the claim's progress every few seconds (`getClaimStatus`) and shows it on the status
-  /// line, until it is done or failed, the session changes, or about two minutes pass; the last
-  /// progress line then stays. A failed read just waits for the next one.
+  /// line, until it is done or failed, the session changes, or about two minutes pass; then it
+  /// says the claim finishes on its own. A failed read just waits for the next one.
   private func followClaim(_ id: Int64) {
     claimFollower?.cancel()
     let generation = view.generation
@@ -330,6 +330,8 @@ struct SessionClient: Sendable {
         self.publish(Wording.claimProgress(status), detail: detail)
         if status.state == .done || status.state == .failed { return }
       }
+      guard let self, !Task.isCancelled, self.view.generation == generation else { return }
+      self.publish(Wording.claimStillGoing, detail: detail)
     }
   }
 
