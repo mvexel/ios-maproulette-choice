@@ -85,6 +85,9 @@ enum Wording {
   static func cantTellThanks(_ noun: Noun) -> String { "Thanks. Someone will take another look at this \(noun.one)." }
   /// Under the close-up map, when its first frame shows other places (§B).
   static func otherDots(_ noun: Noun) -> String { "Grey dots are other \(noun.many) in this campaign." }
+  /// The task map's toggle (design/which-one-spec.md §D).
+  static let mapView = "Map"
+  static let aerialView = "Aerial photo"
   static func closeUpMapLabel(_ name: String, _ noun: Noun, neighbours: Bool) -> String {
     neighbours ? "Map of \(name), with other \(noun.many) nearby" : "Map of \(name)"
   }

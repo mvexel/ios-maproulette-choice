@@ -27,6 +27,8 @@ struct CloseUpMapView: UIViewRepresentable {
   /// The live position, for the first frame.
   let you: CLLocationCoordinate2D?
   var recenter = 0
+  /// The aerial photo under the labels instead of the street map (design/which-one-spec.md §D).
+  var aerial = false
   /// The person moved the map (pan or pinch); the recenter button shows.
   var moved: (Bool) -> Void = { _ in }
   /// How many neighbours the first frame shows, for the "Grey dots…" line.
@@ -35,6 +37,11 @@ struct CloseUpMapView: UIViewRepresentable {
   static let farAway: CLLocationDistance = 150
   static let zoomRange: ClosedRange<Double> = 17...20
   static let targetZoom: Double = 19
+
+  /// USGS The National Map imagery, public domain and keyless (design/imagery-licence-check.md).
+  /// Note the y/x order. Cached to about z16; MapLibre overzooms past that.
+  static let aerialTiles = "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}"
+  static let aerialCredit = "Imagery: USGS The National Map / USDA NAIP"
 
   func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -61,7 +68,10 @@ struct CloseUpMapView: UIViewRepresentable {
     let c = context.coordinator
     c.parent = self
     if map.showsUserLocation != Self.locationAllowed { map.showsUserLocation = Self.locationAllowed }
-    if let style = map.style { c.drawNeighbours(in: style) }
+    if let style = map.style {
+      c.drawNeighbours(in: style)
+      c.showAerial(aerial, in: style)
+    }
     if recenter != c.recentered {
       c.recentered = recenter
       c.frame(map, report: false)
@@ -128,6 +138,30 @@ struct CloseUpMapView: UIViewRepresentable {
     }
 
     static let sourceID = "neighbours"
+    static let aerialID = "aerial"
+
+    /// The photo sits under the first label layer, so street names stay on top and the street map's
+    /// fills and lines are covered. Added once, then only shown or hidden.
+    func showAerial(_ on: Bool, in style: MLNStyle) {
+      guard styleLoaded else { return }
+      if let layer = style.layer(withIdentifier: Self.aerialID) {
+        if layer.isVisible != on { layer.isVisible = on }
+        return
+      }
+      guard on else { return }
+      let source = MLNRasterTileSource(
+        identifier: Self.aerialID, tileURLTemplates: [CloseUpMapView.aerialTiles],
+        options: [.tileSize: 256, .maximumZoomLevel: 16])
+      style.addSource(source)
+      let layer = MLNRasterStyleLayer(identifier: Self.aerialID, source: source)
+      if let labels = style.layers.first(where: { $0 is MLNSymbolStyleLayer }) {
+        style.insertLayer(layer, below: labels)
+      } else if let dots = style.layer(withIdentifier: "\(Self.sourceID)-\(Neighbour.State.checked.rawValue)") {
+        style.insertLayer(layer, below: dots)
+      } else {
+        style.addLayer(layer)
+      }
+    }
 
     /// One shape source, one circle layer per state (§B): open gray with a white ring, checked
     /// green and smaller, needs another look gray with an amber ring. Style layers sit under the
@@ -178,6 +212,7 @@ struct CloseUpMapView: UIViewRepresentable {
       }
       styleLoaded = true
       drawNeighbours(in: style)
+      if let parent { showAerial(parent.aerial, in: style) }
       if !userMoved { frame(mapView, report: true) }
     }
 
