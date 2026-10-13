@@ -16,8 +16,11 @@ import Testing
       longitude: here.longitude + meters * sin(r) / (111_320 * cos(here.latitude * .pi / 180)))
   }
 
-  func line(_ to: CLLocationCoordinate2D, accuracy: Double = 5, heading: Double? = nil, us: Bool = false) -> String? {
-    DirectionLine.text(from: here, accuracy: accuracy, heading: heading, to: to, noun: tree, us: us)
+  func line(
+    _ to: CLLocationCoordinate2D, accuracy: Double = 5, heading: Double? = nil, us: Bool = false,
+    held: DirectionLine.Side? = nil
+  ) -> String? {
+    DirectionLine.text(from: here, accuracy: accuracy, heading: heading, to: to, noun: tree, us: us, held: held)
   }
 
   @Test func rulesInOrder() {
@@ -42,7 +45,23 @@ import Testing
     #expect(line(point(8, 180), heading: 0) == "8 m behind you")
     // Facing west, a place to the north is on the right.
     #expect(line(point(8, 0), heading: 270) == "8 m to your right")
-    #expect(DirectionLine.relative(-370) == "ahead")
+    #expect(DirectionLine.Side(-370) == .ahead)
+  }
+
+  /// A side holds until the angle is 10° past its boundary (§C).
+  @Test func hysteresisHoldsTheSide() {
+    // 25° is the ahead / slightly right boundary.
+    #expect(DirectionLine.side(30, held: .ahead) == .ahead)
+    #expect(DirectionLine.side(34, held: .ahead) == .ahead)
+    #expect(DirectionLine.side(36, held: .ahead) == .slightlyRight)
+    #expect(DirectionLine.side(20, held: .slightlyRight) == .slightlyRight)
+    #expect(DirectionLine.side(14, held: .slightlyRight) == .ahead)
+    // Across behind: 175° and -175° are both behind; left and right flip only past the margin.
+    #expect(DirectionLine.side(150, held: .behind) == .behind)
+    #expect(DirectionLine.side(-150, held: .behindRight) == .behindLeft)
+    #expect(DirectionLine.side(-170, held: .behindRight) == .behind)
+    #expect(DirectionLine.side(30, held: nil) == .slightlyRight)
+    #expect(line(point(8, 30), heading: 0, held: .ahead) == "8 m ahead")
   }
 
   @Test func metricAndUSDistances() {

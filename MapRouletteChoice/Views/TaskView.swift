@@ -44,6 +44,8 @@ struct TaskView: View {
   @State private var mapMoved = false
   /// Neighbours in the map's first frame: the "Grey dots…" line shows when there are any.
   @State private var dotsInView = 0
+  /// The direction line's side, held against a swinging compass (§C hysteresis).
+  @State private var heldSide: DirectionLine.Side?
   /// What VoiceOver last announced of the direction line, and when (at most every 5 s).
   @State private var announced: (kind: String?, at: Date) = (nil, .distantPast)
   /// "I can't tell which one" was picked: its thanks line replaces the saved one (§F).
@@ -143,6 +145,7 @@ struct TaskView: View {
       live.start()
     }
     .onDisappear { live.stop() }
+    .onChange(of: facingAngle) { _, angle in heldSide = angle.map { DirectionLine.side($0, held: heldSide) } }
     .onChange(of: DirectionLine.announcementKind(directionLine)) { _, kind in announce(kind) }
     .onChange(of: session.view.generation) { accountChanged() }
     .onChange(of: controller?.changed) { if controller?.changed == true { reportChange() } }
@@ -269,6 +272,7 @@ struct TaskView: View {
     // The next place's map frames afresh.
     mapMoved = false
     dotsInView = 0
+    heldSide = nil
     resetQuestions()
     replaceController()
     self.controller?.load(try! TaskID(taskID))
@@ -480,7 +484,14 @@ struct TaskView: View {
   private var directionLine: String? {
     guard let here else { return nil }
     return DirectionLine.text(
-      from: live.coordinate, accuracy: live.accuracy, heading: live.heading, to: here, noun: noun, us: DirectionLine.usesFeet)
+      from: live.coordinate, accuracy: live.accuracy, heading: live.heading, to: here, noun: noun,
+      us: DirectionLine.usesFeet, held: heldSide)
+  }
+
+  /// The angle from the phone's facing to the place on screen.
+  private var facingAngle: Double? {
+    guard let here else { return nil }
+    return DirectionLine.angle(from: live.coordinate, heading: live.heading, to: here)
   }
 
   /// VoiceOver hears the line when its kind changes, at most every 5 s, at low priority (§C).
