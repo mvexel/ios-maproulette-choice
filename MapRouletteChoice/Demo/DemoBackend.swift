@@ -19,8 +19,11 @@
   /// `-demoWoodbine` serves the first pilot, "Woodbine entrance doors" (design/woodbine-campaign.md),
   /// on eight real entrance nodes around Woodbine Food Hall; 188 already has `door`, so only the
   /// automatic-opening question is asked there (`liveMissingQuestions`).
+  /// `-demoTrees` serves "Woodbine trees" (`DemoTrees.swift`): 139 real tree nodes as tasks 1001–1139,
+  /// for the "Which one?" screen. 1090 and 1094 are checked, and another guest holds 1095 with a
+  /// report, so the cluster around 1092 shows every neighbour dot.
   actor DemoBackend: Transport {
-    enum Campaign: Sendable { case benches, stops, woodbine }
+    enum Campaign: Sendable { case benches, stops, woodbine, trees }
 
     static let challengeID: Int64 = 3
     /// `-demoClaim progress`'s claim: 3 answers, one more on the map per read, then done with one
@@ -28,6 +31,9 @@
     static let claimID: Int64 = 41
     private var claimReads = 0
     static let taskIDs: [Int64] = Array(184...191)
+    static let treeIDs: [Int64] = Array(1001...Int64(1000 + trees.count))
+    /// This campaign's tasks.
+    private var campaignTaskIDs: [Int64] { campaign == .trees ? Self.treeIDs : Self.taskIDs }
     /// The demo account: MapRoulette user 7, OpenStreetMap username "rosa_slc".
     static let me: Int64 = 7
     static let displayName = "rosa_slc"
@@ -42,7 +48,7 @@
     private var stops: Bool { campaign == .stops }
     /// The campaign a demo launch asks for.
     static func demoCampaign(_ args: [String]) -> Campaign {
-      args.contains("-demoWoodbine") ? .woodbine : args.contains("-demoStops") ? .stops : .benches
+      args.contains("-demoTrees") ? .trees : args.contains("-demoWoodbine") ? .woodbine : args.contains("-demoStops") ? .stops : .benches
     }
     let draft: Bool
     private var pending: [Int64: Date] = [:]
@@ -59,6 +65,11 @@
     ) {
       self.campaign = campaign
       self.draft = draft
+      if campaign == .trees {
+        status = Dictionary(uniqueKeysWithValues: Self.treeIDs.map { ($0, 0) }).merging([1090: 1, 1094: 1]) { $1 }
+        completedBy = [1090: 8, 1094: 8]
+        othersHolds = [1095: "report"]
+      }
       if heldReport { othersHolds = [184: "answer", 188: "report"] }
       if reported {
         status[185] = 6
@@ -91,14 +102,14 @@
       switch (request.method, parts) {
       case (.get, ["challenges", "extendedFind"]): return ok(firstPage ? [challenge] : [])
       case (.get, ["challenge", "3"]): return ok(challenge)
-      case (.get, ["challenge", "3", "tasks"]): return ok(firstPage ? Self.taskIDs.map { task($0) } : [])
+      case (.get, ["challenge", "3", "tasks"]): return ok(firstPage ? campaignTaskIDs.map { task($0) } : [])
       // The bounds search: open tasks not held by a guest, or with `includePending` all open
       // tasks, each saying whether one holds it (backend #16).
       case (.get, let p) where p.count == 6 && p[0] == "tasks" && p[1] == "box":
         let includePending = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems?
           .contains { $0.name == "includePending" && $0.value == "true" } == true
         func held(_ id: Int64) -> Bool { pending[id] != nil || othersHolds[id] != nil }
-        let rows = Self.taskIDs.filter { [0, 3, 6].contains(status[$0] ?? 0) && (includePending || !held($0)) }
+        let rows = campaignTaskIDs.filter { [0, 3, 6].contains(status[$0] ?? 0) && (includePending || !held($0)) }
           .map { id in
             var row = summary(id)
             if includePending {
@@ -198,6 +209,7 @@
         case .benches: payload(element: 0)
         case .stops: stopPayload(element: 0)
         case .woodbine: woodbinePayload(element: 0, entrance: "yes")
+        case .trees: treesPayload(element: 0)
         }
       return (work["outcomes"] as? [[String: Any]])?.first { $0["id"] as? String == id }?["status"] as? Int
     }
@@ -227,6 +239,15 @@
     }
 
     private var published: [String: Any] {
+      if campaign == .trees {
+        return [
+          "id": Self.challengeID, "parent": 1, "name": "Woodbine trees",
+          "description":
+            "Help map the trees around Woodbine Food Hall. At each tree, check whether it has leaves or needles. It takes a few seconds per tree.",
+          "instruction": "Survey the tree at the mapped node. Sets leaf_type=* only when missing. No geometry changes.",
+          "enabled": true, "cooperativeType": 3, "tags": ["mobile-survey-v1"],
+        ]
+      }
       if campaign == .woodbine {
         return [
           "id": Self.challengeID, "parent": 1, "name": "Woodbine entrance doors",
@@ -268,6 +289,7 @@
     /// Spread around Library Square, a few minutes' walk apart.
     private static func coordinate(_ id: Int64, _ campaign: Campaign) -> (Double, Double) {
       let i = Double(id - 184)
+      if campaign == .trees, let t = trees[safe: Int(id - 1001)] { return (t.lat, t.lng) }
       if campaign == .woodbine, let e = entrances[id] { return (e.lat, e.lng) }
       if campaign == .stops {  // along 900 E and 1300 S, around their corner
         return id.isMultiple(of: 2)
@@ -277,7 +299,11 @@
     }
 
     private func elementID(_ id: Int64) -> Int64 {
-      campaign == .woodbine ? Self.entrances[id]?.node ?? id + 1000 : id + 1000
+      switch campaign {
+      case .woodbine: Self.entrances[id]?.node ?? id + 1000
+      case .trees: Self.trees[safe: Int(id - 1001)]?.node ?? id + 1000
+      default: id + 1000
+      }
     }
 
     private func summary(_ id: Int64) -> [String: Any] {
@@ -307,6 +333,9 @@
         properties = ["entrance": entrance]
         if id == 188 { properties["door"] = "hinged" }
         work = woodbinePayload(element: element, entrance: entrance)
+      case .trees:
+        properties = ["natural": "tree"]
+        work = treesPayload(element: element)
       }
       var o: [String: Any] = [
         "id": id, "parent": Self.challengeID, "name": "node/\(element)",
@@ -392,6 +421,28 @@
       ]
     }
 
+    /// "Woodbine trees" (backend/woodbine-micro): one question, with the description from
+    /// design/which-one-spec.md §G.
+    private func treesPayload(element: Int64) -> [String: Any] {
+      [
+        "meta": ["version": 2, "type": 3, "choiceVersion": 1],
+        "element": "node/\(element)", "match": ["natural": "tree"], "liveMissingQuestions": true,
+        "questions": [
+          [
+            "id": "leaf-type", "prompt": "Does this tree have leaves or needles?",
+            "description": "The tree at the big pin. Palms count as leaves.", "expect": ["leaf_type": NSNull()],
+            "options": [
+              ["id": "broadleaved", "label": "Leaves", "setTags": ["leaf_type": "broadleaved"]],
+              ["id": "needleleaved", "label": "Needles", "setTags": ["leaf_type": "needleleaved"]],
+            ],
+          ]
+        ],
+        "outcomes": [
+          ["id": "no-tree", "label": "There's no tree here", "description": "The tree is gone or was never there.", "status": 6]
+        ],
+      ]
+    }
+
     /// The pilot payload (docs/design/mobile-choice-challenges.md §3 in the SDK repo).
     private func payload(element: Int64) -> [String: Any] {
       func options(_ key: String, _ values: [(String, String)]) -> [[String: Any]] {
@@ -425,5 +476,9 @@
         ],
       ]
     }
+  }
+
+  extension Array {
+    fileprivate subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
   }
 #endif

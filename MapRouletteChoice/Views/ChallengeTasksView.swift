@@ -35,6 +35,8 @@ struct ChallengeTasksView: View {
   struct Selection: Identifiable, Hashable {
     let id: Int64
     let candidates: [LocatedTask]
+    /// The places on the campaign map, for the task screen's close-up map.
+    var neighbours: [Neighbour] = []
   }
 
   @State private var mode = Mode.map
@@ -174,7 +176,7 @@ struct ChallengeTasksView: View {
     .navigationDestination(item: $selected) { selection in
       TaskView(
         taskID: selection.id, candidates: selection.candidates, reports: reports, heldReports: heldReports,
-        noun: noun, userLocation: origin, preview: preview)
+        noun: noun, userLocation: origin, preview: preview, neighbours: selection.neighbours)
     }
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
@@ -243,7 +245,15 @@ struct ChallengeTasksView: View {
   #endif
 
   private func navigate(to id: Int64) {
-    selected = Selection(id: id, candidates: tasks.filter { answerable($0) && !held.contains($0.id) })
+    let done = doneIDs
+    let look = lookAgain
+    let neighbours = shown.compactMap { task -> Neighbour? in
+      guard let c = task.coordinate else { return nil }
+      let state: Neighbour.State = done.contains(task.id) ? .checked : look.contains(task.id) ? .look : .open
+      return Neighbour(id: task.id, latitude: c.latitude, longitude: c.longitude, state: state)
+    }
+    selected = Selection(
+      id: id, candidates: tasks.filter { answerable($0) && !held.contains($0.id) }, neighbours: neighbours)
   }
 
   // MARK: Summary

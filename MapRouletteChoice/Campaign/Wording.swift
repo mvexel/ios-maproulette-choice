@@ -24,6 +24,7 @@ struct Noun: Hashable, Sendable {
     ("leisure", "playground", Noun(one: "playground", many: "playgrounds")),
     ("leisure", "park", Noun(one: "park", many: "parks")),
     ("entrance", nil, Noun(one: "entrance", many: "entrances")),
+    ("natural", "tree", Noun(one: "tree", many: "trees")),
   ]
 
   static func from(match: [String: String]) -> Noun {
@@ -79,6 +80,14 @@ enum Wording {
 
   static let skipExplained = "Leave it for someone else."
   static let cantCheckExplained = "You're near it but can't see or reach it."
+  /// The way out on the question screen (design/which-one-spec.md §F): records "I can't check".
+  static func cantTell(_ noun: Noun) -> String { "I can't tell which \(noun.one)" }
+  static func cantTellThanks(_ noun: Noun) -> String { "Thanks. Someone will take another look at this \(noun.one)." }
+  /// Under the close-up map, when its first frame shows other places (§B).
+  static func otherDots(_ noun: Noun) -> String { "Grey dots are other \(noun.many) in this campaign." }
+  static func closeUpMapLabel(_ name: String, _ noun: Noun, neighbours: Bool) -> String {
+    neighbours ? "Map of \(name), with other \(noun.many) nearby" : "Map of \(name)"
+  }
   static let notHere = "It's not here"
   static func notHereExplained(_ noun: Noun) -> String { "You're at the spot and there's no \(noun.one)." }
   static let moved = "It's moved"
