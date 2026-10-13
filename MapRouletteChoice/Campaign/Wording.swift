@@ -26,6 +26,8 @@ struct Noun: Hashable, Sendable {
     ("leisure", "park", Noun(one: "park", many: "parks")),
     ("entrance", nil, Noun(one: "entrance", many: "entrances")),
     ("natural", "tree", Noun(one: "tree", many: "trees")),
+    // Last: any building, whatever else it is.
+    ("building", nil, Noun(one: "building", many: "buildings")),
   ]
 
   static func from(match: [String: String]) -> Noun {

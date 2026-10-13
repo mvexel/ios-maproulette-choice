@@ -511,12 +511,12 @@
       ]
     }
 
-    /// "Woodbine buildings" (backend/woodbine-micro): the floors question. The real file's match is
-    /// empty (its identity is `matchKeys: [building]`).
+    /// "Woodbine buildings" (backend/woodbine-micro): the floors question. The survey's
+    /// `matchKeys: [building]` gives each task its own feature's value as `match`.
     private func buildingsPayload(element: Int64) -> [String: Any] {
       [
         "meta": ["version": 2, "type": 3, "choiceVersion": 1],
-        "element": "way/\(element)", "match": [String: String](), "liveMissingQuestions": true,
+        "element": "way/\(element)", "match": ["building": "yes"], "liveMissingQuestions": true,
         "questions": [
           [
             "id": "levels", "prompt": "How many floors does it have?",
