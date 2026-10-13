@@ -16,7 +16,7 @@ final class WhichOneUITests: XCTestCase {
   /// About 12 m south of the tree, facing north: the line, the dots line and the map label.
   @MainActor func testAheadWithNeighbours() throws {
     let app = launch(fix: lat - 0.000108, lng, accuracy: 5, heading: 0)
-    XCTAssert(text(app, "m ahead").waitForExistence(timeout: 20))
+    XCTAssert(text(app, " ahead").waitForExistence(timeout: 20))
     XCTAssert(text(app, "Grey dots are other trees in this campaign.").waitForExistence(timeout: 10))
     XCTAssert(app.descendants(matching: .any).matching(NSPredicate(format: "label ENDSWITH %@", ", with other trees nearby")).firstMatch.exists)
     sleep(3)  // map tiles

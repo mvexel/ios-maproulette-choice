@@ -136,8 +136,7 @@ struct MovedSpotView: View {
     guard let spot, let distance else { return "" }
     // Under 5 m a compass direction is noise.
     guard distance >= 5 else { return "Where the map has it" }
-    let rounded = Wording.roundedMeters(distance)
-    return "About \(rounded) m \(TaskLocation.compass(TaskLocation.bearing(from: mapped, to: spot))) of where the map has it"
+    return "About \(Wording.movedMeasure(distance)) \(TaskLocation.compass(TaskLocation.bearing(from: mapped, to: spot))) of where the map has it"
   }
 
   private func move(north: CLLocationDistance = 0, east: CLLocationDistance = 0) {
