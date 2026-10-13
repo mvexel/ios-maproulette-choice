@@ -37,7 +37,7 @@
     /// The real OSM features a micro campaign serves as tasks 1001 up.
     private static func micro(_ campaign: Campaign) -> [(element: Int64, lat: Double, lng: Double)]? {
       switch campaign {
-      case .trees: trees.map { ($0.node, $0.lat, $0.lng) }
+      case .trees: trees.map { (element: $0.node, lat: $0.lat, lng: $0.lng) }
       case .crossings: crossings
       case .buildings: buildings
       default: nil
@@ -46,10 +46,11 @@
     private static func micro(_ campaign: Campaign, _ id: Int64) -> (element: Int64, lat: Double, lng: Double)? {
       micro(campaign)?[safe: Int(id - 1001)]
     }
-    /// This campaign's tasks.
-    private var campaignTaskIDs: [Int64] {
-      Self.micro(campaign).map { Array(1001...Int64(1000 + $0.count)) } ?? Self.taskIDs
+    /// A campaign's tasks.
+    private static func ids(for campaign: Campaign) -> [Int64] {
+      micro(campaign).map { Array(1001...Int64(1000 + $0.count)) } ?? taskIDs
     }
+    private var campaignTaskIDs: [Int64] { Self.ids(for: campaign) }
     /// The demo account: MapRoulette user 7, OpenStreetMap username "rosa_slc".
     static let me: Int64 = 7
     static let displayName = "rosa_slc"
@@ -88,7 +89,7 @@
         othersHolds = [1095: "report"]
       }
       if campaign == .crossings || campaign == .buildings {
-        status = Dictionary(uniqueKeysWithValues: campaignTaskIDs.map { ($0, 0) })
+        status = Dictionary(uniqueKeysWithValues: Self.ids(for: campaign).map { ($0, 0) })
       }
       if heldReport { othersHolds = [184: "answer", 188: "report"] }
       if reported {
