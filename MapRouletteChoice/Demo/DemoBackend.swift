@@ -102,7 +102,7 @@
       switch (request.method, parts) {
       case (.get, ["challenges", "extendedFind"]): return ok(firstPage ? [challenge] : [])
       case (.get, ["challenge", "3"]): return ok(challenge)
-      case (.get, ["challenge", "3", "tasks"]): return ok(firstPage ? campaignTaskIDs.map { task($0) } : [])
+      case (.get, ["challenge", "3", "tasks"]): return ok(page(campaignTaskIDs, request).map { task($0) })
       // The bounds search: open tasks not held by a guest, or with `includePending` all open
       // tasks, each saying whether one holds it (backend #16).
       case (.get, let p) where p.count == 6 && p[0] == "tasks" && p[1] == "box":
@@ -118,7 +118,7 @@
             }
             return row
           }
-        return ok(["total": firstPage ? rows.count : 0, "tasks": firstPage ? rows : []])
+        return ok(["total": rows.count, "tasks": page(rows, request)])
       case (.get, let p) where p.count == 2 && p[0] == "task":
         return id(p[1]).map { ok(task($0)) } ?? notFound
       case (.get, let p) where p.count == 4 && p[2] == "choice" && p[3] == "check":
@@ -172,6 +172,16 @@
         return choice(id, o)
       default: return notFound
       }
+    }
+
+    /// One page of `rows` as the server pages task lists: `limit` rows from `page` × `limit`. The
+    /// SDK refuses a page longer than the limit it asked for (139 trees in a 100-row page).
+    private func page<T>(_ rows: [T], _ request: HTTPRequest) -> [T] {
+      let query = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+      func value(_ name: String) -> Int? { query.first { $0.name == name }?.value.flatMap(Int.init) }
+      let limit = max(value("limit") ?? rows.count, 1)
+      let start = (value("page") ?? 0) * limit
+      return start < rows.count ? Array(rows[start..<min(start + limit, rows.count)]) : []
     }
 
     private func choice(_ id: Int64, _ body: [String: Any]) -> HTTPResponse {
