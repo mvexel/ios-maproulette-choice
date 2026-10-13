@@ -60,7 +60,7 @@ final class WhichOneUITests: XCTestCase {
   /// The aerial photo toggle (§D): off by default, the credit shows only while the photo is on.
   @MainActor func testAerialToggle() throws {
     let app = launch(fix: lat - 0.000108, lng, accuracy: 5, heading: 0)
-    let credit = app.staticTexts["Imagery: USGS The National Map / USDA NAIP"]
+    let credit = app.staticTexts["Imagery: USDA NAIP 2024"]
     XCTAssert(app.buttons["Aerial photo"].waitForExistence(timeout: 20))
     XCTAssertFalse(credit.exists)
     app.buttons["Aerial photo"].tap()
