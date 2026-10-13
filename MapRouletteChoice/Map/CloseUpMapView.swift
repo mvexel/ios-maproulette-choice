@@ -38,10 +38,13 @@ struct CloseUpMapView: UIViewRepresentable {
   static let zoomRange: ClosedRange<Double> = 17...20
   static let targetZoom: Double = 19
 
-  /// USGS The National Map imagery, public domain and keyless (design/imagery-licence-check.md).
-  /// Note the y/x order. Cached to about z16; MapLibre overzooms past that.
-  static let aerialTiles = "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}"
-  static let aerialCredit = "Imagery: USGS The National Map / USDA NAIP"
+  /// USDA NAIP 2024 (60 cm), public domain and keyless, from its ImageServer: each tile is an
+  /// `exportImage` of the tile's Web Mercator box (design/imagery-licence-check.md). Rendered on
+  /// demand, so requests stop at z19 and MapLibre overzooms to 20.
+  static let aerialTiles =
+    "https://apps.geo.fpac.usda.gov/geo-imagery/rest/services/naip/conus_naip/ImageServer/exportImage?f=image&format=jpg&bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256"
+  static let aerialMaxZoom = 19
+  static let aerialCredit = "Imagery: USDA NAIP 2024"
 
   func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -151,7 +154,7 @@ struct CloseUpMapView: UIViewRepresentable {
       guard on else { return }
       let source = MLNRasterTileSource(
         identifier: Self.aerialID, tileURLTemplates: [CloseUpMapView.aerialTiles],
-        options: [.tileSize: 256, .maximumZoomLevel: 16])
+        options: [.tileSize: 256, .maximumZoomLevel: CloseUpMapView.aerialMaxZoom])
       style.addSource(source)
       let layer = MLNRasterStyleLayer(identifier: Self.aerialID, source: source)
       if let labels = style.layers.first(where: { $0 is MLNSymbolStyleLayer }) {
