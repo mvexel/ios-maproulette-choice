@@ -13,6 +13,7 @@ struct Noun: Hashable, Sendable {
   /// (`entrance=main`, `entrance=yes`).
   private static let known: [(key: String, value: String?, noun: Noun)] = [
     ("highway", "bus_stop", Noun(one: "stop", many: "stops")),
+    ("highway", "crossing", Noun(one: "crossing", many: "crossings")),
     ("public_transport", "platform", Noun(one: "stop", many: "stops")),
     ("railway", "platform", Noun(one: "platform", many: "platforms")),
     ("amenity", "bench", Noun(one: "bench", many: "benches")),

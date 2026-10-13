@@ -71,13 +71,30 @@ final class WhichOneUITests: XCTestCase {
     XCTAssert(credit.waitForNonExistence(timeout: 5))
   }
 
+  /// Footprints (which-one-sprint.md §3 E): a crossing's bar across its street and a building's
+  /// outline, from the map's tiles. Screenshots only: the shapes are drawn, not read out.
+  @MainActor func testFootprints() throws {
+    for (campaign, lat, lng, name) in [
+      ("-demoCrossings", 40.7564574, -111.9026154, "footprint-crossing"),
+      ("-demoBuildings", 40.7580902, -111.9059517, "footprint-building"),
+    ] {
+      let app = launch(fix: lat - 0.000135, lng, accuracy: 5, heading: 0, campaign: campaign, task: 1001)
+      XCTAssert(text(app, " ahead").waitForExistence(timeout: 20))
+      sleep(5)  // tiles, then the footprint lookup once the map is idle
+      shot(app, name)
+      app.terminate()
+    }
+  }
+
   // MARK: Helpers
 
-  @MainActor private func launch(fix lat: Double, _ lng: Double, accuracy: Double, heading: Double?) -> XCUIApplication {
+  @MainActor private func launch(
+    fix lat: Double, _ lng: Double, accuracy: Double, heading: Double?, campaign: String = "-demoTrees", task: Int = 1092
+  ) -> XCUIApplication {
     let app = XCUIApplication()
     let fix = [lat, lng, accuracy] + (heading.map { [$0] } ?? [])
     app.launchArguments = [
-      "-demo", "-demoTrees", "-demoGuest", "-demoTask", "1092", "-demoFix", fix.map { String($0) }.joined(separator: ","),
+      "-demo", campaign, "-demoGuest", "-demoTask", String(task), "-demoFix", fix.map { String($0) }.joined(separator: ","),
     ]
     app.launch()
     return app
