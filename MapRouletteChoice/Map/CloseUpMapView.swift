@@ -29,6 +29,8 @@ struct CloseUpMapView: UIViewRepresentable {
   var recenter = 0
   /// The aerial photo under the labels instead of the street map (design/which-one-spec.md §D).
   var aerial = false
+  /// Buildings draw their outline and crossings a bar across the street (which-one-sprint.md §3 E).
+  var kind: Footprint.Kind = .point
   /// The person moved the map (pan or pinch); the recenter button shows.
   var moved: (Bool) -> Void = { _ in }
   /// How many neighbours are in view, for the "Grey dots…" line: after each frame and each move.
@@ -79,6 +81,7 @@ struct CloseUpMapView: UIViewRepresentable {
     if map.showsUserLocation != showsPuck { map.showsUserLocation = showsPuck }
     if let style = map.style {
       c.drawNeighbours(in: style)
+      c.drawFootprints(in: style)
       c.showAerial(aerial, in: style)
       c.drawDemoYou(in: style)
     }
@@ -107,6 +110,13 @@ struct CloseUpMapView: UIViewRepresentable {
     var userMoved = false
     var framedWithYou = false
     private var drawn: [Neighbour] = []
+    /// Footprints found in the loaded tiles: the target's, and the neighbours' by id. Places
+    /// already looked for are not looked for again.
+    private var targetFootprint: [CLLocationCoordinate2D]?
+    private var footprints: [Int64: [CLLocationCoordinate2D]] = [:]
+    private var lookedForTarget = false
+    private var lookedFor: Set<Int64> = []
+    private var drawnFootprints: [String] = []
     private var styleLoaded = false
 
     /// You and the target with 40 pt padding, zoom clamped to 17–20; the target alone at 19 without you
@@ -222,6 +232,129 @@ struct CloseUpMapView: UIViewRepresentable {
       layer(.checked, radius: 4, fill: UIColor(named: "PinDoneColor") ?? .systemGreen, ring: nil, ringWidth: 0)
       layer(.open, radius: 5, fill: .systemGray, ring: .white, ringWidth: 1.5)
       layer(.look, radius: 5, fill: .systemGray, ring: UIColor(named: "BrandAmber") ?? .systemOrange, ringWidth: 2)
+    }
+
+    static let footprintID = "footprints"
+
+    /// Once the tiles in view are loaded, looks up footprints for the target and for neighbours in
+    /// view that haven't been looked up.
+    func mapViewDidBecomeIdle(_ mapView: MLNMapView) {
+      guard let parent, parent.kind != .point, let style = mapView.style else { return }
+      let visible = mapView.visibleCoordinateBounds
+      let todo = parent.neighbours.filter { n in
+        !lookedFor.contains(n.id) && n.latitude >= visible.sw.latitude && n.latitude <= visible.ne.latitude
+          && n.longitude >= visible.sw.longitude && n.longitude <= visible.ne.longitude
+      }
+      guard !lookedForTarget || !todo.isEmpty else { return }
+      let shapes = Self.tileLines(in: style, sourceLayer: parent.kind == .building ? "building" : "transportation")
+      guard !shapes.isEmpty else { return }
+      func find(_ point: CLLocationCoordinate2D) -> [CLLocationCoordinate2D]? {
+        parent.kind == .building ? Footprint.outline(for: point, in: shapes) : Footprint.bar(for: point, streets: shapes)
+      }
+      if !lookedForTarget {
+        lookedForTarget = true
+        targetFootprint = find(parent.target)
+        // A building can be bigger than the first frame: fit its outline too, unless moved.
+        if parent.kind == .building, let outline = targetFootprint {
+          extraFramePoints = outline
+          if !userMoved { frame(mapView, report: true) }
+        }
+      }
+      for n in todo {
+        lookedFor.insert(n.id)
+        footprints[n.id] = find(n.coordinate)
+      }
+      drawFootprints(in: style)
+    }
+
+    /// Building rings or street lines from the style's vector tiles, in the loaded tiles only.
+    /// Streets are the ones cars use: a crossing sits on one.
+    private static func tileLines(in style: MLNStyle, sourceLayer: String) -> [[CLLocationCoordinate2D]] {
+      let sourceID = style.layers.lazy.compactMap { $0 as? MLNVectorStyleLayer }
+        .first { $0.sourceLayerIdentifier == sourceLayer }?.sourceIdentifier
+      guard let sourceID, let source = style.source(withIdentifier: sourceID) as? MLNVectorTileSource else { return [] }
+      let streets = ["motorway", "trunk", "primary", "secondary", "tertiary", "minor", "service"]
+      let predicate = sourceLayer == "transportation" ? NSPredicate(format: "%K IN %@", "class", streets) : nil
+      func points(_ shape: MLNMultiPoint) -> [CLLocationCoordinate2D] {
+        Array(UnsafeBufferPointer(start: shape.coordinates, count: Int(shape.pointCount)))
+      }
+      return source.features(sourceLayerIdentifiers: [sourceLayer], predicate: predicate).flatMap { feature -> [[CLLocationCoordinate2D]] in
+        switch feature {
+        case let f as MLNPolygonFeature: [points(f)]
+        case let f as MLNMultiPolygonFeature: f.polygons.map(points)
+        case let f as MLNPolylineFeature: [points(f)]
+        case let f as MLNMultiPolylineFeature: f.polylines.map(points)
+        default: []
+        }
+      }
+    }
+
+    /// Outlines (fill and line) or bars (a wide cased line), coloured like the pins and dots: the
+    /// target navy, open gray, checked green, needs another look amber. Under the dots and the pin.
+    func drawFootprints(in style: MLNStyle) {
+      guard styleLoaded, let parent, parent.kind != .point else { return }
+      let state = Dictionary(uniqueKeysWithValues: parent.neighbours.map { ($0.id, $0.state.rawValue) })
+      var shapes: [(String, [CLLocationCoordinate2D])] = targetFootprint.map { [("target", $0)] } ?? []
+      for (id, ring) in footprints.sorted(by: { $0.key < $1.key }) {
+        if let s = state[id] { shapes.append((s, ring)) }
+      }
+      let key = shapes.map { "\($0.0)\($0.1.first?.latitude ?? 0)" }
+      guard key != drawnFootprints || style.source(withIdentifier: Self.footprintID) == nil else { return }
+      drawnFootprints = key
+      let features: [MLNShape & MLNFeature] = shapes.map { s, points in
+        var points = points
+        if parent.kind == .building {
+          let f = MLNPolygonFeature(coordinates: &points, count: UInt(points.count))
+          f.attributes = ["state": s]
+          return f
+        }
+        let f = MLNPolylineFeature(coordinates: &points, count: UInt(points.count))
+        f.attributes = ["state": s]
+        return f
+      }
+      if let source = style.source(withIdentifier: Self.footprintID) as? MLNShapeSource {
+        source.shape = MLNShapeCollectionFeature(shapes: features)
+        return
+      }
+      let source = MLNShapeSource(identifier: Self.footprintID, shape: MLNShapeCollectionFeature(shapes: features), options: nil)
+      style.addSource(source)
+      let below = style.layer(withIdentifier: "\(Self.sourceID)-\(Neighbour.State.checked.rawValue)")
+      func insert(_ layer: MLNStyleLayer) {
+        if let below { style.insertLayer(layer, below: below) } else { style.addLayer(layer) }
+      }
+      let colors: [(String, UIColor)] = [
+        ("open", .systemGray), ("checked", UIColor(named: "PinDoneColor") ?? .systemGreen),
+        ("look", UIColor(named: "BrandAmber") ?? .systemOrange), ("target", UIColor(named: "BrandNavy") ?? .label),
+      ]
+      for (s, color) in colors {
+        let target = s == "target"
+        let id = "\(Self.footprintID)-\(s)"
+        let predicate = NSPredicate(format: "state == %@", s)
+        if parent.kind == .building {
+          let fill = MLNFillStyleLayer(identifier: "\(id)-fill", source: source)
+          fill.predicate = predicate
+          fill.fillColor = NSExpression(forConstantValue: color)
+          fill.fillOpacity = NSExpression(forConstantValue: target ? 0.15 : 0.1)
+          insert(fill)
+          let line = MLNLineStyleLayer(identifier: "\(id)-line", source: source)
+          line.predicate = predicate
+          line.lineColor = NSExpression(forConstantValue: color)
+          line.lineWidth = NSExpression(forConstantValue: target ? 3 : 1.5)
+          insert(line)
+        } else {
+          let casing = MLNLineStyleLayer(identifier: "\(id)-casing", source: source)
+          casing.predicate = predicate
+          casing.lineColor = NSExpression(forConstantValue: color)
+          casing.lineWidth = NSExpression(forConstantValue: target ? 12 : 8)
+          insert(casing)
+          let stripes = MLNLineStyleLayer(identifier: "\(id)-stripes", source: source)
+          stripes.predicate = predicate
+          stripes.lineColor = NSExpression(forConstantValue: UIColor.white)
+          stripes.lineWidth = NSExpression(forConstantValue: target ? 8 : 5)
+          stripes.lineDashPattern = NSExpression(forConstantValue: [0.4, 0.4])
+          insert(stripes)
+        }
+      }
     }
 
     static let demoYouID = "demo-you"

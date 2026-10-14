@@ -455,6 +455,7 @@ struct TaskView: View {
       styleURL: AppConfig.detailStyle, target: coordinate,
       pin: TaskMapView.Pin(done: checked, pending: false, reported: reports[task.id.value] != nil),
       name: name, neighbours: others, you: live.coordinate, recenter: recenter, aerial: aerial,
+      kind: Footprint.kind(task),
       moved: { mapMoved = $0 }, framed: { dotsInView = $0 }, demoYou: live.isFixed ? live.coordinate : nil
     )
     .containerRelativeFrame(.vertical) { height, _ in max(220, height * 0.35) }
