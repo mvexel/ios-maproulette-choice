@@ -368,7 +368,8 @@ struct CloseUpMapView: UIViewRepresentable {
           insert(casing)
           let stripes = MLNLineStyleLayer(identifier: "\(id)-stripes", source: source)
           stripes.predicate = predicate
-          stripes.lineColor = NSExpression(forConstantValue: UIColor.white)
+          // The dark map's target bar is white, so its stripes go dark to stay a crossing.
+          stripes.lineColor = NSExpression(forConstantValue: dark && target ? UIColor(white: 0.15, alpha: 1) : UIColor.white)
           stripes.lineWidth = NSExpression(forConstantValue: target ? 8 : 5)
           stripes.lineDashPattern = NSExpression(forConstantValue: [0.4, 0.4])
           insert(stripes)
