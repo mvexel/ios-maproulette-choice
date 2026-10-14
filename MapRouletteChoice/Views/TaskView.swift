@@ -466,6 +466,7 @@ struct TaskView: View {
         Text(Wording.aerialView).tag(true)
       }
       .pickerStyle(.segmented)
+      .controlSize(.small)
       .fixedSize()
       .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
       .padding(8)
