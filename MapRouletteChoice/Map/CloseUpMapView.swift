@@ -254,6 +254,11 @@ struct CloseUpMapView: UIViewRepresentable {
       if !lookedForTarget {
         lookedForTarget = true
         targetFootprint = find(parent.target)
+        // A building can be bigger than the first frame: fit its outline too, unless moved.
+        if parent.kind == .building, let outline = targetFootprint {
+          extraFramePoints = outline
+          if !userMoved { frame(mapView, report: true) }
+        }
       }
       for n in todo {
         lookedFor.insert(n.id)
@@ -329,7 +334,7 @@ struct CloseUpMapView: UIViewRepresentable {
           let fill = MLNFillStyleLayer(identifier: "\(id)-fill", source: source)
           fill.predicate = predicate
           fill.fillColor = NSExpression(forConstantValue: color)
-          fill.fillOpacity = NSExpression(forConstantValue: target ? 0.25 : 0.12)
+          fill.fillOpacity = NSExpression(forConstantValue: target ? 0.15 : 0.1)
           insert(fill)
           let line = MLNLineStyleLayer(identifier: "\(id)-line", source: source)
           line.predicate = predicate
