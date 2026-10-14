@@ -20,6 +20,8 @@ import Observation
   @ObservationIgnored private var ticker: Task<Void, Never>?
   /// `-demoFix` readings: no manager, no updates.
   @ObservationIgnored private let fixed: Bool
+  /// A `-demoFix` reading: the map draws it itself.
+  var isFixed: Bool { fixed }
 
   override init() {
     fixed = false
