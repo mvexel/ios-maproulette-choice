@@ -47,6 +47,8 @@ struct CloseUpMapView: UIViewRepresentable {
     "https://apps.geo.fpac.usda.gov/geo-imagery/rest/services/naip/conus_naip/ImageServer/exportImage?f=image&format=jpg&bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256"
   static let aerialMaxZoom = 19
   static let aerialCredit = "Imagery: USDA NAIP 2024"
+  /// The toggle's height plus its padding.
+  static let toggleInset: CGFloat = 44
 
   func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -60,6 +62,8 @@ struct CloseUpMapView: UIViewRepresentable {
     map.compassView.isHidden = true
     map.showsUserLocation = showsPuck
     map.showsUserHeadingIndicator = true
+    // The Map / Aerial photo toggle sits along the top: frames and centring keep clear of it.
+    map.contentInset = UIEdgeInsets(top: Self.toggleInset, left: 0, bottom: 0, right: 0)
     map.setCenter(target, zoomLevel: Self.targetZoom, animated: false)
     let annotation = TaskMapView.TaskAnnotation()
     annotation.coordinate = target
@@ -150,9 +154,13 @@ struct CloseUpMapView: UIViewRepresentable {
     static let aerialID = "aerial"
 
     /// The photo sits under the first label layer, so street names stay on top and the street map's
-    /// fills and lines are covered. Added once, then only shown or hidden.
+    /// fills and lines are covered. Added once, then only shown or hidden. The flat building fills
+    /// can sit above it in the style, so they hide while it shows.
     func showAerial(_ on: Bool, in style: MLNStyle) {
       guard styleLoaded else { return }
+      for flat in style.layers where flat.identifier.hasSuffix("-flat") && flat.isVisible == on {
+        flat.isVisible = !on
+      }
       if let layer = style.layer(withIdentifier: Self.aerialID) {
         if layer.isVisible != on { layer.isVisible = on }
         return
