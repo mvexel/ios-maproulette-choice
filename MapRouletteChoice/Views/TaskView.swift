@@ -41,6 +41,8 @@ struct TaskView: View {
   @State private var live = TaskView.makeLive()
   /// Bumped by the recenter button; the map restores its first frame.
   @State private var recenter = 0
+  /// Map or aerial photo on the task map, kept from place to place (§D).
+  @AppStorage(SettingsKey.aerialPhoto) private var aerial = false
   @State private var mapMoved = false
   /// Neighbours in the map's first frame: the "Grey dots…" line shows when there are any.
   @State private var dotsInView = 0
@@ -452,7 +454,7 @@ struct TaskView: View {
     return CloseUpMapView(
       styleURL: AppConfig.detailStyle, target: coordinate,
       pin: TaskMapView.Pin(done: checked, pending: false, reported: reports[task.id.value] != nil),
-      name: name, neighbours: others, you: live.coordinate, recenter: recenter,
+      name: name, neighbours: others, you: live.coordinate, recenter: recenter, aerial: aerial,
       moved: { mapMoved = $0 }, framed: { dotsInView = $0 }, demoYou: live.isFixed ? live.coordinate : nil
     )
     .containerRelativeFrame(.vertical) { height, _ in max(220, height * 0.35) }
@@ -461,6 +463,29 @@ struct TaskView: View {
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(Wording.closeUpMapLabel(name, noun, neighbours: !others.isEmpty))
     .accessibilityAddTraits(.isImage)
+    .overlay(alignment: .topTrailing) {
+      Picker("Map view", selection: $aerial) {
+        Text(Wording.mapView).tag(false)
+        Text(Wording.aerialView).tag(true)
+      }
+      .pickerStyle(.segmented)
+      .controlSize(.small)
+      .fixedSize()
+      .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+      .padding(8)
+    }
+    .overlay(alignment: .bottomLeading) {
+      if aerial {
+        Text(CloseUpMapView.aerialCredit)
+          .font(.caption2)
+          .padding(.horizontal, 6)
+          .padding(.vertical, 2)
+          .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 4))
+          // Above MapLibre's logo.
+          .padding(.leading, 6)
+          .padding(.bottom, 34)
+      }
+    }
     .overlay(alignment: .bottomTrailing) {
       if mapMoved {
         Button {

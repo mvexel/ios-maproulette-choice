@@ -27,6 +27,8 @@ struct CloseUpMapView: UIViewRepresentable {
   /// The live position, for the first frame.
   let you: CLLocationCoordinate2D?
   var recenter = 0
+  /// The aerial photo under the labels instead of the street map (design/which-one-spec.md §D).
+  var aerial = false
   /// The person moved the map (pan or pinch); the recenter button shows.
   var moved: (Bool) -> Void = { _ in }
   /// How many neighbours are in view, for the "Grey dots…" line: after each frame and each move.
@@ -37,6 +39,16 @@ struct CloseUpMapView: UIViewRepresentable {
   static let farAway: CLLocationDistance = 150
   static let zoomRange: ClosedRange<Double> = 17...20
   static let targetZoom: Double = 19
+
+  /// USDA NAIP 2024 (60 cm), public domain and keyless, from its ImageServer: each tile is an
+  /// `exportImage` of the tile's Web Mercator box (design/imagery-licence-check.md). Rendered on
+  /// demand, so requests stop at z19 and MapLibre overzooms to 20.
+  static let aerialTiles =
+    "https://apps.geo.fpac.usda.gov/geo-imagery/rest/services/naip/conus_naip/ImageServer/exportImage?f=image&format=jpg&bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256"
+  static let aerialMaxZoom = 19
+  static let aerialCredit = "Imagery: USDA NAIP 2024"
+  /// The toggle's height plus its padding.
+  static let toggleInset: CGFloat = 44
 
   func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -50,6 +62,8 @@ struct CloseUpMapView: UIViewRepresentable {
     map.compassView.isHidden = true
     map.showsUserLocation = showsPuck
     map.showsUserHeadingIndicator = true
+    // The Map / Aerial photo toggle sits along the top: frames and centring keep clear of it.
+    map.contentInset = UIEdgeInsets(top: Self.toggleInset, left: 0, bottom: 0, right: 0)
     map.setCenter(target, zoomLevel: Self.targetZoom, animated: false)
     let annotation = TaskMapView.TaskAnnotation()
     annotation.coordinate = target
@@ -65,6 +79,7 @@ struct CloseUpMapView: UIViewRepresentable {
     if map.showsUserLocation != showsPuck { map.showsUserLocation = showsPuck }
     if let style = map.style {
       c.drawNeighbours(in: style)
+      c.showAerial(aerial, in: style)
       c.drawDemoYou(in: style)
     }
     if recenter != c.recentered {
@@ -145,6 +160,34 @@ struct CloseUpMapView: UIViewRepresentable {
     }
 
     static let sourceID = "neighbours"
+    static let aerialID = "aerial"
+
+    /// The photo sits under the first label layer, so street names stay on top and the street map's
+    /// fills and lines are covered. Added once, then only shown or hidden. The flat building fills
+    /// can sit above it in the style, so they hide while it shows.
+    func showAerial(_ on: Bool, in style: MLNStyle) {
+      guard styleLoaded else { return }
+      for flat in style.layers where flat.identifier.hasSuffix("-flat") && flat.isVisible == on {
+        flat.isVisible = !on
+      }
+      if let layer = style.layer(withIdentifier: Self.aerialID) {
+        if layer.isVisible != on { layer.isVisible = on }
+        return
+      }
+      guard on else { return }
+      let source = MLNRasterTileSource(
+        identifier: Self.aerialID, tileURLTemplates: [CloseUpMapView.aerialTiles],
+        options: [.tileSize: 256, .maximumZoomLevel: CloseUpMapView.aerialMaxZoom])
+      style.addSource(source)
+      let layer = MLNRasterStyleLayer(identifier: Self.aerialID, source: source)
+      if let labels = style.layers.first(where: { $0 is MLNSymbolStyleLayer }) {
+        style.insertLayer(layer, below: labels)
+      } else if let dots = style.layer(withIdentifier: "\(Self.sourceID)-\(Neighbour.State.checked.rawValue)") {
+        style.insertLayer(layer, below: dots)
+      } else {
+        style.addLayer(layer)
+      }
+    }
 
     /// One shape source, one circle layer per state (§B): open gray with a white ring, checked
     /// green and smaller, needs another look gray with an amber ring. Style layers sit under the
@@ -225,6 +268,7 @@ struct CloseUpMapView: UIViewRepresentable {
       }
       styleLoaded = true
       drawNeighbours(in: style)
+      if let parent { showAerial(parent.aerial, in: style) }
       drawDemoYou(in: style)
       if !userMoved { frame(mapView, report: true) }
     }
