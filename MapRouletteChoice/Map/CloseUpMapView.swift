@@ -48,7 +48,7 @@ struct CloseUpMapView: UIViewRepresentable {
     map.allowsRotating = false
     map.allowsTilting = false
     map.compassView.isHidden = true
-    map.showsUserLocation = Self.locationAllowed
+    map.showsUserLocation = showsPuck
     map.showsUserHeadingIndicator = true
     map.setCenter(target, zoomLevel: Self.targetZoom, animated: false)
     let annotation = TaskMapView.TaskAnnotation()
@@ -62,7 +62,7 @@ struct CloseUpMapView: UIViewRepresentable {
   func updateUIView(_ map: MLNMapView, context: Context) {
     let c = context.coordinator
     c.parent = self
-    if map.showsUserLocation != Self.locationAllowed { map.showsUserLocation = Self.locationAllowed }
+    if map.showsUserLocation != showsPuck { map.showsUserLocation = showsPuck }
     if let style = map.style {
       c.drawNeighbours(in: style)
       c.drawDemoYou(in: style)
@@ -75,6 +75,9 @@ struct CloseUpMapView: UIViewRepresentable {
       c.frame(map, report: true)
     }
   }
+
+  /// The map's own blue dot: the real location, unless a `-demoFix` dot stands in for it.
+  private var showsPuck: Bool { demoYou == nil && Self.locationAllowed }
 
   private static var locationAllowed: Bool {
     switch CLLocationManager().authorizationStatus {
