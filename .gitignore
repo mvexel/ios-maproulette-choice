@@ -2,3 +2,4 @@ xcuserdata/
 *.xcresult
 .swiftpm/
 DerivedData/
+build/

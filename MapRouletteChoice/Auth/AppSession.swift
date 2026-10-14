@@ -66,6 +66,9 @@ struct SessionClient: Sendable {
   @ObservationIgnored private var scopes: Set<String> = []
   @ObservationIgnored private let log = Logger(subsystem: "lol.osm.maproulette.choice", category: "auth")
   @ObservationIgnored private let demo: (any Transport)?
+  /// The claim a phone sign-in just started, followed until it finishes (B5 progress).
+  @ObservationIgnored private var startedClaim: Int64?
+  @ObservationIgnored private var claimFollower: Task<Void, Never>?
   /// This build lets participants answer before signing in (`MAPROULETTE_GUESTS`).
   let guestsEnabled: Bool
   /// The backend refused guests (e.g. turned off there); this launch falls back to signing in.
@@ -138,17 +141,25 @@ struct SessionClient: Sendable {
             ?? "Demo campaign. Nothing is saved.",
           canWriteTasks: true, canEditOsm: true)
       deletionSetting = false
+      // The demo account's grant, so a later status line (claim progress) keeps it writable.
+      if !guest { scopes = [Self.readScope, Self.writeScope, Self.tagfixScope] }
+      if !guest, Self.demoClaimArgument() == "progress" { followClaim(DemoBackend.claimID) }
     }
   #endif
 
   #if DEBUG
-    /// `-demoClaim started|waiting|gone|reauth|later`: the status line after a phone sign-in
-    /// claimed 3 saved answers (B5), for screenshots.
-    private static func demoClaimOutcome() -> ClaimOutcome? {
+    /// `-demoClaim started|progress|waiting|gone|reauth|later`: the status line after a phone
+    /// sign-in claimed 3 saved answers (B5), for screenshots. `progress` then follows the demo
+    /// claim to its result.
+    private static func demoClaimArgument() -> String? {
       let args = ProcessInfo.processInfo.arguments
       guard let i = args.firstIndex(of: "-demoClaim"), i + 1 < args.count else { return nil }
-      switch args[i + 1] {
-      case "started": return .started(pending: 3, waiting: false)
+      return args[i + 1]
+    }
+
+    private static func demoClaimOutcome() -> ClaimOutcome? {
+      switch demoClaimArgument() {
+      case "started", "progress": return .started(pending: 3, waiting: false)
       case "waiting": return .started(pending: 3, waiting: true)
       case "gone": return .gone
       case "reauth": return .reauth
@@ -171,8 +182,7 @@ struct SessionClient: Sendable {
     switch result {
     case .signedIn:
       // A guest kept from a phone sign-in whose claim didn't finish: try again (same claim).
-      let claimed = await claimKeptGuest(auth)
-      publish(claimed.map { Wording.claimMessage($0, name: view.displayName) } ?? signedInMessage(), detail: signedInDetail())
+      publishClaim(await claimKeptGuest(auth))
     case .guest: if !(await upgradeIfClaimed(auth)) { publish(signedOutMessage()) }
     case .signedOut: publish(signedOutMessage())
     case .refreshInterrupted: publish("Please sign in again.", detail: "A previous refresh was interrupted.")
@@ -281,6 +291,7 @@ struct SessionClient: Sendable {
     do {
       let claim = try await auth.claimGuest(environment: Self.environment(endpoints, writes: true), transport: transport)
       lastLinkEmail = nil
+      startedClaim = claim.claimID
       return .started(pending: claim.pendingCount, waiting: claim.state == .waiting)
     } catch let error as MapRouletteError where error.reason == "not_found" || error.reason == "guest_claimed" {
       return .gone
@@ -289,6 +300,40 @@ struct SessionClient: Sendable {
     } catch {
       log.debug("Claim failed: \(String(describing: type(of: error)), privacy: .public)")
       return .later
+    }
+  }
+
+  /// Publishes what a phone sign-in's claim did, then follows a claim that is putting answers on
+  /// the map until it finishes.
+  private func publishClaim(_ claimed: ClaimOutcome?) {
+    publish(claimed.map { Wording.claimMessage($0, name: view.displayName) } ?? signedInMessage(), detail: signedInDetail())
+    defer { startedClaim = nil }
+    guard case .started(pending: let pending, waiting: false)? = claimed, pending > 0, let id = startedClaim else { return }
+    followClaim(id)
+  }
+
+  nonisolated static let claimPolls = 40
+  nonisolated static let claimPollInterval = Duration.seconds(3)
+
+  /// Reads the claim's progress every few seconds (`getClaimStatus`) and shows it on the status
+  /// line, until it is done or failed, the session changes, or about two minutes pass; then it
+  /// says the claim finishes on its own. A failed read just waits for the next one.
+  private func followClaim(_ id: Int64) {
+    claimFollower?.cancel()
+    let generation = view.generation
+    let detail = view.detail
+    claimFollower = Task { [weak self] in
+      for _ in 0..<Self.claimPolls {
+        try? await Task.sleep(for: Self.claimPollInterval)
+        guard let self, !Task.isCancelled, self.view.generation == generation, self.view.signedIn else { return }
+        guard let status = try? await self.newClient().client.getClaimStatus(id) else { continue }
+        // Publishing turned off meanwhile: stop, and the line already shown stays.
+        guard !Task.isCancelled, self.view.generation == generation, status.state != .waiting else { return }
+        self.publish(Wording.claimProgress(status), detail: detail)
+        if status.state == .done || status.state == .failed { return }
+      }
+      guard let self, !Task.isCancelled, self.view.generation == generation else { return }
+      self.publish(Wording.claimStillGoing, detail: detail)
     }
   }
 
@@ -368,8 +413,7 @@ struct SessionClient: Sendable {
         try await authenticate($0)
       }
       await sync(auth)
-      let claimed = await claimKeptGuest(auth)
-      publish(claimed.map { Wording.claimMessage($0, name: view.displayName) } ?? signedInMessage(), detail: signedInDetail())
+      publishClaim(await claimKeptGuest(auth))
     } catch SignInFailure.superseded {
       return  // A newer sign-in or sign-out owns the view.
     } catch {
