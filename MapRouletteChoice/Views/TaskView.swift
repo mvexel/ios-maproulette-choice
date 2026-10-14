@@ -294,7 +294,7 @@ struct TaskView: View {
 
   @ViewBuilder private func content(_ c: TaskWorkController) -> some View {
     let state = c.state
-    if let loaded = state.loaded { header(loaded, checked: Self.showsChecked(state), movedTo: reviewedSpot(state)) }
+    if let loaded = state.loaded { header(c, loaded, checked: Self.showsChecked(state), movedTo: reviewedSpot(state)) }
     if let switchNotice, !isLoading(state) { banner(switchNotice) }
     switch state {
     case .loading:
@@ -385,7 +385,9 @@ struct TaskView: View {
     return CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
   }
 
-  @ViewBuilder private func header(_ loaded: LoadedTask, checked: Bool, movedTo: CLLocationCoordinate2D?) -> some View {
+  @ViewBuilder private func header(
+    _ c: TaskWorkController, _ loaded: LoadedTask, checked: Bool, movedTo: CLLocationCoordinate2D?
+  ) -> some View {
     let task = loaded.task
     if let coordinate = TaskLocation.coordinate(task), let movedTo {
       // "On the map", the navy pin and the dashed line, as on the moved map (§3.2 step 4).
@@ -405,6 +407,7 @@ struct TaskView: View {
       if dotsInView > 0 {
         Text(Wording.otherDots(noun)).font(.footnote).foregroundStyle(.secondary)
       }
+      cantTellLink(c)
     }
     VStack(alignment: .leading, spacing: 4) {
       Text(Wording.placeName(task, noun)).font(.title2.bold())
@@ -646,20 +649,27 @@ struct TaskView: View {
       notSure.insert(q.id)
       advance()
     }
-    // The honest way out when the place can't be told apart from its neighbours (§F): recorded as
-    // "I can't check this", Needs another look.
-    if let tooHard = form.outcomes.first(where: { $0.id == ChoiceOutcome.tooHardID }),
+    if index > 0 {
+      Button("Previous question", systemImage: "chevron.left") { step = index - 1 }
+        .frame(minHeight: 44)
+    }
+  }
+
+  /// The honest way out when the place can't be told apart from its neighbours (§F): a link with
+  /// the map, under the direction and dots lines, so it shows without scrolling on any phone.
+  /// Recorded as "I can't check this", Needs another look; offered while the questions are open.
+  @ViewBuilder private func cantTellLink(_ c: TaskWorkController) -> some View {
+    if case .answering(let loaded, let form, _) = c.state, c.canEditOsm, report == nil,
+      step < form.work.questions.count,
+      let tooHard = form.outcomes.first(where: { $0.id == ChoiceOutcome.tooHardID }),
       c.offers(loaded.task, form, .outcome(tooHard))
     {
       Button(Wording.cantTell(noun)) {
         cantTell = true
         choose(c, loaded, form, .outcome(tooHard))
       }
-      .frame(maxWidth: .infinity, minHeight: 44)
-    }
-    if index > 0 {
-      Button("Previous question", systemImage: "chevron.left") { step = index - 1 }
-        .frame(minHeight: 44)
+      .font(.subheadline)
+      .frame(minHeight: 44)
     }
   }
 
