@@ -10,6 +10,8 @@ import Observation
   private(set) var accuracy: CLLocationAccuracy = -1
   /// Facing in degrees (0 = north), nil without a usable compass reading.
   private(set) var heading: Double?
+  /// Location is denied or restricted for the app: the screen says how to turn it on (§C rule 1).
+  private(set) var denied = false
 
   /// A compass reading worse than this is not used: the line falls back to compass points.
   nonisolated static let usableHeadingAccuracy: CLLocationDirection = 45
@@ -104,8 +106,16 @@ import Observation
   }
 
   nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-    Task { @MainActor in begin() }
+    let status = manager.authorizationStatus
+    Task { @MainActor in
+      let off = status == .denied || status == .restricted
+      if denied != off { denied = off }
+      begin()
+    }
   }
 
-  nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: any Error) {}
+  nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: any Error) {
+    guard (error as? CLError)?.code == .denied else { return }
+    Task { @MainActor in if !denied { denied = true } }
+  }
 }

@@ -401,6 +401,10 @@ struct TaskView: View {
       if let directionLine {
         Text(directionLine).font(.body)
           .accessibilityAddTraits(.updatesFrequently)
+      } else if live.denied, let settings = URL(string: UIApplication.openSettingsURLString) {
+        // Nothing while the prompt is pending or before the first fix; only when it's off (§C).
+        Text(Wording.locationOff(noun)).font(.body)
+        Link(Wording.openSettings, destination: settings).font(.subheadline).frame(minHeight: 44)
       }
       if dotsInView > 0 {
         Text(Wording.otherDots(noun)).font(.footnote).foregroundStyle(.secondary)
