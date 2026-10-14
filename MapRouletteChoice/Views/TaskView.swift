@@ -433,7 +433,7 @@ struct TaskView: View {
     }
   }
 
-  /// The close-up map (design/which-one-spec.md §A, §B): 45% of the screen, at least 260 pt, with a
+  /// The close-up map (design/which-one-spec.md §A, §B): 35% of the screen, at least 220 pt (so "I can't tell" fits above the fold, §F), with a
   /// recenter button once the person has moved it.
   private func closeUpMap(_ task: MapRouletteTask, at coordinate: CLLocationCoordinate2D, checked: Bool) -> some View {
     let name = Wording.placeName(task, noun)
@@ -444,7 +444,7 @@ struct TaskView: View {
       name: name, neighbours: others, you: live.coordinate, recenter: recenter,
       moved: { mapMoved = $0 }, framed: { dotsInView = $0 }, demoYou: live.isFixed ? live.coordinate : nil
     )
-    .containerRelativeFrame(.vertical) { height, _ in max(260, height * 0.45) }
+    .containerRelativeFrame(.vertical) { height, _ in max(220, height * 0.35) }
     .clipShape(RoundedRectangle(cornerRadius: 12))
     // One element: the tiles' street names and the dots aren't readable text.
     .accessibilityElement(children: .ignore)
