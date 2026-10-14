@@ -33,8 +33,10 @@ struct CloseUpMapView: UIViewRepresentable {
   var kind: Footprint.Kind = .point
   /// The person moved the map (pan or pinch); the recenter button shows.
   var moved: (Bool) -> Void = { _ in }
-  /// How many neighbours the first frame shows, for the "Grey dots…" line.
+  /// How many neighbours are in view, for the "Grey dots…" line: after each frame and each move.
   var framed: (Int) -> Void = { _ in }
+  /// A `-demoFix` reading, drawn as the blue dot: the map's own puck follows only the real location.
+  var demoYou: CLLocationCoordinate2D?
 
   static let farAway: CLLocationDistance = 150
   static let zoomRange: ClosedRange<Double> = 17...20
@@ -77,6 +79,7 @@ struct CloseUpMapView: UIViewRepresentable {
       c.drawNeighbours(in: style)
       c.drawFootprints(in: style)
       c.showAerial(aerial, in: style)
+      c.drawDemoYou(in: style)
     }
     if recenter != c.recentered {
       c.recentered = recenter
@@ -329,12 +332,42 @@ struct CloseUpMapView: UIViewRepresentable {
       }
     }
 
+    static let demoYouID = "demo-you"
+
+    func drawDemoYou(in style: MLNStyle) {
+      guard styleLoaded, let you = parent?.demoYou else { return }
+      let point = MLNPointFeature()
+      point.coordinate = you
+      if let source = style.source(withIdentifier: Self.demoYouID) as? MLNShapeSource {
+        source.shape = point
+        return
+      }
+      let source = MLNShapeSource(identifier: Self.demoYouID, shape: point, options: nil)
+      style.addSource(source)
+      let dot = MLNCircleStyleLayer(identifier: Self.demoYouID, source: source)
+      dot.circleRadius = NSExpression(forConstantValue: 8)
+      dot.circleColor = NSExpression(forConstantValue: UIColor.systemBlue)
+      dot.circleStrokeColor = NSExpression(forConstantValue: UIColor.white)
+      dot.circleStrokeWidth = NSExpression(forConstantValue: 3)
+      style.addLayer(dot)
+    }
+
     func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
+      // 3D buildings tilt and hide the street at this zoom; flat footprints keep the context.
+      for buildings in style.layers.compactMap({ $0 as? MLNFillExtrusionStyleLayer }) {
+        buildings.isVisible = false
+        guard let sourceID = buildings.sourceIdentifier, let source = style.source(withIdentifier: sourceID),
+          style.layer(withIdentifier: "\(buildings.identifier)-flat") == nil
+        else { continue }
+        let flat = MLNFillStyleLayer(identifier: "\(buildings.identifier)-flat", source: source)
+        flat.sourceLayerIdentifier = buildings.sourceLayerIdentifier
+        flat.predicate = buildings.predicate
+        flat.fillColor = NSExpression(forConstantValue: UIColor(white: 0.86, alpha: 1))
+        flat.fillOutlineColor = NSExpression(forConstantValue: UIColor(white: 0.7, alpha: 1))
+        style.insertLayer(flat, below: buildings)
+      }
       for layer in style.layers {
-        if let buildings = layer as? MLNFillExtrusionStyleLayer {
-          buildings.isVisible = false
-          continue
-        }
+        if layer is MLNFillExtrusionStyleLayer { continue }
         if let symbols = layer as? MLNSymbolStyleLayer, let source = symbols.sourceLayerIdentifier,
           TaskMapView.Coordinator.hiddenSymbolSources.contains(source)
         {
@@ -344,12 +377,14 @@ struct CloseUpMapView: UIViewRepresentable {
       styleLoaded = true
       drawNeighbours(in: style)
       if let parent { showAerial(parent.aerial, in: style) }
+      drawDemoYou(in: style)
       if !userMoved { frame(mapView, report: true) }
     }
 
     func mapView(_ mapView: MLNMapView, regionDidChangeWith reason: MLNCameraChangeReason, animated: Bool) {
       let gestures: MLNCameraChangeReason = [.gesturePan, .gesturePinch, .gestureZoomIn, .gestureZoomOut, .gestureOneFingerZoom]
       if !reason.intersection(gestures).isEmpty { setMoved(true) }
+      reportFramed(mapView)
     }
 
     func mapView(_ mapView: MLNMapView, viewFor annotation: any MLNAnnotation) -> MLNAnnotationView? {

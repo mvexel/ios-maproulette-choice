@@ -242,8 +242,9 @@ struct TaskView: View {
     counted = true
     // In preview nothing is stored and the card never opens (§4.2).
     guard let d = campaigns.finished(state, preview: preview) else { return }
-    if d.savedForLater && !putOnMapCardShown {
-      // Once, after the first saved answer; later from the campaign's banner.
+    if d.savedForLater && !putOnMapCardShown, case .answers = d.action {
+      // Once, after the first saved answer (not a can't-check or a report: nothing of those goes
+      // on the map); later from the campaign's banner.
       putOnMapCardShown = true
       showPutOnMap = true
     }
@@ -444,7 +445,7 @@ struct TaskView: View {
       pin: TaskMapView.Pin(done: checked, pending: false, reported: reports[task.id.value] != nil),
       name: name, neighbours: others, you: live.coordinate, recenter: recenter, aerial: aerial,
       kind: Footprint.kind(task),
-      moved: { mapMoved = $0 }, framed: { dotsInView = $0 }
+      moved: { mapMoved = $0 }, framed: { dotsInView = $0 }, demoYou: live.isFixed ? live.coordinate : nil
     )
     .containerRelativeFrame(.vertical) { height, _ in max(260, height * 0.45) }
     .clipShape(RoundedRectangle(cornerRadius: 12))
