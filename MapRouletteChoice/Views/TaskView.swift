@@ -129,6 +129,8 @@ struct TaskView: View {
     // The place name heads the screen; a title would repeat it.
     .navigationTitle("")
     .navigationBarTitleDisplayMode(.inline)
+    // The map scrolls under the bar: keep its material, so Back stays readable.
+    .toolbarBackground(.visible, for: .navigationBar)
     // Back is blocked while a write is in flight (normally a few seconds).
     .navigationBarBackButtonHidden(controller?.busy == true)
     .alert(
