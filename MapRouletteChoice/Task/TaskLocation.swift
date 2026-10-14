@@ -154,8 +154,9 @@ enum TaskLocation {
     return points[Int((normalized + 22.5) / 45) % 8]
   }
 
-  static func distance(_ meters: CLLocationDistance) -> String {
-    let style = Measurement(value: meters, unit: UnitLength.meters)
-    return style.formatted(.measurement(width: .abbreviated, usage: .road))
+  /// The one unit rule for every distance line (design/which-one-spec.md §C): feet and miles in
+  /// the US only, metres and km everywhere else, the UK included.
+  static func distance(_ meters: CLLocationDistance, us: Bool = DirectionLine.usesFeet) -> String {
+    DirectionLine.distance(meters, us: us)
   }
 }

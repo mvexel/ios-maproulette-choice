@@ -24,6 +24,7 @@ struct Noun: Hashable, Sendable {
     ("leisure", "playground", Noun(one: "playground", many: "playgrounds")),
     ("leisure", "park", Noun(one: "park", many: "parks")),
     ("entrance", nil, Noun(one: "entrance", many: "entrances")),
+    ("natural", "tree", Noun(one: "tree", many: "trees")),
   ]
 
   static func from(match: [String: String]) -> Noun {
@@ -79,6 +80,17 @@ enum Wording {
 
   static let skipExplained = "Leave it for someone else."
   static let cantCheckExplained = "You're near it but can't see or reach it."
+  /// The way out on the question screen (design/which-one-spec.md §F): records "I can't check".
+  static func cantTell(_ noun: Noun) -> String { "I can't tell which \(noun.one)" }
+  static func cantTellThanks(_ noun: Noun) -> String { "Thanks. Someone will take another look at this \(noun.one)." }
+  /// Under the close-up map, when its first frame shows other places (§B).
+  static func otherDots(_ noun: Noun) -> String { "Grey dots are other \(noun.many) in this campaign." }
+  /// Under the task map when location is denied or off (design/which-one-spec.md §C rule 1).
+  static func locationOff(_ noun: Noun) -> String { "Turn on location to see which way the \(noun.one) is." }
+  static let openSettings = "Open Settings"
+  static func closeUpMapLabel(_ name: String, _ noun: Noun, neighbours: Bool) -> String {
+    neighbours ? "Map of \(name), with other \(noun.many) nearby" : "Map of \(name)"
+  }
   static let notHere = "It's not here"
   static func notHereExplained(_ noun: Noun) -> String { "You're at the spot and there's no \(noun.one)." }
   static let moved = "It's moved"
@@ -98,13 +110,18 @@ enum Wording {
     let step = meters < 100 ? 5.0 : 10.0
     return Int((meters / step).rounded() * step)
   }
-  static func movedDistance(_ meters: Double) -> String {
-    "About \(roundedMeters(meters)) m from where the map has it."
+  /// A moved distance under the app's one unit rule: metres as `roundedMeters`, feet and miles in
+  /// the US (design/which-one-spec.md §C).
+  static func movedMeasure(_ meters: Double, us: Bool = DirectionLine.usesFeet) -> String {
+    us ? DirectionLine.distance(meters, us: true) : "\(roundedMeters(meters)) m"
+  }
+  static func movedDistance(_ meters: Double, us: Bool = DirectionLine.usesFeet) -> String {
+    "About \(movedMeasure(meters, us: us)) from where the map has it."
   }
   static let movedTooClose =
     "That's where the map already has it. If it's there, go back and answer the questions instead."
-  static func movedFar(_ meters: Double, _ noun: Noun) -> String {
-    "That's \(roundedMeters(meters)) m away. If it's a different \(noun.one), use “\(notHere)” instead."
+  static func movedFar(_ meters: Double, _ noun: Noun, us: Bool = DirectionLine.usesFeet) -> String {
+    "That's \(movedMeasure(meters, us: us)) away. If it's a different \(noun.one), use “\(notHere)” instead."
   }
   static func movedTooFar(_ noun: Noun) -> String { "That's too far to be the same \(noun.one)." }
   static let spotOnly = "Only the spot you pick is saved, not your own location."
@@ -113,16 +130,16 @@ enum Wording {
   static let checkReport = "Check your report"
   static let reporting = "You're reporting:"
   static func reportNotHere(_ noun: Noun) -> String { "The \(noun.one) isn't here." }
-  static func reportMoved(_ meters: Double, _ noun: Noun) -> String {
-    "The \(noun.one) has moved, about \(roundedMeters(meters)) m from where the map has it."
+  static func reportMoved(_ meters: Double, _ noun: Noun, us: Bool = DirectionLine.usesFeet) -> String {
+    "The \(noun.one) has moved, about \(movedMeasure(meters, us: us)) from where the map has it."
   }
   static let reportNotHereNote = "Nothing changes on OpenStreetMap. The organizer will check it."
   static let reportMovedNote = "Nothing changes on OpenStreetMap. The organizer will move it on the map."
   static let reportedNotHere = "Thanks, reported. The organizer will check it."
   static let reportedMoved = "Thanks, reported. The organizer will move it on the map."
   static func someoneReportedNotHere(_ noun: Noun) -> String { "Someone reported this \(noun.one) isn't here." }
-  static func someoneReportedMoved(_ meters: Double, _ noun: Noun) -> String {
-    "Someone reported this \(noun.one) moved, about \(roundedMeters(meters)) m."
+  static func someoneReportedMoved(_ meters: Double, _ noun: Noun, us: Bool = DirectionLine.usesFeet) -> String {
+    "Someone reported this \(noun.one) moved, about \(movedMeasure(meters, us: us))."
   }
   static let needsAnotherLook = "Needs another look"
   static let needsAccount = "To save answers you'll sign in with a free OpenStreetMap account."
