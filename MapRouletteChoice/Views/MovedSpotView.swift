@@ -257,23 +257,46 @@ struct SpotMapView: UIViewRepresentable {
     static let reuseID = "new"
     var dropped: ((CLLocationCoordinate2D) -> Void)?
 
+    private let image = UIImageView()
+
     init(reuseID: String) {
       super.init(annotation: nil, reuseIdentifier: reuseID)
       frame = CGRect(x: 0, y: 0, width: 44, height: 44)
       scalesWithViewingDistance = false
-      let image = UIImageView(
-        image: UIImage(
-          systemName: "mappin",
-          withConfiguration: UIImage.SymbolConfiguration(pointSize: 36, weight: .bold)))
-      image.tintColor = UIColor(named: "BrandNavy") ?? .systemIndigo
       image.frame = bounds
       image.contentMode = .center
-      image.haloInDarkMode()
       addSubview(image)
-      // The symbol's tip, not its middle, marks the spot.
-      centerOffset = CGVector(dx: 0, dy: -18)
       isDraggable = true
       isAccessibilityElement = false
+      applyAppearance()
+      registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: NewSpotView, _: UITraitCollection) in
+        view.applyAppearance()
+      }
+    }
+
+    /// Light: the navy pin, its tip on the spot. Dark: a white disc with the navy pin glyph and a
+    /// dark halo, centred on the spot, so it can't be missed on the dark map (which-one-spec.md,
+    /// "Dark map" 1).
+    private func applyAppearance() {
+      let navy = UIColor(named: "BrandNavy") ?? .systemIndigo
+      let dark = traitCollection.userInterfaceStyle == .dark
+      if dark {
+        image.image = UIImage(
+          systemName: "mappin.circle.fill",
+          withConfiguration: UIImage.SymbolConfiguration(pointSize: 34, weight: .bold)
+            .applying(UIImage.SymbolConfiguration(paletteColors: [navy, .white])))
+        centerOffset = .zero
+      } else {
+        image.image = UIImage(
+          systemName: "mappin", withConfiguration: UIImage.SymbolConfiguration(pointSize: 36, weight: .bold))
+        image.tintColor = navy
+        // The symbol's tip, not its middle, marks the spot.
+        centerOffset = CGVector(dx: 0, dy: -18)
+      }
+      image.layer.shadowColor = UIColor.black.cgColor
+      image.layer.shadowOffset = .zero
+      image.layer.shadowRadius = 2
+      image.layer.shadowOpacity = dark ? 1 : 0
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
