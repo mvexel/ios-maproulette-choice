@@ -30,7 +30,8 @@ struct TaskMapView: UIViewRepresentable {
   func makeCoordinator() -> Coordinator { Coordinator(open: open) }
 
   func makeUIView(context: Context) -> MLNMapView {
-    let map = interactive ? MLNMapView(frame: .zero, styleURL: styleURL) : QuietMapView(frame: .zero, styleURL: styleURL)
+    let style = MapStyle.url(styleURL, for: context.environment.colorScheme)
+    let map = interactive ? MLNMapView(frame: .zero, styleURL: style) : QuietMapView(frame: .zero, styleURL: style)
     map.delegate = context.coordinator
     // Turning this on makes MapLibre ask for location itself, so wait until the app has asked.
     map.showsUserLocation = Self.locationAllowed
@@ -53,6 +54,9 @@ struct TaskMapView: UIViewRepresentable {
 
   func updateUIView(_ map: MLNMapView, context: Context) {
     context.coordinator.open = open
+    // Pins are annotations, so they survive the style swap when the appearance changes.
+    let style = MapStyle.url(styleURL, for: context.environment.colorScheme)
+    if map.styleURL != style { map.styleURL = style }
     if map.showsUserLocation != Self.locationAllowed { map.showsUserLocation = Self.locationAllowed }
     context.coordinator.show(
       tasks, done: done, pending: pending, reports: reports, flagged: flagged, origin: origin, noun: noun,
