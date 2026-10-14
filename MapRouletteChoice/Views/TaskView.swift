@@ -123,13 +123,15 @@ struct TaskView: View {
       }
       .padding()
     }
+    .hardTopEdge()
     .safeAreaInset(edge: .top, spacing: 0) {
       if let preview, preview.showsBanner { PreviewBanner(preview: preview) }
     }
     // The place name heads the screen; a title would repeat it.
     .navigationTitle("")
     .navigationBarTitleDisplayMode(.inline)
-    // The map scrolls under the bar: keep its material, so Back stays readable.
+    // The map scrolls under the bar: keep its material, so Back stays readable. iOS 26 ignores
+    // this and uses the scroll edge effect instead, made hard by hardTopEdge().
     .toolbarBackground(.visible, for: .navigationBar)
     // Back is blocked while a write is in flight (normally a few seconds).
     .navigationBarBackButtonHidden(controller?.busy == true)
@@ -1012,5 +1014,17 @@ struct TaskView: View {
     }
     if let id = d.changesetID { lines.append("OpenStreetMap changeset \(id).") }
     return lines.joined(separator: "\n")
+  }
+}
+
+private extension View {
+  /// On iOS 26 the bar has no background of its own; a hard top edge keeps scrolled content
+  /// from showing behind Back and the clock.
+  @ViewBuilder func hardTopEdge() -> some View {
+    if #available(iOS 26, *) {
+      scrollEdgeEffectStyle(.hard, for: .top)
+    } else {
+      self
+    }
   }
 }
