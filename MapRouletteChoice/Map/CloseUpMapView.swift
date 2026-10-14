@@ -361,15 +361,24 @@ struct CloseUpMapView: UIViewRepresentable {
           line.lineWidth = NSExpression(forConstantValue: target ? 3 : 1.5)
           insert(line)
         } else {
+          // On the dark map the target keeps its navy and white stripes inside a 2 pt white edge,
+          // so it is never the plainer of the two (which-one-spec.md, "Dark map" 3).
+          let darkTarget = dark && target
+          if darkTarget {
+            let edge = MLNLineStyleLayer(identifier: "\(id)-edge", source: source)
+            edge.predicate = predicate
+            edge.lineColor = NSExpression(forConstantValue: UIColor.white)
+            edge.lineWidth = NSExpression(forConstantValue: 16)
+            insert(edge)
+          }
           let casing = MLNLineStyleLayer(identifier: "\(id)-casing", source: source)
           casing.predicate = predicate
-          casing.lineColor = NSExpression(forConstantValue: color)
+          casing.lineColor = NSExpression(forConstantValue: darkTarget ? UIColor(named: "BrandNavy") ?? .label : color)
           casing.lineWidth = NSExpression(forConstantValue: target ? 12 : 8)
           insert(casing)
           let stripes = MLNLineStyleLayer(identifier: "\(id)-stripes", source: source)
           stripes.predicate = predicate
-          // The dark map's target bar is white, so its stripes go dark to stay a crossing.
-          stripes.lineColor = NSExpression(forConstantValue: dark && target ? UIColor(white: 0.15, alpha: 1) : UIColor.white)
+          stripes.lineColor = NSExpression(forConstantValue: UIColor.white)
           stripes.lineWidth = NSExpression(forConstantValue: target ? 8 : 5)
           stripes.lineDashPattern = NSExpression(forConstantValue: [0.4, 0.4])
           insert(stripes)
@@ -398,6 +407,7 @@ struct CloseUpMapView: UIViewRepresentable {
     }
 
     func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
+      if MapStyle.isDark(mapView) { MapStyle.brightenLabels(in: style) }
       // 3D buildings tilt and hide the street at this zoom; flat footprints keep the context.
       for buildings in style.layers.compactMap({ $0 as? MLNFillExtrusionStyleLayer }) {
         buildings.isVisible = false
