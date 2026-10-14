@@ -296,6 +296,19 @@ struct CloseUpMapView: UIViewRepresentable {
 /// The map is one VoiceOver element, labelled by the task screen: MapLibre lists its pin, puck and
 /// attribution through its own accessibility container methods otherwise.
 private final class CloseUpMap: MLNMapView {
+  /// Drags and pinches on the map move the map, not the page: the enclosing scroll view waits
+  /// for the map's own pan and pinch to fail.
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    guard window != nil else { return }
+    var view = superview
+    while let v = view, !(v is UIScrollView) { view = v.superview }
+    guard let scroll = view as? UIScrollView else { return }
+    for g in gestureRecognizers ?? [] where g is UIPanGestureRecognizer || g is UIPinchGestureRecognizer {
+      scroll.panGestureRecognizer.require(toFail: g)
+    }
+  }
+
   override func accessibilityElementCount() -> Int { 0 }
   override func accessibilityElement(at index: Int) -> Any? { nil }
   override func index(ofAccessibilityElement element: Any) -> Int { NSNotFound }
