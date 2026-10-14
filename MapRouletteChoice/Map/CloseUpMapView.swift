@@ -111,20 +111,28 @@ struct CloseUpMapView: UIViewRepresentable {
 
     /// You and the target with 40 pt padding, zoom clamped to 17–20; the target alone at 19 without you
     /// or when you're far.
+    /// More points the frame must hold, such as a building's outline (§E).
+    var extraFramePoints: [CLLocationCoordinate2D] = []
+
     func frame(_ map: MLNMapView, report: Bool) {
       guard let parent, map.bounds.width > 0 else { return }
       let target = parent.target
-      if let you = parent.you, TaskLocation.meters(you, target) <= CloseUpMapView.farAway {
+      var points = [target] + extraFramePoints
+      if let you = parent.you {
         framedWithYou = true
+        if TaskLocation.meters(you, target) <= CloseUpMapView.farAway { points.append(you) }
+      }
+      if points.count > 1 {
+        let lats = points.map(\.latitude)
+        let lngs = points.map(\.longitude)
         let bounds = MLNCoordinateBounds(
-          sw: CLLocationCoordinate2D(latitude: min(you.latitude, target.latitude), longitude: min(you.longitude, target.longitude)),
-          ne: CLLocationCoordinate2D(latitude: max(you.latitude, target.latitude), longitude: max(you.longitude, target.longitude)))
+          sw: CLLocationCoordinate2D(latitude: lats.min()!, longitude: lngs.min()!),
+          ne: CLLocationCoordinate2D(latitude: lats.max()!, longitude: lngs.max()!))
         map.setVisibleCoordinateBounds(
           bounds, edgePadding: UIEdgeInsets(top: 40, left: 40, bottom: 40, right: 40), animated: false, completionHandler: nil)
         let zoom = min(max(map.zoomLevel, CloseUpMapView.zoomRange.lowerBound), CloseUpMapView.zoomRange.upperBound)
         if zoom != map.zoomLevel { map.setCenter(map.centerCoordinate, zoomLevel: zoom, animated: false) }
       } else {
-        if parent.you != nil { framedWithYou = true }
         map.setCenter(target, zoomLevel: CloseUpMapView.targetZoom, animated: false)
       }
       setMoved(false)
@@ -141,7 +149,8 @@ struct CloseUpMapView: UIViewRepresentable {
 
     private func reportFramed(_ map: MLNMapView) {
       guard let parent else { return }
-      let visible = map.visibleCoordinateBounds
+      // Not under the controls along the edges (the content inset).
+      let visible = map.convert(map.bounds.inset(by: map.contentInset), toCoordinateBoundsFrom: map)
       let count = parent.neighbours.filter { n in
         n.latitude >= visible.sw.latitude && n.latitude <= visible.ne.latitude && n.longitude >= visible.sw.longitude
           && n.longitude <= visible.ne.longitude
