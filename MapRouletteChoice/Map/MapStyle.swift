@@ -10,3 +10,21 @@ enum MapStyle {
     scheme == .dark && light.host == dark.host ? dark : light
   }
 }
+
+extension UIView {
+  /// A thin white halo in dark mode. The navy pins have no dark variant, so without it they
+  /// vanish into the dark map. It follows appearance changes.
+  func haloInDarkMode() {
+    applyHalo()
+    registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: UIView, _: UITraitCollection) in
+      view.applyHalo()
+    }
+  }
+
+  private func applyHalo() {
+    layer.shadowColor = UIColor.white.cgColor
+    layer.shadowOffset = .zero
+    layer.shadowRadius = 2
+    layer.shadowOpacity = traitCollection.userInterfaceStyle == .dark ? 1 : 0
+  }
+}
