@@ -340,10 +340,11 @@ struct SpotMapView: UIViewRepresentable {
 
     private func drawLine(on map: MLNMapView) {
       guard let style = map.style, let mapped else { return }
-      TaskMapView.Coordinator.drawLines(pin.map { [[mapped, $0.coordinate]] } ?? [], in: style)
+      TaskMapView.Coordinator.drawLines(pin.map { [[mapped, $0.coordinate]] } ?? [], in: style, dark: MapStyle.isDark(map))
     }
 
     func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
+      if MapStyle.isDark(mapView) { MapStyle.brightenLabels(in: style) }
       for layer in style.layers {
         if let buildings = layer as? MLNFillExtrusionStyleLayer { buildings.isVisible = false }
       }
