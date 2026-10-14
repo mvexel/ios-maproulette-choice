@@ -158,6 +158,7 @@ struct TaskMapView: UIViewRepresentable {
       imageView.frame = bounds
       imageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
       imageView.contentMode = .center
+      imageView.haloInDarkMode()
       addSubview(imageView)
     }
 

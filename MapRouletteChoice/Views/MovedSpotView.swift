@@ -269,6 +269,7 @@ struct SpotMapView: UIViewRepresentable {
       image.tintColor = UIColor(named: "BrandNavy") ?? .systemIndigo
       image.frame = bounds
       image.contentMode = .center
+      image.haloInDarkMode()
       addSubview(image)
       // The symbol's tip, not its middle, marks the spot.
       centerOffset = CGVector(dx: 0, dy: -18)
