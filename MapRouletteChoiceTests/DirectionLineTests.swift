@@ -87,5 +87,6 @@ import Testing
     #expect(Noun.from(match: ["natural": "tree"]) == tree)
     #expect(Wording.cantTell(tree) == "I can't tell which tree")
     #expect(Wording.otherDots(tree) == "Grey dots are other trees in this campaign.")
+    #expect(Wording.locationOff(tree) == "Turn on location to see which way the tree is.")
   }
 }
