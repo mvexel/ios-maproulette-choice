@@ -181,7 +181,7 @@ struct SpotMapView: UIViewRepresentable {
   func makeCoordinator() -> Coordinator { Coordinator(picked: picked, located: located) }
 
   func makeUIView(context: Context) -> MLNMapView {
-    let map = MLNMapView(frame: .zero, styleURL: AppConfig.detailStyle)
+    let map = MLNMapView(frame: .zero, styleURL: MapStyle.url(AppConfig.detailStyle, for: context.environment.colorScheme))
     map.delegate = context.coordinator
     map.tintColor = .systemBlue
     map.setCenter(mapped, zoomLevel: 18, animated: false)
@@ -209,6 +209,8 @@ struct SpotMapView: UIViewRepresentable {
   func updateUIView(_ map: MLNMapView, context: Context) {
     context.coordinator.picked = picked
     context.coordinator.located = located
+    let style = MapStyle.url(AppConfig.detailStyle, for: context.environment.colorScheme)
+    if map.styleURL != style { map.styleURL = style }
     if interactive, map.showsUserLocation != Self.locationAllowed { map.showsUserLocation = Self.locationAllowed }
     context.coordinator.show(spot, on: map)
     if !interactive { context.coordinator.frameBoth(on: map) }
