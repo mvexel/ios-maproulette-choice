@@ -18,6 +18,8 @@ import Observation
   @ObservationIgnored private var latestFix: (coordinate: CLLocationCoordinate2D, accuracy: CLLocationAccuracy)?
   @ObservationIgnored private var latestFacing: Double?
   @ObservationIgnored private var ticker: Task<Void, Never>?
+  /// `start()` was called: updates begin as soon as location is allowed.
+  @ObservationIgnored private var wanted = false
   /// `-demoFix` readings: no manager, no updates.
   @ObservationIgnored private let fixed: Bool
   /// A `-demoFix` reading: the map draws it itself.
@@ -41,8 +43,15 @@ import Observation
   }
 
   /// Starts updates once location is allowed; asks nothing (the campaign screen asked already).
+  /// A new manager can report its status late, so the authorization callback starts them too.
   func start() {
-    guard !fixed, ticker == nil else { return }
+    guard !fixed else { return }
+    wanted = true
+    begin()
+  }
+
+  private func begin() {
+    guard wanted, ticker == nil else { return }
     switch manager.authorizationStatus {
     case .authorizedWhenInUse, .authorizedAlways: break
     default: return
@@ -59,6 +68,7 @@ import Observation
 
   func stop() {
     guard !fixed else { return }
+    wanted = false
     ticker?.cancel()
     ticker = nil
     manager.stopUpdatingLocation()
@@ -91,6 +101,10 @@ import Observation
   nonisolated func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
     let facing = Self.facing(newHeading)
     Task { @MainActor in latestFacing = facing }
+  }
+
+  nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+    Task { @MainActor in begin() }
   }
 
   nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: any Error) {}
