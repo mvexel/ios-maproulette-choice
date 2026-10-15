@@ -55,7 +55,8 @@ struct CloseUpMapView: UIViewRepresentable {
   func makeCoordinator() -> Coordinator { Coordinator() }
 
   func makeUIView(context: Context) -> MLNMapView {
-    let map = CloseUpMap(frame: .zero, styleURL: styleURL)
+    context.coordinator.dark = context.environment.colorScheme == .dark
+    let map = CloseUpMap(frame: .zero, styleURL: MapStyle.url(styleURL, for: context.environment.colorScheme))
     map.delegate = context.coordinator
     map.tintColor = .systemBlue
     // North-up: the heading on the blue dot shows facing (§A).
@@ -79,6 +80,14 @@ struct CloseUpMapView: UIViewRepresentable {
     let c = context.coordinator
     c.parent = self
     if map.showsUserLocation != showsPuck { map.showsUserLocation = showsPuck }
+    // Appearance changed: load the other style. Its didFinishLoading redraws every layer below in
+    // the new colours.
+    let wanted = MapStyle.url(styleURL, for: context.environment.colorScheme)
+    if map.styleURL != wanted {
+      c.dark = context.environment.colorScheme == .dark
+      c.styleLoaded = false
+      map.styleURL = wanted
+    }
     if let style = map.style {
       c.drawNeighbours(in: style)
       c.drawFootprints(in: style)
@@ -117,7 +126,15 @@ struct CloseUpMapView: UIViewRepresentable {
     private var lookedForTarget = false
     private var lookedFor: Set<Int64> = []
     private var drawnFootprints: [String] = []
-    private var styleLoaded = false
+    var styleLoaded = false
+    /// The map is in its dark style: layer colours resolve to their dark variants.
+    var dark = false
+
+    /// A layer colour for the current style. Style layers take a fixed colour, so a dynamic
+    /// colour is resolved here rather than following the appearance by itself.
+    private func tone(_ color: UIColor) -> UIColor {
+      color.resolvedColor(with: UITraitCollection(userInterfaceStyle: dark ? .dark : .light))
+    }
 
     /// You and the target with 40 pt padding, zoom clamped to 17–20; the target alone at 19 without you
     /// or when you're far.
@@ -229,9 +246,9 @@ struct CloseUpMapView: UIViewRepresentable {
         }
         style.addLayer(l)
       }
-      layer(.checked, radius: 4, fill: UIColor(named: "PinDoneColor") ?? .systemGreen, ring: nil, ringWidth: 0)
-      layer(.open, radius: 5, fill: .systemGray, ring: .white, ringWidth: 1.5)
-      layer(.look, radius: 5, fill: .systemGray, ring: UIColor(named: "BrandAmber") ?? .systemOrange, ringWidth: 2)
+      layer(.checked, radius: 4, fill: tone(UIColor(named: "PinDoneColor") ?? .systemGreen), ring: nil, ringWidth: 0)
+      layer(.open, radius: 5, fill: tone(.systemGray), ring: .white, ringWidth: 1.5)
+      layer(.look, radius: 5, fill: tone(.systemGray), ring: tone(UIColor(named: "BrandAmber") ?? .systemOrange), ringWidth: 2)
     }
 
     static let footprintID = "footprints"
@@ -322,9 +339,11 @@ struct CloseUpMapView: UIViewRepresentable {
       func insert(_ layer: MLNStyleLayer) {
         if let below { style.insertLayer(layer, below: below) } else { style.addLayer(layer) }
       }
+      // Navy has no dark variant and disappears on the dark map; the target's outline goes white there.
       let colors: [(String, UIColor)] = [
-        ("open", .systemGray), ("checked", UIColor(named: "PinDoneColor") ?? .systemGreen),
-        ("look", UIColor(named: "BrandAmber") ?? .systemOrange), ("target", UIColor(named: "BrandNavy") ?? .label),
+        ("open", tone(.systemGray)), ("checked", tone(UIColor(named: "PinDoneColor") ?? .systemGreen)),
+        ("look", tone(UIColor(named: "BrandAmber") ?? .systemOrange)),
+        ("target", dark ? .white : UIColor(named: "BrandNavy") ?? .label),
       ]
       for (s, color) in colors {
         let target = s == "target"
@@ -342,9 +361,19 @@ struct CloseUpMapView: UIViewRepresentable {
           line.lineWidth = NSExpression(forConstantValue: target ? 3 : 1.5)
           insert(line)
         } else {
+          // On the dark map the target keeps its navy and white stripes inside a 2 pt white edge,
+          // so it is never the plainer of the two (which-one-spec.md, "Dark map" 3).
+          let darkTarget = dark && target
+          if darkTarget {
+            let edge = MLNLineStyleLayer(identifier: "\(id)-edge", source: source)
+            edge.predicate = predicate
+            edge.lineColor = NSExpression(forConstantValue: UIColor.white)
+            edge.lineWidth = NSExpression(forConstantValue: 16)
+            insert(edge)
+          }
           let casing = MLNLineStyleLayer(identifier: "\(id)-casing", source: source)
           casing.predicate = predicate
-          casing.lineColor = NSExpression(forConstantValue: color)
+          casing.lineColor = NSExpression(forConstantValue: darkTarget ? UIColor(named: "BrandNavy") ?? .label : color)
           casing.lineWidth = NSExpression(forConstantValue: target ? 12 : 8)
           insert(casing)
           let stripes = MLNLineStyleLayer(identifier: "\(id)-stripes", source: source)
@@ -378,6 +407,7 @@ struct CloseUpMapView: UIViewRepresentable {
     }
 
     func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
+      if MapStyle.isDark(mapView) { MapStyle.brightenLabels(in: style) }
       // 3D buildings tilt and hide the street at this zoom; flat footprints keep the context.
       for buildings in style.layers.compactMap({ $0 as? MLNFillExtrusionStyleLayer }) {
         buildings.isVisible = false
@@ -387,8 +417,8 @@ struct CloseUpMapView: UIViewRepresentable {
         let flat = MLNFillStyleLayer(identifier: "\(buildings.identifier)-flat", source: source)
         flat.sourceLayerIdentifier = buildings.sourceLayerIdentifier
         flat.predicate = buildings.predicate
-        flat.fillColor = NSExpression(forConstantValue: UIColor(white: 0.86, alpha: 1))
-        flat.fillOutlineColor = NSExpression(forConstantValue: UIColor(white: 0.7, alpha: 1))
+        flat.fillColor = NSExpression(forConstantValue: UIColor(white: dark ? 0.2 : 0.86, alpha: 1))
+        flat.fillOutlineColor = NSExpression(forConstantValue: UIColor(white: dark ? 0.32 : 0.7, alpha: 1))
         style.insertLayer(flat, below: buildings)
       }
       for layer in style.layers {
