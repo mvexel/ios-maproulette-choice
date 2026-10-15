@@ -180,7 +180,7 @@ struct SpotMapView: UIViewRepresentable {
   func makeCoordinator() -> Coordinator { Coordinator(picked: picked, located: located) }
 
   func makeUIView(context: Context) -> MLNMapView {
-    let map = MLNMapView(frame: .zero, styleURL: AppConfig.detailStyle)
+    let map = MLNMapView(frame: .zero, styleURL: MapStyle.url(AppConfig.detailStyle, for: context.environment.colorScheme))
     map.delegate = context.coordinator
     map.tintColor = .systemBlue
     map.setCenter(mapped, zoomLevel: 18, animated: false)
@@ -208,6 +208,8 @@ struct SpotMapView: UIViewRepresentable {
   func updateUIView(_ map: MLNMapView, context: Context) {
     context.coordinator.picked = picked
     context.coordinator.located = located
+    let style = MapStyle.url(AppConfig.detailStyle, for: context.environment.colorScheme)
+    if map.styleURL != style { map.styleURL = style }
     if interactive, map.showsUserLocation != Self.locationAllowed { map.showsUserLocation = Self.locationAllowed }
     context.coordinator.show(spot, on: map)
     if !interactive { context.coordinator.frameBoth(on: map) }
@@ -255,22 +257,46 @@ struct SpotMapView: UIViewRepresentable {
     static let reuseID = "new"
     var dropped: ((CLLocationCoordinate2D) -> Void)?
 
+    private let image = UIImageView()
+
     init(reuseID: String) {
       super.init(annotation: nil, reuseIdentifier: reuseID)
       frame = CGRect(x: 0, y: 0, width: 44, height: 44)
       scalesWithViewingDistance = false
-      let image = UIImageView(
-        image: UIImage(
-          systemName: "mappin",
-          withConfiguration: UIImage.SymbolConfiguration(pointSize: 36, weight: .bold)))
-      image.tintColor = UIColor(named: "BrandNavy") ?? .systemIndigo
       image.frame = bounds
       image.contentMode = .center
       addSubview(image)
-      // The symbol's tip, not its middle, marks the spot.
-      centerOffset = CGVector(dx: 0, dy: -18)
       isDraggable = true
       isAccessibilityElement = false
+      applyAppearance()
+      registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: NewSpotView, _: UITraitCollection) in
+        view.applyAppearance()
+      }
+    }
+
+    /// Light: the navy pin, its tip on the spot. Dark: a white disc with the navy pin glyph and a
+    /// dark halo, centred on the spot, so it can't be missed on the dark map (which-one-spec.md,
+    /// "Dark map" 1).
+    private func applyAppearance() {
+      let navy = UIColor(named: "BrandNavy") ?? .systemIndigo
+      let dark = traitCollection.userInterfaceStyle == .dark
+      if dark {
+        image.image = UIImage(
+          systemName: "mappin.circle.fill",
+          withConfiguration: UIImage.SymbolConfiguration(pointSize: 34, weight: .bold)
+            .applying(UIImage.SymbolConfiguration(paletteColors: [navy, .white])))
+        centerOffset = .zero
+      } else {
+        image.image = UIImage(
+          systemName: "mappin", withConfiguration: UIImage.SymbolConfiguration(pointSize: 36, weight: .bold))
+        image.tintColor = navy
+        // The symbol's tip, not its middle, marks the spot.
+        centerOffset = CGVector(dx: 0, dy: -18)
+      }
+      image.layer.shadowColor = UIColor.black.cgColor
+      image.layer.shadowOffset = .zero
+      image.layer.shadowRadius = 2
+      image.layer.shadowOpacity = dark ? 1 : 0
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -337,10 +363,11 @@ struct SpotMapView: UIViewRepresentable {
 
     private func drawLine(on map: MLNMapView) {
       guard let style = map.style, let mapped else { return }
-      TaskMapView.Coordinator.drawLines(pin.map { [[mapped, $0.coordinate]] } ?? [], in: style)
+      TaskMapView.Coordinator.drawLines(pin.map { [[mapped, $0.coordinate]] } ?? [], in: style, dark: MapStyle.isDark(map))
     }
 
     func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
+      if MapStyle.isDark(mapView) { MapStyle.brightenLabels(in: style) }
       for layer in style.layers {
         if let buildings = layer as? MLNFillExtrusionStyleLayer { buildings.isVisible = false }
       }
