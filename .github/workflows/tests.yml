@@ -1,0 +1,58 @@
+name: Tests
+
+# Unit and UI tests on an iOS simulator. The repo is public, so GitHub's macOS runners are free.
+# Real-device and field checks still run on the Mac (Tess).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  simulator:
+    name: Unit and UI tests (iOS simulator)
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show Xcode
+        run: xcodebuild -version
+      # The newest available iPhone simulator, so the job doesn't break when the image changes.
+      - name: Pick a simulator
+        id: sim
+        run: |
+          udid=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          ios = sorted((k for k in devices if "iOS" in k), key=lambda k: [int(p) for p in k.rsplit("iOS-", 1)[-1].split("-")])
+          phones = [d for d in devices[ios[-1]] if d["name"].startswith("iPhone")]
+          print(phones[-1]["udid"])')
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl list devices available | grep "$udid"
+      - name: Unit and UI tests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project MapRouletteChoice.xcodeproj \
+            -scheme MapRouletteChoice \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -resultBundlePath TestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee xcodebuild.log | grep -E "^(Test Suite|Test Case .*(passed|failed|skipped)|\*\* TEST|.*error:)" || true
+          grep -q "\*\* TEST SUCCEEDED \*\*" xcodebuild.log
+      - name: Upload test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-test-results
+          path: |
+            TestResults.xcresult
+            xcodebuild.log
+          if-no-files-found: warn
+          retention-days: 14
