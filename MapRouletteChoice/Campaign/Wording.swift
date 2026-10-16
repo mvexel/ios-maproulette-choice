@@ -285,8 +285,8 @@ enum Wording {
   // MARK: Waiting on the phone (BACKLOG O1, design/offline-copy.md)
   // Never "offline", "queue", "sync" or "upload"; never "saved and counted" for these.
 
-  /// The save confirmation when the answer stays on the phone.
-  static let savedOnPhone = "Saved on this phone. It sends by itself when you have signal."
+  /// Under "Saved. That's N today." every time the answer stays on the phone, in place of the save note.
+  static let keptOnPhone = "Kept on this phone for now. It sends by itself when you have signal."
   /// The place's pin and list row.
   static let waitingToSend = "Waiting to send"
   /// First line of "Your answers".

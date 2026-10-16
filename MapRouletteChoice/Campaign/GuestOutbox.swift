@@ -122,12 +122,12 @@ import Network
     }
   }
 
-  /// Sends what's waiting with the session's guest client; each answer the server takes counts
-  /// as checked today. Nothing for a signed-in session.
+  /// Sends what's waiting with the session's guest client; each answer the server takes is done
+  /// (it was in today's count already). Nothing for a signed-in session.
   func flush(_ session: AppSession, _ campaigns: CampaignStore) {
     guard session.view.guest, !entries.isEmpty, !flushing else { return }
     let client = session.newClient().client
-    Task { await flush(client) { campaigns.recordChecked($0.challengeID, task: $0.taskID) } }
+    Task { await flush(client) { campaigns.sent($0.taskID) } }
   }
 
   /// Flushes whenever the phone gets a connection while the app runs.

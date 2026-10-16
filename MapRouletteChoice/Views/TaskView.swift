@@ -835,13 +835,14 @@ struct TaskView: View {
     if d.byOther {
       Text(Wording.checkedByOtherFirst(noun)).font(.headline)
     } else if d.waiting {
-      // Kept on the phone (offline-copy.md): not "saved and counted" until the server has it.
+      // Kept on the phone (offline-copy.md): today's count includes it, the tally doesn't yet.
       Label {
-        Text(Wording.savedOnPhone)
+        Text(Wording.savedForLater(campaigns.checkedToday(d.loaded.challenge.id.value), noun))
       } icon: {
         Image(systemName: "checkmark.circle").foregroundStyle(.secondary)
       }
       .font(.title3.weight(.semibold))
+      Text(Wording.keptOnPhone).font(.footnote).foregroundStyle(.secondary)
     } else {
       Label {
         Text(

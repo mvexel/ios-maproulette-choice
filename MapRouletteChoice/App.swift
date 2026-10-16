@@ -19,7 +19,7 @@ struct MapRouletteChoiceApp: App {
         .onAppear {
           let (outbox, session, campaigns) = (outbox, session, campaigns)
           session.beforeSignIn = { client in
-            await outbox.flush(client) { campaigns.recordChecked($0.challengeID, task: $0.taskID) }
+            await outbox.flush(client) { campaigns.sent($0.taskID) }
           }
           outbox.watchNetwork { outbox.flush(session, campaigns) }
         }

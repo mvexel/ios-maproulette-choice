@@ -384,6 +384,7 @@ struct ChallengeTasksView: View {
       let waiting = TaskLocation.sorted(tasks.filter { waitingIDs.contains($0.id) }, from: origin)
       if !waiting.isEmpty {
         Section(Wording.waitingToSend) {
+          // The heading says it; VoiceOver still reads it per row.
           ForEach(waiting) { task in row(task, done: false, waiting: true) }
         }
       }
@@ -409,9 +410,7 @@ struct ChallengeTasksView: View {
       }
       VStack(alignment: .leading, spacing: 2) {
         Text(Wording.placeName(task.task, noun)).foregroundStyle(done ? Color.secondary : Color.primary)
-        if waiting {
-          Text(Wording.waitingToSend).font(.footnote).foregroundStyle(Color.secondary)
-        } else if !done && !pending && lookAgain.contains(task.id) {
+        if !waiting && !done && !pending && lookAgain.contains(task.id) {
           Text(Wording.needsAnotherLook).font(.footnote).foregroundStyle(Color.secondary)
         }
         if showDetails {

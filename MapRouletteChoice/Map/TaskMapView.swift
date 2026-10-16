@@ -174,9 +174,7 @@ struct TaskMapView: UIViewRepresentable {
     func configure(_ task: TaskAnnotation, onActivate: (() -> Void)?) {
       name = task.title
       pin = task.pin
-      // Until the brand's outlined pin is in the catalog, the saved pin, faded.
-      imageView.image = UIImage(named: task.pin.imageName) ?? (task.pin == .waiting ? UIImage(named: "PinPending") : nil)
-      imageView.alpha = task.pin == .waiting && UIImage(named: task.pin.imageName) == nil ? 0.45 : 1
+      imageView.image = UIImage(named: task.pin.imageName)
       self.onActivate = onActivate
     }
 

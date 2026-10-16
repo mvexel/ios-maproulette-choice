@@ -102,7 +102,7 @@ import Testing
 
   @Test func waitingCopy() {
     let stops = Noun.from(match: ["highway": "bus_stop"])
-    #expect(Wording.savedOnPhone == "Saved on this phone. It sends by itself when you have signal.")
+    #expect(Wording.keptOnPhone == "Kept on this phone for now. It sends by itself when you have signal.")
     #expect(Wording.waitingToSend == "Waiting to send")
     #expect(Wording.waitingForSignal(1) == "1 waiting for signal")
     #expect(Wording.waitingForSignal(4) == "4 waiting for signal")
