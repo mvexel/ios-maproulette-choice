@@ -204,6 +204,7 @@ import Testing
       == "That's as many stops as one phone can answer without an account for now. Tap “I already use OpenStreetMap” to sign in and keep going.")
     #expect(Wording.deleteMyDataExplained
       == "Removes your saved answers that aren't on the map yet, so mappers won't see them. Answers already on the map stay there, because they're part of OpenStreetMap now.")
+    #expect(Wording.deleteMyDataReinstall == "Deleting the app doesn't remove them. Use this button instead.")
     #expect(Wording.deleteMyDataDone == "Done. Your saved answers are deleted.")
     #expect(AppSession.noAccountNeeded == "No account needed. Local mappers check your answers and add them to the map.")
     // Phone sign-in claims the saved answers (B5).
@@ -340,5 +341,17 @@ import Testing
       == "Location is off. Choose a bench on the map or in the list.")
     #expect(Wording.locationUnavailable(.place, isOff: false)
       == "Your location isn't available yet. Choose a place on the map or in the list.")
+  }
+
+  /// A place the fresh OSM check turned down says why, when it's gone or changed (Iris, Tess's
+  /// dev ch 5/6 finding).
+  @Test func noLongerNeededSaysWhy() {
+    let benches = Noun.from(match: ["amenity": "bench"])
+    #expect(Wording.noLongerNeeded(benches, .elementGone) == "This bench is no longer on the map. Thanks anyway!")
+    #expect(Wording.noLongerNeeded(benches, .matchFailed)
+      == "This bench changed on the map since the campaign started. Thanks anyway!")
+    for reason in [IneligibleReason.keyChanged, .unknown, nil] {
+      #expect(Wording.noLongerNeeded(benches, reason) == "Someone already checked this bench. Thanks anyway!")
+    }
   }
 }

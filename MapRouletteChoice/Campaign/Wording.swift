@@ -163,7 +163,15 @@ enum Wording {
   }
 
   static func skip(_ noun: Noun) -> String { "Skip this \(noun.one)" }
-  static func alreadyChecked(_ noun: Noun) -> String { "Someone already checked this \(noun.one). Thanks anyway!" }
+  /// A place the fresh OSM check turned down: gone from the map, changed since the campaign
+  /// started, or (key changed, unknown) already checked.
+  static func noLongerNeeded(_ noun: Noun, _ reason: IneligibleReason?) -> String {
+    switch reason {
+    case .elementGone?: "This \(noun.one) is no longer on the map. Thanks anyway!"
+    case .matchFailed?: "This \(noun.one) changed on the map since the campaign started. Thanks anyway!"
+    case .keyChanged?, .unknown?, nil: "Someone already checked this \(noun.one). Thanks anyway!"
+    }
+  }
   static func cannotAnswer(_ noun: Noun) -> String { "This \(noun.one) can't be answered in the app." }
   static func checkFailed(_ noun: Noun) -> String {
     "Couldn't check this \(noun.one) right now. Check your connection and try again."
@@ -278,6 +286,8 @@ enum Wording {
   static let deleteMyData = "Delete my data"
   static let deleteMyDataExplained =
     "Removes your saved answers that aren't on the map yet, so mappers won't see them. Answers already on the map stay there, because they're part of OpenStreetMap now."
+  /// iOS keeps the guest identity in the Keychain, which outlives the app.
+  static let deleteMyDataReinstall = "Deleting the app doesn't remove them. Use this button instead."
   static let deleteMyDataDone = "Done. Your saved answers are deleted."
   static let savedForLaterNote = "Saved and counted. Local mappers check answers and add them to the map."
   /// The guest pending cap (200 per install, an abuse limit; handback §1).

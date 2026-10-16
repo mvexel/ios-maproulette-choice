@@ -87,7 +87,7 @@ struct ChallengePickerView: View {
       .confirmationDialog(Wording.deleteMyData, isPresented: $confirmDelete, titleVisibility: .visible) {
         Button("Delete", role: .destructive) { deleteGuestData() }
       } message: {
-        Text(Wording.deleteMyDataExplained)
+        Text(Wording.deleteMyDataExplained + " " + Wording.deleteMyDataReinstall)
       }
       Section {
         Toggle(Wording.showDetails, isOn: $showDetails)
