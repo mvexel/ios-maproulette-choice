@@ -23,8 +23,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Show Xcode
         run: xcodebuild -version
-      # The newest available iPhone simulator, so the job doesn't break when the image changes.
-      - name: Pick a simulator
+      # iPhone 17 on the newest iOS runtime (the Mac passes use iPhone 17), else the newest iPhone,
+      # so the job doesn't break when the image changes.
+      - name: Pick and boot a simulator
         id: sim
         run: |
           udid=$(xcrun simctl list devices available -j | python3 -c '
@@ -32,11 +33,18 @@ jobs:
           devices = json.load(sys.stdin)["devices"]
           ios = sorted((k for k in devices if "iOS" in k), key=lambda k: [int(p) for p in k.rsplit("iOS-", 1)[-1].split("-")])
           phones = [d for d in devices[ios[-1]] if d["name"].startswith("iPhone")]
-          print(phones[-1]["udid"])')
+          print(next((d for d in phones if d["name"] == "iPhone 17"), phones[-1])["udid"])')
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
           xcrun simctl list devices available | grep "$udid"
+          # Booted before the tests start, so the first UI test doesn't spend its timeouts on a cold boot.
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid" -b
+      # SCREENSHOT_DIR makes the UI tests write their review shots (App Store, accessibility, previews).
       - name: Unit and UI tests
+        env:
+          TEST_RUNNER_SCREENSHOT_DIR: ${{ github.workspace }}/shots
         run: |
+          mkdir -p shots
           set -o pipefail
           xcodebuild test \
             -project MapRouletteChoice.xcodeproj \
@@ -44,7 +52,7 @@ jobs:
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -resultBundlePath TestResults.xcresult \
             CODE_SIGNING_ALLOWED=NO \
-            | tee xcodebuild.log | grep -E "^(Test Suite|Test Case .*(passed|failed|skipped)|\*\* TEST|.*error:)" || true
+            | tee xcodebuild.log | grep -E "^(Test Suite|Test [Cc]ase .*(passed|failed|skipped)|\*\* TEST|.*error:)" || true
           grep -q "\*\* TEST SUCCEEDED \*\*" xcodebuild.log
       - name: Upload test results
         if: ${{ !cancelled() }}
@@ -54,5 +62,6 @@ jobs:
           path: |
             TestResults.xcresult
             xcodebuild.log
+            shots
           if-no-files-found: warn
           retention-days: 14
