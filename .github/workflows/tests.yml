@@ -53,6 +53,8 @@ jobs:
             -resultBundlePath TestResults.xcresult \
             CODE_SIGNING_ALLOWED=NO \
             | tee xcodebuild.log | grep -E "^(Test Suite|Test [Cc]ase .*(passed|failed|skipped)|\*\* TEST|.*error:)" || true
+          # A UI test that can't find its screen prints the accessibility tree between these markers.
+          sed -n '/AXDUMP-BEGIN/,/AXDUMP-END/p' xcodebuild.log | head -300
           grep -q "\*\* TEST SUCCEEDED \*\*" xcodebuild.log
       - name: Upload test results
         if: ${{ !cancelled() }}
