@@ -289,6 +289,24 @@ enum Wording {
   /// iOS keeps the guest identity in the Keychain, which outlives the app.
   static let deleteMyDataReinstall = "Deleting the app doesn't remove them. Use this button instead."
   static let deleteMyDataDone = "Done. Your saved answers are deleted."
+  /// Added to the explainer while answers wait on the phone (offline-copy.md).
+  static let deleteMyDataWaiting = "It also removes answers still waiting on this phone."
+
+  // MARK: Waiting on the phone (BACKLOG O1, design/offline-copy.md)
+  // Never "offline", "queue", "sync" or "upload"; never "saved and counted" for these.
+
+  /// Under "Saved. That's N today." every time the answer stays on the phone, in place of the save note.
+  static let keptOnPhone = "Kept on this phone for now. It sends by itself when you have signal."
+  /// The place's pin and list row.
+  static let waitingToSend = "Waiting to send"
+  /// First line of "Your answers".
+  static func waitingForSignal(_ count: Int) -> String { "\(count) waiting for signal" }
+  /// Day summary, after the tally line.
+  static func stillOnPhone(_ count: Int, _ noun: Noun) -> String {
+    count == 1
+      ? "1 \(noun.one) is still on this phone. It sends by itself when you have signal, so keep Street Tally installed until then."
+      : "\(noun.count(count)) are still on this phone. They send by themselves when you have signal, so keep Street Tally installed until then."
+  }
   static let savedForLaterNote = "Saved and counted. Local mappers check answers and add them to the map."
   /// The guest pending cap (200 per install, an abuse limit; handback §1).
   static func pendingLimit(_ noun: Noun) -> String {

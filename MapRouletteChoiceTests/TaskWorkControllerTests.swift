@@ -518,6 +518,58 @@ import Testing
     }
   }
 
+  @Test func guestAnswerWithNoSignalWaitsOnThePhone() async throws {
+    for error in [MapRouletteError(.network), MapRouletteError(.network, problem: .outcomeUnknown)] {
+      let o = ops(try await makeTask())
+      o.pending = { _ in throw error }
+      var kept: [GuestOutbox.Entry] = []
+      let c = TaskWorkController(ops: o, writer: .guestWriter, keepOnPhone: { kept.append($0) })
+      c.load(taskID)
+      await c.idle()
+      c.perform(.answers(["backrest": "yes"]))
+      await c.idle()
+      let done = try #require(c.state.done, "\(error)")
+      #expect(done.waiting && done.savedForLater)
+      #expect(kept.map(\.taskID) == [42])
+      #expect(kept.first?.answer == .answers(["backrest": "yes"]))
+      #expect(kept.first?.challengeID == challenge.id.value)
+    }
+  }
+
+  @Test func onlyMissingSignalWaitsOnThePhone() async throws {
+    for error in [
+      MapRouletteError(.rateLimit, status: 429, reason: "pending_limit"), MapRouletteError(.authentication, status: 401),
+      MapRouletteError(.conflict, status: 409, reason: "task_completed"),
+    ] {
+      let o = ops(try await makeTask(), try await makeTask())
+      o.pending = { _ in throw error }
+      var kept: [GuestOutbox.Entry] = []
+      let c = TaskWorkController(ops: o, writer: .guestWriter, keepOnPhone: { kept.append($0) })
+      c.load(taskID)
+      await c.idle()
+      c.perform(.answers(["backrest": "yes"]))
+      await c.idle()
+      #expect(kept.isEmpty, "\(error)")
+      #expect(c.state.done?.waiting != true, "\(error)")
+    }
+  }
+
+  @Test func leavingDuringASaveStillKeepsTheAnswer() async throws {
+    let o = ops(try await makeTask())
+    o.pending = { _ in
+      try await Task.sleep(for: .milliseconds(50))
+      throw MapRouletteError(.network)
+    }
+    var kept: [GuestOutbox.Entry] = []
+    let c = TaskWorkController(ops: o, writer: .guestWriter, keepOnPhone: { kept.append($0) })
+    c.load(taskID)
+    await c.idle()
+    c.perform(.answers(["backrest": "yes"]))
+    c.cancel()
+    await c.idle()
+    #expect(kept.map(\.taskID) == [42])
+  }
+
   @Test func guestAnswerForACompletedTaskIsNotAvailable() async throws {
     let o = ops(try await makeTask(), try await makeTask(status: 1, completedBy: other))
     o.pending = { _ in throw MapRouletteError(.conflict, status: 409, reason: "task_completed") }

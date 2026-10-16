@@ -383,8 +383,13 @@ struct SessionClient: Sendable {
   /// Browser sign-in through the SDK (authorization code with S256 PKCE). `authenticate` opens
   /// the URL in an ephemeral web authentication session and returns the callback URL. A current
   /// session (e.g. a read-only one) is signed out and revoked first.
+  /// Sends a guest's answers still waiting on the phone, so the sign-in's claim takes them along
+  /// (offline-copy.md: "the waiting answers go with the sign-in").
+  @ObservationIgnored var beforeSignIn: (@MainActor (MapRouletteClient) async -> Void)?
+
   func signIn(authenticate: @escaping @MainActor @Sendable (URL) async throws -> URL) async {
     guard signInAvailable, let auth else { return }
+    if view.guest { await beforeSignIn?(newClient().client) }
     // Keep the revocation result visible: the old grant may still be valid on the server.
     let revocation = view.signedIn ? await signOut() : nil
     view.userID = nil

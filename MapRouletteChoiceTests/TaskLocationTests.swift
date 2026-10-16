@@ -72,6 +72,6 @@ import Testing
     #expect(Pin.pending.accessibilityHint == nil)
     // The callout keeps its instruction for sighted users.
     #expect(Pin.toCheck.calloutSubtitle == "Tap to answer")
-    #expect([Pin.toCheck, .done, .pending].map(\.imageName) == ["PinTodo", "PinDone", "PinPending"])
+    #expect([Pin.toCheck, .done, .pending, .waiting].map(\.imageName) == ["PinTodo", "PinDone", "PinPending", "PinWaiting"])
   }
 }

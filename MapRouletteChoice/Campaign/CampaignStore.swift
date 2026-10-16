@@ -78,6 +78,19 @@ import MapRoulette
     revision += 1
   }
 
+  /// One more for today without marking the place done: a guest's answer kept on the phone
+  /// (offline-copy.md: today's count includes it).
+  func countToday(_ challenge: Int64) {
+    defaults.set(defaults.integer(forKey: key(challenge)) + 1, forKey: key(challenge))
+    revision += 1
+  }
+
+  /// A kept answer reached the server: the place is done here, already in today's count.
+  func sent(_ task: Int64) {
+    justDone.insert(task)
+    revision += 1
+  }
+
   private func key(_ challenge: Int64) -> String {
     let d = calendar.dateComponents([.year, .month, .day], from: now())
     return "checked.\(challenge).\(d.year ?? 0)-\(d.month ?? 0)-\(d.day ?? 0)"
