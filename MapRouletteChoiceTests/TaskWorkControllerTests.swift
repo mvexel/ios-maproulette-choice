@@ -502,7 +502,7 @@ import Testing
   @Test func guestFailuresKeepTheAnswers() async throws {
     let cases: [(MapRouletteError, String)] = [
       (MapRouletteError(.network, problem: .outcomeUnknown), "connect"),
-      (MapRouletteError(.rateLimit, status: 429, reason: "pending_limit"), "Finish on a computer"),
+      (MapRouletteError(.rateLimit, status: 429, reason: "pending_limit"), "one phone can answer"),
       (MapRouletteError(.authentication, status: 401, reason: "invalid_token"), "Try again"),
     ]
     for (error, words) in cases {

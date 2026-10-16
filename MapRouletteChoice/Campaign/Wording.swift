@@ -154,9 +154,10 @@ enum Wording {
     "For organizers and experienced mappers: shows tag changes, task and element ids, changeset links and the deletion setting."
   static let answersArePublic =
     "Your answers are saved to OpenStreetMap, the free map anyone can use and improve. Edits are public and show your OpenStreetMap username."
-  /// Guests' answers reach OSM only after they finish signing up, under the username they pick then.
+  /// Guests' answers are counted at once; local mappers add them to OSM under their own names
+  /// (design/handback-copy.md §1).
   static let guestAnswersArePublic =
-    "Your answers go on OpenStreetMap, the free map anyone can use, when you finish on a computer. Map edits are public and show the username you choose then."
+    "Your answers are counted for this campaign right away. Local mappers then check them and add them to OpenStreetMap, the free map anyone can use, under their own names."
   static func locationStaysOnPhone(_ noun: Noun) -> String {
     "We use your location to find the nearest \(noun.many). It stays on your phone, unless you tap “I'm standing at it” to show where \(noun.aOne) has moved."
   }
@@ -182,18 +183,6 @@ enum Wording {
   static func savedForLater(_ todayCount: Int, _ noun: Noun) -> String {
     "Saved. That's \(noun.count(todayCount)) today."
   }
-  static let putOnMapIntro =
-    "To put them on the map, finish on a computer. We can email you a link."
-  static let emailUse = "We only email you about these answers, and delete your address once they're on the map or removed."
-  static func linkSent(to email: String, until: Date?) -> String {
-    "Sent to \(email). Check your email later." + (until.map { " The link works until \(day($0))." } ?? "")
-  }
-  /// "Nov 30": the one date format for guest deadlines. A non-breaking space keeps month and day
-  /// on one line (Iris B-8).
-  static func day(_ date: Date) -> String {
-    date.formatted(.dateTime.month(.abbreviated).day()).replacingOccurrences(of: " ", with: "\u{00A0}")
-  }
-  static let enterEmailAgain = "Enter your email again and we'll send a new link."
   /// Phone sign-in claims the saved answers (B5), so the original line is true again
   /// (design/copy-fixes-2026-10-11.md row 5).
   static let signInPutsOnMap = "Sign in now and your saved answers go on the map right away."
@@ -266,52 +255,27 @@ enum Wording {
   }
   /// When the app stops reading a claim that hasn't finished: the "…" line would look live.
   static let claimStillGoing = "Your answers are still going on the map. You can carry on; this finishes on its own."
-  /// Only a bad address is the participant's to fix (shown in red); the rest are calm.
-  static func isInputError(_ error: any Error) -> Bool { (error as? MapRouletteError)?.kind == .validation }
-  /// The backend sends the link only once the guest has a saved answer (409 `nothing_saved`).
-  /// Matched by kind and server code, which the SDK has exposed since the guest API (#2).
-  static func isNothingSaved(_ error: any Error) -> Bool {
-    guard let error = error as? MapRouletteError else { return false }
-    return error.kind == .conflict && error.reason == "nothing_saved"
-  }
-  static func linkFailed(_ error: any Error, _ noun: Noun = .place) -> String {
-    if isNothingSaved(error) { return "Answer \(noun.aOne) first, then we can send you the link." }
-    if let error = error as? MapRouletteError, error.kind == .conflict, error.reason == "guest_claimed" {
-      return "These answers are already linked to an OpenStreetMap account. Sign in with it to see them."
-    }
-    return switch (error as? MapRouletteError)?.kind {
-    case .validation?: "That doesn't look like an email address."
-    case .rateLimit?: "We've sent a few links already. Try again tomorrow."
-    case .network?: "Couldn't connect. Check your connection and try again."
-    default: "Couldn't send the link right now. Try again later."
-    }
-  }
-  static func savedNotOnMap(_ count: Int, _ noun: Noun, until: Date?) -> String {
-    "\(noun.count(count)) saved, not on the map yet."
-      + (until.map { " Finish on a computer by \(day($0))." } ?? "")
+  /// The campaign page's banner: counted now, on the map once a local mapper adds it (handback §1).
+  static func savedNotOnMap(_ count: Int, _ noun: Noun) -> String {
+    "\(noun.count(count)) saved and counted."
   }
   /// Deferred sign-up §1.4 summary: "You checked 14 stops. The tally: 212 of 410."
   static func daySummary(_ checked: Int, done: Int, total: Int, _ noun: Noun) -> String {
     "You checked \(noun.count(checked)). The tally: \(done) of \(total)."
   }
-  static func daySummarySaved(until: Date?) -> String {
-    (until.map { "They're saved until \(day($0))." } ?? "They're saved for now.")
-      + " If we emailed you a link, open it on a computer to put them on the map."
-  }
+  /// Never says when, or that they will be added (handback §1).
+  static let daySummarySaved = "Local mappers will check them and add them to the map."
   static let doneForToday = "I'm done for today"
-  /// Deferred sign-up §1.6, in the last 3 days.
-  static func savedClosing(_ count: Int, _ noun: Noun, on date: Date) -> String {
-    "\(count) saved \(count == 1 ? noun.one : noun.many) will be removed on "
-      + "\(day(date)) unless you finish on a computer."
-  }
-  /// After the deadline: calm, no error tone (§1.6).
-  static let savedExpired =
-    "Your saved answers weren't put on the map, so we removed them. They still count in the campaign's totals. Thanks for checking."
   static let deleteMyData = "Delete my data"
   static let deleteMyDataExplained =
-    "Removes your email and any saved answers that aren't on the map yet. Answers already on the map stay there, because they belong to OpenStreetMap now."
-  static let deleteMyDataDone = "Done. Your email and saved answers are deleted."
-  static let savedForLaterNote = "Saved on our server. They go on the map when you finish on a computer."
+    "Removes your saved answers that aren't on the map yet, so mappers won't see them. Answers already on the map stay there, because they're part of OpenStreetMap now."
+  static let deleteMyDataDone = "Done. Your saved answers are deleted."
+  static let savedForLaterNote = "Saved and counted. Local mappers check answers and add them to the map."
+  /// The guest pending cap (200 per install, an abuse limit; handback §1).
+  static func pendingLimit(_ noun: Noun) -> String {
+    "That's as many \(noun.many) as one phone can answer without an account for now. "
+      + "Tap “I already use OpenStreetMap” to sign in and keep going."
+  }
   static func saved(_ todayCount: Int, _ noun: Noun) -> String {
     "Saved, thanks! That's \(noun.count(todayCount)) today."
   }

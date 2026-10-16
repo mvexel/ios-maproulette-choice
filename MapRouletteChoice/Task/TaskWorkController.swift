@@ -465,9 +465,7 @@ enum TaskScreen: Sendable {
     case (_, "task_completed"?): return await notAccepted(loaded)
     case (_, "unsupported_task"?): return .accountNeeded(loaded)
     case (.rateLimit, "pending_limit"?):
-      return .answering(
-        loaded, form,
-        notice: "That's as many \(noun.many) as we can keep before they go on the map. Finish on a computer, or tap “I already use OpenStreetMap” to sign in and keep going.")
+      return .answering(loaded, form, notice: Wording.pendingLimit(noun))
     case (.permission, "challenge_not_published"?):
       return .notAvailable(loaded, reason: "This campaign isn't open for answers yet.")
     case (.authentication, _):

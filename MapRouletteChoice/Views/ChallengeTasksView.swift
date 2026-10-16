@@ -180,7 +180,7 @@ struct ChallengeTasksView: View {
     .sheet(item: $sheet) { which in
       switch which {
       case .welcome: welcome
-      case .putOnMap: PutOnMapCard(noun: noun)
+      case .putOnMap: PutOnMapCard()
       case .daySummary:
         DaySummaryCard(
           checkedToday: campaigns.checkedToday(challengeID.value), done: progress.checked, total: total, noun: noun)
@@ -279,9 +279,7 @@ struct ChallengeTasksView: View {
         }
       }
       if preview == nil, session.view.guest, let saved = session.guestStatus {
-        if saved.state == .expired {
-          Text(Wording.savedExpired).font(.subheadline).foregroundStyle(.secondary)
-        } else if saved.pendingCount > 0 {
+        if saved.pendingCount > 0 {
           savedBanner(saved)
           Button(Wording.doneForToday) { sheet = .daySummary }.font(.subheadline).frame(minHeight: 44)
         }
@@ -309,29 +307,28 @@ struct ChallengeTasksView: View {
     .padding(.top, 8)
   }
 
-  /// A guest's saved answers that aren't on the map yet (deferred sign-up §1.4); amber in the
-  /// last 3 days before they are removed (§1.6).
+  /// "Your answers": a guest's saved answers (handback §1). They are kept until a mapper has
+  /// checked them, so there is no deadline. The whole row opens the sheet (Iris's parity pick 1).
   private func savedBanner(_ saved: GuestStatus) -> some View {
-    let closing = saved.expiresAt.timeIntervalSinceNow < 3 * 86400
-    let stacked = typeSize.isAccessibilitySize
-    let layout = stacked ? AnyLayout(VStackLayout(alignment: .leading)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline))
-    return layout {
-      Text(
-        closing
-          ? Wording.savedClosing(saved.pendingCount, noun, on: saved.expiresAt)
-          : Wording.savedNotOnMap(saved.pendingCount, noun, until: saved.expiresAt)
-      )
-      .font(.subheadline.weight(.semibold))
-      if !stacked { Spacer() }
-      Button(saved.email == .none ? "Send me the link" : "Resend the link") { sheet = .putOnMap }
-        .font(.subheadline)
-        .frame(minHeight: 44)
+    Button {
+      sheet = .putOnMap
+    } label: {
+      HStack {
+        Text(Wording.savedNotOnMap(saved.pendingCount, noun))
+          .font(.subheadline.weight(.semibold))
+          .foregroundStyle(.primary)
+          .multilineTextAlignment(.leading)
+        Spacer()
+        Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+      }
+      .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+      .padding(.horizontal, 10)
+      .padding(.vertical, 4)
+      .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+      .contentShape(RoundedRectangle(cornerRadius: 10))
     }
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(10)
-    .background(
-      closing ? AnyShapeStyle(Color.orange.opacity(0.2)) : AnyShapeStyle(Color(.secondarySystemBackground)),
-      in: RoundedRectangle(cornerRadius: 10))
+    .buttonStyle(.plain)
+    .accessibilityHint("Shows what happens to your answers")
   }
 
   // MARK: List
@@ -515,7 +512,7 @@ struct ChallengeTasksView: View {
               Label(Wording.previewingAs(account), systemImage: "person.crop.circle")
             }
           } else if session.canAnswerAsGuest {
-            Label(AppSession.noAccountNeeded(noun), systemImage: "person.crop.circle")
+            Label(AppSession.noAccountNeeded, systemImage: "person.crop.circle")
           } else if !session.view.signedIn {
             Label(Wording.needsAccount, systemImage: "person.crop.circle")
           }

@@ -2,7 +2,7 @@ import XCTest
 
 /// App Store raw captures (brand/appstore README, slots 1–6): the "SLC Bus Stops" demo campaign
 /// answered as a guest. With SCREENSHOT_DIR set, writes welcome, map, question, notsure, saved and
-/// progress PNGs there, plus putonmap, wrong, review, daysummary, closing and stale for design review.
+/// progress PNGs there, plus putonmap, wrong, review, daysummary and stale for design review.
 final class AppStoreShotsUITests: XCTestCase {
   override func setUp() {
     continueAfterFailure = false
@@ -46,13 +46,8 @@ final class AppStoreShotsUITests: XCTestCase {
     XCTAssert(app.buttons["Done"].waitForExistence(timeout: 5))
     app.buttons["Done"].tap()
     XCTAssert(text(app, "Saved.").waitForExistence(timeout: 10))
-    // The "put them on the map" card opens once after the first saved answer.
-    let later = app.buttons["Later"]
-    if later.waitForExistence(timeout: 3) {
-      shot(app, "putonmap")
-      later.tap()
-    }
-    sleep(1)
+    // No sheet covers the confirmation (handback §1).
+    XCTAssertFalse(app.navigationBars["Your answers are saved"].waitForExistence(timeout: 2))
     shot(app, "saved")
 
     let back = app.buttons["Back to all stops"]
@@ -73,7 +68,8 @@ final class AppStoreShotsUITests: XCTestCase {
     shot(app, "wrong")
   }
 
-  /// Answer every question, check the answers, save, send the link, then "I'm done for today".
+  /// Answer every question, check the answers, save, open the sheet from "Your answers", then
+  /// "I'm done for today".
   @MainActor func testReviewAndDaySummary() throws {
     let app = launch("-demoTask", "185")
     allowLocationIfAsked(app)
@@ -90,35 +86,22 @@ final class AppStoreShotsUITests: XCTestCase {
     XCTAssert(app.buttons["Done"].waitForExistence(timeout: 5))
     app.buttons["Done"].tap()
     XCTAssert(text(app, "Saved.").waitForExistence(timeout: 10))
-    // Give an email on the "put them on the map" card, so the day summary shows (not the card).
-    let email = app.textFields["Email address"]
-    XCTAssert(email.waitForExistence(timeout: 5))
-    email.tap()
-    email.typeText("sam@example.org")
-    // The card's button, not the banner's under the sheet.
-    app.collectionViews.buttons["Send me the link"].firstMatch.tap()
-    XCTAssert(text(app, "Sent to sam@example.org").waitForExistence(timeout: 5))
-    app.navigationBars["Your answers are saved"].buttons["Done"].tap()
 
     let back = app.buttons["Back to all stops"]
     XCTAssert(back.waitForExistence(timeout: 5))
     back.tap()
+    XCTAssert(text(app, "saved and counted.").waitForExistence(timeout: 10))
+    app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "saved and counted.")).firstMatch.tap()
+    XCTAssert(app.navigationBars["Your answers are saved"].waitForExistence(timeout: 5))
+    sleep(1)
+    shot(app, "putonmap")
+    app.navigationBars["Your answers are saved"].buttons["Done"].tap()
     let doneForToday = app.buttons["I'm done for today"]
     XCTAssert(doneForToday.waitForExistence(timeout: 10))
     doneForToday.tap()
     XCTAssert(app.staticTexts["Nice work today."].waitForExistence(timeout: 5))
     sleep(1)
     shot(app, "daysummary")
-  }
-
-  /// `-demoClosing`: saved answers in their last days turn the banner amber.
-  @MainActor func testClosingBanner() throws {
-    let app = launch("-demoMap", "-demoClosing")
-    XCTAssert(text(app, "will be removed on").waitForExistence(timeout: 10))
-    allowLocationIfAsked(app)
-    waitForLocation(app)
-    sleep(3)  // map tiles
-    shot(app, "closing")
   }
 
   /// 191 no longer needs checking (its tags changed on OSM): the stale screen.

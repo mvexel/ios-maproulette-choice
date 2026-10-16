@@ -183,49 +183,36 @@ import Testing
         == "You're signed in as rosa_slc. Your 12 answers are on the map. New answers go straight on the map from now on.")
     #expect(AppSession.claimedMessage(nil).hasPrefix("You're signed in with OpenStreetMap. New answers"))
   }
-
-  @Test func deadlineCopy() {
-    let stops = Noun.from(match: ["highway": "bus_stop"])
-    #expect(Wording.savedClosing(14, stops, on: Date()).hasPrefix("14 saved stops will be removed on "))
-    #expect(Wording.savedClosing(1, stops, on: Date()).hasSuffix(" unless you finish on a computer."))
-  }
 }
 
-@Suite struct GuestLinkTextTests {
-  @Test func linkSentCopy() {
-    #expect(Wording.linkSent(to: "a@b.org", until: nil) == "Sent to a@b.org. Check your email later.")
-    #expect(Wording.linkSent(to: "a@b.org", until: Date()).hasPrefix("Sent to a@b.org. Check your email later. The link works until "))
-  }
-
-  @Test func nothingSavedIsCalmAndAsksForAnAnswerFirst() {
-    let nothingSaved = MapRouletteError(.conflict, status: 409, reason: "nothing_saved")
-    #expect(Wording.isNothingSaved(nothingSaved))
-    #expect(!Wording.isInputError(nothingSaved))
-    #expect(Wording.linkFailed(nothingSaved) == "Answer a place first, then we can send you the link.")
-    #expect(Wording.linkFailed(nothingSaved, Noun(one: "stop", many: "stops"))
-      == "Answer a stop first, then we can send you the link.")
-    // A claimed guest is a different conflict.
-    let claimed = MapRouletteError(.conflict, status: 409, reason: "guest_claimed")
-    #expect(!Wording.isNothingSaved(claimed))
-    #expect(Wording.linkFailed(claimed)
-      == "These answers are already linked to an OpenStreetMap account. Sign in with it to see them.")
-    // Any other conflict is not a promise about the map.
-    #expect(Wording.linkFailed(MapRouletteError(.conflict, status: 409, reason: "other"))
-      == "Couldn't send the link right now. Try again later.")
-    #expect(!Wording.isNothingSaved(MapRouletteError(.validation, reason: "nothing_saved")))
-  }
-
-  /// design/copy-fixes-2026-10-11.md rows 2, 3, 5: no unmeasured time, no claim an email went out,
-  /// no promise that phone sign-in puts saved answers on the map.
-  @Test func noUnbackedPromises() {
-    #expect(Wording.putOnMapIntro == "To put them on the map, finish on a computer. We can email you a link.")
-    #expect(Wording.daySummarySaved(until: nil)
-      == "They're saved for now. If we emailed you a link, open it on a computer to put them on the map.")
-    // Phone sign-in claims the saved answers (B5), so row 5's original line is back.
+/// design/handback-copy.md §1: counted now, on the map once a local mapper has checked it.
+@Suite struct HandbackTextTests {
+  @Test func handbackCopy() {
+    let stops = Noun.from(match: ["highway": "bus_stop"])
+    #expect(Wording.guestAnswersArePublic
+      == "Your answers are counted for this campaign right away. Local mappers then check them and add them to OpenStreetMap, the free map anyone can use, under their own names.")
+    #expect(Wording.savedNotOnMap(14, stops) == "14 stops saved and counted.")
+    #expect(Wording.daySummarySaved == "Local mappers will check them and add them to the map.")
+    #expect(Wording.savedForLaterNote == "Saved and counted. Local mappers check answers and add them to the map.")
+    #expect(Wording.pendingLimit(stops)
+      == "That's as many stops as one phone can answer without an account for now. Tap “I already use OpenStreetMap” to sign in and keep going.")
+    #expect(Wording.deleteMyDataExplained
+      == "Removes your saved answers that aren't on the map yet, so mappers won't see them. Answers already on the map stay there, because they're part of OpenStreetMap now.")
+    #expect(Wording.deleteMyDataDone == "Done. Your saved answers are deleted.")
+    #expect(AppSession.noAccountNeeded == "No account needed. Local mappers check your answers and add them to the map.")
+    // Phone sign-in claims the saved answers (B5).
     #expect(Wording.signInPutsOnMap == "Sign in now and your saved answers go on the map right away.")
-    for text in [Wording.putOnMapIntro, Wording.daySummarySaved(until: Date()), Wording.signInPutsOnMap] {
-      #expect(!text.contains("minutes"))
-      #expect(!text.contains("email we sent"))
+  }
+
+  /// No email claim, no deadline, and never a promise of when.
+  @Test func noComputerEmailOrDeadline() {
+    let stops = Noun.from(match: ["highway": "bus_stop"])
+    for text in [
+      Wording.guestAnswersArePublic, Wording.savedNotOnMap(3, stops), Wording.daySummarySaved,
+      Wording.savedForLaterNote, Wording.pendingLimit(stops), Wording.deleteMyDataExplained,
+      Wording.deleteMyDataDone, AppSession.noAccountNeeded,
+    ] {
+      for word in ["computer", "email", "link", "until", "removed", "minutes"] { #expect(!text.contains(word), "\(word): \(text)") }
     }
   }
 
@@ -288,12 +275,6 @@ import Testing
         + "The rest are still saved.")
     #expect(Wording.claimStillGoing
       == "Your answers are still going on the map. You can carry on; this finishes on its own.")
-  }
-
-  @Test func dayNeverWraps() {
-    let day = Wording.day(Date())
-    #expect(!day.contains(" "))
-    #expect(day.contains("\u{00A0}"))
   }
 }
 

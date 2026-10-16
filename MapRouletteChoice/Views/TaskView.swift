@@ -18,8 +18,6 @@ struct TaskView: View {
   /// VoiceOver moves to each new question's prompt.
   @AccessibilityFocusState private var promptFocused: Bool
   @AppStorage(SettingsKey.showOSMDetails) private var showDetails = false
-  @AppStorage(SettingsKey.putOnMapCardShown) private var putOnMapCardShown = false
-  @State private var showPutOnMap = false
 
   @State private var taskID: Int64
   /// The campaign's open places, for "Next nearest".
@@ -156,7 +154,6 @@ struct TaskView: View {
     .onChange(of: session.view.generation) { accountChanged() }
     .onChange(of: controller?.changed) { if controller?.changed == true { reportChange() } }
     .onChange(of: finishedTaskID) { countFinished() }
-    .sheet(isPresented: $showPutOnMap) { PutOnMapCard(noun: noun) }
     .sheet(isPresented: $showProblems, onDismiss: runAfterProblems) {
       if let controller, case .answering(let loaded, let form, _) = controller.state {
         problemsSheet(controller, loaded, form)
@@ -244,14 +241,9 @@ struct TaskView: View {
   private func countFinished() {
     guard finishedTaskID != nil, !counted, let state = controller?.state else { return }
     counted = true
-    // In preview nothing is stored and the card never opens (§4.2).
-    guard let d = campaigns.finished(state, preview: preview) else { return }
-    if d.savedForLater && !putOnMapCardShown, case .answers = d.action {
-      // Once, after the first saved answer (not a can't-check or a report: nothing of those goes
-      // on the map); later from the campaign's banner.
-      putOnMapCardShown = true
-      showPutOnMap = true
-    }
+    // In preview nothing is stored (§4.2). No sheet after a guest's first save (handback §1):
+    // the confirmation and the save note carry the message.
+    campaigns.finished(state, preview: preview)
   }
 
   /// The current place's position: the loaded task's, else the campaign list's.
