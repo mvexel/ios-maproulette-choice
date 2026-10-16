@@ -306,7 +306,6 @@ enum TaskScreen: Sendable {
         loaded, Self.form(work, outcomes: ops.choiceOutcomes(task), deleteAllowed: true), notice: nil)
     }
     guard let writer else { return .preview(loaded, work) }
-    if writer.guest && !Self.guestAnswerable(task) { return .accountNeeded(loaded) }
     let eligibility: ChoiceEligibility
     do {
       eligibility = try await ops.checkChoice(task.id)
@@ -466,9 +465,7 @@ enum TaskScreen: Sendable {
     case (_, "task_completed"?): return await notAccepted(loaded)
     case (_, "unsupported_task"?): return .accountNeeded(loaded)
     case (.rateLimit, "pending_limit"?):
-      return .answering(
-        loaded, form,
-        notice: "That's as many \(noun.many) as we can keep before they go on the map. Finish on a computer, or tap “I already use OpenStreetMap” to sign in and keep going.")
+      return .answering(loaded, form, notice: Wording.pendingLimit(noun))
     case (.permission, "challenge_not_published"?):
       return .notAvailable(loaded, reason: "This campaign isn't open for answers yet.")
     case (.authentication, _):
@@ -480,13 +477,6 @@ enum TaskScreen: Sendable {
       return .answering(loaded, form, notice: "Couldn't connect. Check your connection and try again.")
     }
     return await failed(loaded, form, action, error)
-  }
-
-  /// The pending route holds a guest's answers only where the campaign re-checks live OSM per
-  /// question (`cooperativeWork.liveMissingQuestions`, deferred-signup.md §4.3).
-  nonisolated static func guestAnswerable(_ task: MapRouletteTask) -> Bool {
-    guard case .object(let work)? = task.cooperativeWork else { return false }
-    return work["liveMissingQuestions"] == .bool(true)
   }
 
   /// Manual re-check after an uncertain result or a failed post-write read. Never resends.

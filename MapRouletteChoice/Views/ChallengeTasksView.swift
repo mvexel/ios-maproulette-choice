@@ -91,15 +91,6 @@ struct ChallengeTasksView: View {
   private func answerable(_ task: LocatedTask) -> Bool {
     task.isOpen || (preview != nil && CampaignPreview.invalidSurvey(task.task))
   }
-  /// Answering as a guest: already one, or about to become one on the first place opened.
-  private var asGuest: Bool { session.view.guest || session.canAnswerAsGuest }
-  /// A guest in a campaign whose open places all need an account (no `liveMissingQuestions`;
-  /// guest-vs-signed-in-review.md): said once, on the welcome card and above the map. Places stay
-  /// visible and say so when opened.
-  private var guestShutOut: Bool {
-    preview == nil && asGuest && !progress.open.isEmpty
-      && !progress.open.contains { TaskWorkController.guestAnswerable($0.task) }
-  }
   private var doneIDs: Set<Int64> { progress.done }
   /// Reports from the server, and this device's since launch (design/not-here-moved.md §4).
   private var reports: [Int64: TaskReport] { serverReports.merging(campaigns.justReported) { $1 } }
@@ -131,12 +122,10 @@ struct ChallengeTasksView: View {
             // Room so the last line clears the pinned button when scrolled to the end.
             .contentMargins(.bottom, 16, for: .scrollContent)
             .frame(height: min(summaryHeight.map { $0 + 16 } ?? geo.size.height / 2, geo.size.height / 2))
-            // The primary action stays on screen however far the text above it runs.
-            if guestShutOut { signInButton.padding(.horizontal) }
           } else {
             summary
           }
-          if let locationNote, !guestShutOut {
+          if let locationNote {
             Text(locationNote).font(.subheadline).foregroundStyle(.secondary)
               .fixedSize(horizontal: false, vertical: true)
               .frame(maxWidth: .infinity, alignment: .leading)
@@ -191,7 +180,7 @@ struct ChallengeTasksView: View {
     .sheet(item: $sheet) { which in
       switch which {
       case .welcome: welcome
-      case .putOnMap: PutOnMapCard(noun: noun)
+      case .putOnMap: PutOnMapCard()
       case .daySummary:
         DaySummaryCard(
           checkedToday: campaigns.checkedToday(challengeID.value), done: progress.checked, total: total, noun: noun)
@@ -260,16 +249,6 @@ struct ChallengeTasksView: View {
 
   @Environment(\.dynamicTypeSize) private var typeSize
 
-  private var signInButton: some View {
-    Button { signInForPreview() } label: {
-      Text("Sign in with OpenStreetMap").multilineTextAlignment(.center)
-        .fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: .infinity, minHeight: 44)
-    }
-    .buttonStyle(.borderedProminent)
-    .disabled(!session.signInAvailable)
-  }
-
   @ViewBuilder private var summary: some View {
     VStack(spacing: 8) {
       if publishedNote {
@@ -299,28 +278,14 @@ struct ChallengeTasksView: View {
           if failed { Button("Retry") { load() } }
         }
       }
-      if guestShutOut {
-        VStack(alignment: .leading, spacing: 8) {
-          Text(Wording.guestCampaignTitle).font(.headline).fixedSize(horizontal: false, vertical: true)
-          Text(Wording.guestCampaignText(noun)).fixedSize(horizontal: false, vertical: true)
-          if !typeSize.isAccessibilitySize { signInButton }
-          Text(session.accountHint).font(.footnote).foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-      }
       if preview == nil, session.view.guest, let saved = session.guestStatus {
-        if saved.state == .expired {
-          Text(Wording.savedExpired).font(.subheadline).foregroundStyle(.secondary)
-        } else if saved.pendingCount > 0 {
+        if saved.pendingCount > 0 {
           savedBanner(saved)
           Button(Wording.doneForToday) { sheet = .daySummary }.font(.subheadline).frame(minHeight: 44)
         }
       }
-      // Reported places stay open but aren't sent to anyone (design/not-here-moved.md §4). A shut-out
-      // guest gets the sign-in block instead.
-      if guestShutOut {
-      } else if let nearest = open.first(where: { !lookAgain.contains($0.id) }) {
+      // Reported places stay open but aren't sent to anyone (design/not-here-moved.md §4).
+      if let nearest = open.first(where: { !lookAgain.contains($0.id) }) {
         Button {
           if origin != nil { navigate(to: nearest.id) }
           else { mode = .list }
@@ -342,29 +307,28 @@ struct ChallengeTasksView: View {
     .padding(.top, 8)
   }
 
-  /// A guest's saved answers that aren't on the map yet (deferred sign-up §1.4); amber in the
-  /// last 3 days before they are removed (§1.6).
+  /// "Your answers": a guest's saved answers (handback §1). They are kept until a mapper has
+  /// checked them, so there is no deadline. The whole row opens the sheet (Iris's parity pick 1).
   private func savedBanner(_ saved: GuestStatus) -> some View {
-    let closing = saved.expiresAt.timeIntervalSinceNow < 3 * 86400
-    let stacked = typeSize.isAccessibilitySize
-    let layout = stacked ? AnyLayout(VStackLayout(alignment: .leading)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline))
-    return layout {
-      Text(
-        closing
-          ? Wording.savedClosing(saved.pendingCount, noun, on: saved.expiresAt)
-          : Wording.savedNotOnMap(saved.pendingCount, noun, until: saved.expiresAt)
-      )
-      .font(.subheadline.weight(.semibold))
-      if !stacked { Spacer() }
-      Button(saved.email == .none ? "Send me the link" : "Resend the link") { sheet = .putOnMap }
-        .font(.subheadline)
-        .frame(minHeight: 44)
+    Button {
+      sheet = .putOnMap
+    } label: {
+      HStack {
+        Text(Wording.savedNotOnMap(saved.pendingCount, noun))
+          .font(.subheadline.weight(.semibold))
+          .foregroundStyle(.primary)
+          .multilineTextAlignment(.leading)
+        Spacer()
+        Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+      }
+      .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+      .padding(.horizontal, 10)
+      .padding(.vertical, 4)
+      .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+      .contentShape(RoundedRectangle(cornerRadius: 10))
     }
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(10)
-    .background(
-      closing ? AnyShapeStyle(Color.orange.opacity(0.2)) : AnyShapeStyle(Color(.secondarySystemBackground)),
-      in: RoundedRectangle(cornerRadius: 10))
+    .buttonStyle(.plain)
+    .accessibilityHint("Shows what happens to your answers")
   }
 
   // MARK: List
@@ -547,10 +511,8 @@ struct ChallengeTasksView: View {
             if let account = Wording.account(session.view.userID, displayName: session.view.displayName) {
               Label(Wording.previewingAs(account), systemImage: "person.crop.circle")
             }
-          } else if session.canAnswerAsGuest && guestShutOut {
-            Label(Wording.campaignNeedsAccount, systemImage: "person.crop.circle")
           } else if session.canAnswerAsGuest {
-            Label(AppSession.noAccountNeeded(noun), systemImage: "person.crop.circle")
+            Label(AppSession.noAccountNeeded, systemImage: "person.crop.circle")
           } else if !session.view.signedIn {
             Label(Wording.needsAccount, systemImage: "person.crop.circle")
           }
