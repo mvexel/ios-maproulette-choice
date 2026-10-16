@@ -6,6 +6,8 @@ struct MapRouletteChoiceApp: App {
   @State private var session: AppSession = Self.makeSession()
   @State private var refresh = TaskChanges()
   @State private var campaigns: CampaignStore = Self.makeCampaigns()
+  @State private var outbox: GuestOutbox = Self.makeOutbox()
+  @Environment(\.scenePhase) private var scenePhase
 
   var body: some Scene {
     WindowGroup {
@@ -13,7 +15,27 @@ struct MapRouletteChoiceApp: App {
         .environment(session)
         .environment(refresh)
         .environment(campaigns)
+        .environment(outbox)
+        .onAppear {
+          let (outbox, session, campaigns) = (outbox, session, campaigns)
+          session.beforeSignIn = { client in
+            await outbox.flush(client) { campaigns.recordChecked($0.challengeID, task: $0.taskID) }
+          }
+          outbox.watchNetwork { outbox.flush(session, campaigns) }
+        }
     }
+    .onChange(of: scenePhase) { _, phase in
+      // A guest's answers kept on the phone go out whenever the app is open with signal (O1).
+      if phase == .active { outbox.flush(session, campaigns) }
+    }
+  }
+
+  @MainActor private static func makeOutbox() -> GuestOutbox {
+    #if DEBUG
+      // Demo runs keep nothing between launches.
+      if ProcessInfo.processInfo.arguments.contains("-demo") { return GuestOutbox(file: nil) }
+    #endif
+    return GuestOutbox()
   }
 
   @MainActor private static func makeSession() -> AppSession {

@@ -154,6 +154,9 @@ enum TaskScreen: Sendable {
     var checking = false
     /// A guest's answers: saved on the server, not on the map yet. The task itself is unchanged.
     var savedForLater = false
+    /// A guest's answers kept on this phone after a failed save; they send by themselves later
+    /// (design/offline-copy.md). Not counted until the server has them.
+    var waiting = false
 
     /// The report this records, for lists and maps: not here, or moved to the picked spot.
     var report: TaskReport? {
@@ -251,12 +254,18 @@ enum TaskScreen: Sendable {
 
   /// What the campaign checks ("stop", "bench"), for participant messages.
   @ObservationIgnored private let noun: Noun
+  /// Keeps a guest's answer on this phone when its save fails for lack of connection (O1).
+  @ObservationIgnored private let keepOnPhone: (@MainActor (GuestOutbox.Entry) -> Void)?
 
-  init(ops: any TaskOps, writer: Writer?, noun: Noun = .place, previewing: Bool = false) {
+  init(
+    ops: any TaskOps, writer: Writer?, noun: Noun = .place, previewing: Bool = false,
+    keepOnPhone: (@MainActor (GuestOutbox.Entry) -> Void)? = nil
+  ) {
     self.ops = previewing ? PreviewTaskOps(reads: ops) as any TaskOps : ops
     self.writer = previewing ? nil : writer
     self.noun = noun
     self.previewing = previewing
+    self.keepOnPhone = keepOnPhone
   }
 
   var busy: Bool {
@@ -444,6 +453,11 @@ enum TaskScreen: Sendable {
           return .failure(error)
         }
       }.value
+      // Kept on the phone even when the person already left the place.
+      if case .failure(let error) = result, let kept = keep(loaded, action, error) {
+        if !(Task.isCancelled || discarded) { publish(kept) }
+        return
+      }
       if Task.isCancelled || discarded { return }
       switch result {
       case .success:
@@ -452,6 +466,21 @@ enum TaskScreen: Sendable {
         publish(await failedForLater(loaded, form, action, error))
       }
     }
+  }
+
+  /// A save that failed for lack of connection (or may not have arrived) goes to the phone's
+  /// outbox; sending it again later is safe because the server keeps one answer per task.
+  private func keep(_ loaded: LoadedTask, _ action: ChoiceAction, _ error: any Error) -> TaskScreen? {
+    guard let keepOnPhone, let answer = GuestOutbox.Answer(action) else { return nil }
+    if let error = error as? MapRouletteError {
+      guard error.problem == .outcomeUnknown || error.kind == .network else { return nil }
+    } else if !(error is URLError) {
+      return nil
+    }
+    keepOnPhone(
+      .init(taskID: loaded.task.id.value, challengeID: loaded.challenge.id.value, answer: answer, savedAt: Date()))
+    return .done(
+      .init(loaded: loaded, action: action, me: 0, changesetID: nil, readFailed: false, savedForLater: true, waiting: true))
   }
 
   private func failedForLater(_ loaded: LoadedTask, _ form: ChoiceForm, _ action: ChoiceAction, _ error: any Error)
