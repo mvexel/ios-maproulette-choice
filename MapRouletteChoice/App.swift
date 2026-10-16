@@ -41,6 +41,7 @@ struct MapRouletteChoiceApp: App {
         demo.removePersistentDomain(forName: "demo")
         // The "put them on the map" card opens once per install; demo runs show it again.
         UserDefaults.standard.removeObject(forKey: SettingsKey.putOnMapCardShown)
+        UserDefaults.standard.removeObject(forKey: SettingsKey.aerialPhoto)
         return CampaignStore(defaults: demo)
       }
     #endif
