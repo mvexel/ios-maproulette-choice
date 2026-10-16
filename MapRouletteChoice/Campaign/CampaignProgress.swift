@@ -11,7 +11,7 @@ struct CampaignProgress {
   let done: Set<Int64>
   /// The tally's "N".
   let checked: Int
-  /// The campaign's size: open places (held ones included) and checked ones.
+  /// The campaign's size: places offered (held ones included) and checked ones.
   let total: Int
   /// Open places and checked ones; the rest are left off the map and list.
   let shown: [LocatedTask]
@@ -19,17 +19,26 @@ struct CampaignProgress {
   let open: [LocatedTask]
 
   /// `answerable` widens what can be opened beyond open tasks (preview lists broken surveys too);
-  /// it never changes the total.
+  /// it never changes the total. `offered`: the open places the campaign's bounds search returns
+  /// (`cct=3&excludeStale=true&includePending=true`), when it was read in full. An open place not
+  /// in it (gone, or stale with nothing holding it) drops out of the tally, map and list; nil
+  /// counts every open place (Sprint 3 tally rule, backend #51).
   init(
-    tasks: [LocatedTask], justDone: Set<Int64>, held: Set<Int64>,
+    tasks: [LocatedTask], justDone: Set<Int64>, held: Set<Int64>, offered: Set<Int64>? = nil,
     answerable: (LocatedTask) -> Bool = { $0.isOpen }
   ) {
     let done = Set(
       tasks.filter { $0.isDone || justDone.contains($0.id) || ($0.isOpen && held.contains($0.id)) }.map(\.id))
+    let gone = Set(
+      tasks.filter { t in
+        t.isOpen && !done.contains(t.id) && offered.map { !$0.contains(t.id) } == true
+      }.map(\.id))
     self.done = done
-    total = tasks.filter { $0.isOpen || done.contains($0.id) }.count
+    total = tasks.filter { ($0.isOpen && !gone.contains($0.id)) || done.contains($0.id) }.count
     checked = tasks.filter { done.contains($0.id) }.count
-    shown = tasks.filter { answerable($0) || done.contains($0.id) }
-    open = tasks.filter { answerable($0) && !justDone.contains($0.id) && !held.contains($0.id) }
+    shown = tasks.filter { (answerable($0) && !gone.contains($0.id)) || done.contains($0.id) }
+    open = tasks.filter {
+      answerable($0) && !gone.contains($0.id) && !justDone.contains($0.id) && !held.contains($0.id)
+    }
   }
 }

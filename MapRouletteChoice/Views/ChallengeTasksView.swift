@@ -53,6 +53,9 @@ struct ChallengeTasksView: View {
   @State private var held: Set<Int64> = []
   /// Open tasks held by someone's saved report (an outcome that sets status 6): need another look.
   @State private var heldReports: Set<Int64> = []
+  /// Open tasks the bounds search offers (fresh, choice, held ones included); nil when it couldn't
+  /// be read in full, and then every open task counts.
+  @State private var offered: Set<Int64>?
   /// Tasks someone reported as not here or moved. The campaign status read (E1/E2) will fill
   /// this; until then only the demo does.
   @State private var serverReports: [Int64: TaskReport] = [:]
@@ -81,7 +84,8 @@ struct ChallengeTasksView: View {
     // Pending reports, this phone's or another guest's, need another look, not "checked"
     // (not-here-moved.md).
     CampaignProgress(
-      tasks: tasks, justDone: campaigns.justDone, held: held.subtracting(lookAgain), answerable: answerable)
+      tasks: tasks, justDone: campaigns.justDone, held: held.subtracting(lookAgain),
+      offered: preview == nil ? offered : nil, answerable: answerable)
   }
   /// A guest's saved answers: checked here, but not on the map until they finish signing up.
   private var pendingIDs: Set<Int64> {
@@ -243,7 +247,7 @@ struct ChallengeTasksView: View {
       return Neighbour(id: task.id, latitude: c.latitude, longitude: c.longitude, state: state)
     }
     selected = Selection(
-      id: id, candidates: tasks.filter { answerable($0) && !held.contains($0.id) }, neighbours: neighbours)
+      id: id, candidates: shown.filter { answerable($0) && !held.contains($0.id) }, neighbours: neighbours)
   }
 
   // MARK: Summary
@@ -413,24 +417,26 @@ struct ChallengeTasksView: View {
   /// search with `includePending` says so per task (backend #16), and `heldKind` whether the hold
   /// is a report (T-002). A backend without `pending` leaves the held set to what the
   /// `excludePending` search leaves out; without `heldKind`, every hold is an answer. Best effort:
-  /// on failure or a short read, none.
+  /// on failure or a short read, none. The same search is what the campaign offers (`offered`,
+  /// backend #51): nil on failure, a short read or a backend without `pending`.
   private static func heldTasks(_ tasks: [LocatedTask], in challengeID: ChallengeID, client: MapRouletteClient)
-    async -> (answers: Set<Int64>, reports: Set<Int64>)
+    async -> (answers: Set<Int64>, reports: Set<Int64>, offered: Set<Int64>?)
   {
     let open = tasks.filter(\.isOpen)
-    guard let bounds = TaskLocation.bounds(open.compactMap(\.coordinate)) else { return ([], []) }
+    guard let bounds = TaskLocation.bounds(open.compactMap(\.coordinate)) else { return ([], [], nil) }
     let filter = TaskFilter(challengeIDs: [challengeID], bounds: bounds, choiceOnly: true, includePending: true)
-    guard let rows = await boxSearch(filter, client: client) else { return ([], []) }
+    guard let rows = await boxSearch(filter, client: client) else { return ([], [], nil) }
     if !rows.isEmpty, rows.allSatisfy({ $0.pending != nil }) {
       let holds = rows.filter { $0.pending == true }
       return (
         Set(holds.filter { $0.heldKind != .report }.map(\.id.value)),
-        Set(holds.filter { $0.heldKind == .report }.map(\.id.value))
+        Set(holds.filter { $0.heldKind == .report }.map(\.id.value)),
+        Set(rows.map(\.id.value))
       )
     }
     let unheld = TaskFilter(challengeIDs: [challengeID], bounds: bounds, choiceOnly: true, excludePending: true)
-    guard let listed = await boxSearch(unheld, client: client) else { return ([], []) }
-    return (Set(open.map(\.id)).subtracting(listed.map(\.id.value)), [])
+    guard let listed = await boxSearch(unheld, client: client) else { return ([], [], nil) }
+    return (Set(open.map(\.id)).subtracting(listed.map(\.id.value)), [], nil)
   }
 
   /// Every page of a bounds search, or nil on failure or a short read.
@@ -639,6 +645,7 @@ struct ChallengeTasksView: View {
         try Task.checkCancellation()
         held = heldNow.answers
         heldReports = heldNow.reports
+        offered = heldNow.offered
         challenge = loadedChallenge
         tasks = located
         noun = Noun.from(all)
