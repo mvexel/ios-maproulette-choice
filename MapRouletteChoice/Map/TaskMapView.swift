@@ -17,6 +17,8 @@ struct TaskMapView: UIViewRepresentable {
   var done: Set<Int64> = []
   /// Of `done`: saved for later (guest), not on the map yet.
   var pending: Set<Int64> = []
+  /// A guest's answers kept on this phone until there's signal (O1).
+  var waiting: Set<Int64> = []
   /// Reported as not here or moved.
   var reports: [Int64: TaskReport] = [:]
   /// Closed here with another status-6 outcome: "Needs another look", with no dot.
@@ -59,7 +61,8 @@ struct TaskMapView: UIViewRepresentable {
     if map.styleURL != style { map.styleURL = style }
     if map.showsUserLocation != Self.locationAllowed { map.showsUserLocation = Self.locationAllowed }
     context.coordinator.show(
-      tasks, done: done, pending: pending, reports: reports, flagged: flagged, origin: origin, noun: noun,
+      tasks, done: done, pending: pending, waiting: waiting, reports: reports, flagged: flagged, origin: origin,
+      noun: noun,
       on: map)
   }
 
@@ -74,12 +77,14 @@ struct TaskMapView: UIViewRepresentable {
   /// checking are not on the map, so there is no stale pin.
   enum Pin: Equatable {
     case toCheck, done, pending
+    /// Answered as a guest, kept on this phone until there's signal (offline-copy.md).
+    case waiting
     /// Open, but someone reported it not here or moved. It can still be opened.
     case reported
 
     /// `pending` only counts for a done place, `reported` only for an open one.
-    init(done: Bool, pending: Bool, reported: Bool = false) {
-      self = done ? (pending ? .pending : .done) : reported ? .reported : .toCheck
+    init(done: Bool, pending: Bool, reported: Bool = false, waiting: Bool = false) {
+      self = done ? (pending ? .pending : .done) : waiting ? .waiting : reported ? .reported : .toCheck
     }
 
     var imageName: String {
@@ -87,6 +92,7 @@ struct TaskMapView: UIViewRepresentable {
       case .toCheck: "PinTodo"
       case .done: "PinDone"
       case .pending: "PinPending"
+      case .waiting: "PinWaiting"
       case .reported: "PinLook"
       }
     }
@@ -97,6 +103,7 @@ struct TaskMapView: UIViewRepresentable {
       case .toCheck: "To check"
       case .done: "Already checked"
       case .pending: "Saved, not on the map yet"
+      case .waiting: Wording.waitingToSend
       case .reported: Wording.needsAnotherLook
       }
     }
@@ -205,6 +212,7 @@ struct TaskMapView: UIViewRepresentable {
     private var shown: [Int64] = []
     private var shownDone: Set<Int64> = []
     private var shownPending: Set<Int64> = []
+    private var shownWaiting: Set<Int64> = []
     private var shownReports: [Int64: TaskReport] = [:]
     private var shownFlagged: Set<Int64> = []
     /// Pin to reported spot, for each moved place; drawn once the style has loaded.
@@ -215,17 +223,18 @@ struct TaskMapView: UIViewRepresentable {
     init(open: @escaping (Int64) -> Void) { self.open = open }
 
     func show(
-      _ tasks: [LocatedTask], done: Set<Int64>, pending: Set<Int64>, reports: [Int64: TaskReport],
+      _ tasks: [LocatedTask], done: Set<Int64>, pending: Set<Int64>, waiting: Set<Int64>, reports: [Int64: TaskReport],
       flagged: Set<Int64>, origin: CLLocationCoordinate2D?, noun: Noun, on map: MLNMapView
     ) {
       let ids = tasks.map(\.id)
       let moved = origin?.latitude != shownOrigin?.latitude || origin?.longitude != shownOrigin?.longitude
-      guard ids != shown || done != shownDone || pending != shownPending || reports != shownReports || flagged != shownFlagged || moved
+      guard ids != shown || done != shownDone || pending != shownPending || waiting != shownWaiting || reports != shownReports || flagged != shownFlagged || moved
       else { return }
       let refit = ids != shown && !fitted
       shown = ids
       shownDone = done
       shownPending = pending
+      shownWaiting = waiting
       shownReports = reports
       shownFlagged = flagged
       shownOrigin = origin
@@ -240,7 +249,8 @@ struct TaskMapView: UIViewRepresentable {
         let a = TaskAnnotation()
         a.taskID = task.id
         a.pin = Pin(
-          done: done.contains(task.id), pending: pending.contains(task.id), reported: reports[task.id] != nil || flagged.contains(task.id))
+          done: done.contains(task.id), pending: pending.contains(task.id),
+          reported: reports[task.id] != nil || flagged.contains(task.id), waiting: waiting.contains(task.id))
         a.coordinate = coordinate
         a.title = Wording.placeName(task.task, noun)
         a.subtitle = a.pin.calloutSubtitle

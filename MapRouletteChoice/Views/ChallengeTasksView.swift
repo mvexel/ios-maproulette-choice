@@ -13,6 +13,7 @@ struct ChallengeTasksView: View {
   @Environment(AppSession.self) private var session
   @Environment(TaskChanges.self) private var changes
   @Environment(CampaignStore.self) private var campaigns
+  @Environment(GuestOutbox.self) private var outbox
   @Environment(\.webAuthenticationSession) private var webAuth
   @AppStorage(SettingsKey.showOSMDetails) private var showDetails = false
 
@@ -84,9 +85,11 @@ struct ChallengeTasksView: View {
     // Pending reports, this phone's or another guest's, need another look, not "checked"
     // (not-here-moved.md).
     CampaignProgress(
-      tasks: tasks, justDone: campaigns.justDone, held: held.subtracting(lookAgain),
+      tasks: tasks, justDone: campaigns.justDone, held: held.subtracting(lookAgain), waiting: waitingIDs,
       offered: preview == nil ? offered : nil, answerable: answerable)
   }
+  /// A guest's answers kept on this phone until there's signal (O1): neither open nor counted.
+  private var waitingIDs: Set<Int64> { preview == nil ? outbox.waiting(in: challengeID.value) : [] }
   /// A guest's saved answers: checked here, but not on the map until they finish signing up.
   private var pendingIDs: Set<Int64> {
     session.view.guest ? Set(tasks.filter { !$0.isDone && campaigns.justDone.contains($0.id) }.map(\.id)) : []
@@ -143,7 +146,7 @@ struct ChallengeTasksView: View {
           switch mode {
           case .map:
             TaskMapView(
-              styleURL: session.mapStyleURL, tasks: shown, done: doneIDs, pending: pendingIDs,
+              styleURL: session.mapStyleURL, tasks: shown, done: doneIDs, pending: pendingIDs, waiting: waitingIDs,
               reports: reports, flagged: campaigns.justFlagged.union(heldReports), origin: origin, noun: noun
             ) { id in navigate(to: id) }
               .background(Color(.secondarySystemBackground))
@@ -188,7 +191,7 @@ struct ChallengeTasksView: View {
       case .daySummary:
         DaySummaryCard(
           checkedToday: campaigns.checkedToday(challengeID.value), done: progress.checked, total: total, noun: noun,
-          onMap: myAnswers?.onMap ?? 0, pending: myAnswers?.pending ?? 0)
+          onMap: myAnswers?.onMap ?? 0, pending: myAnswers?.pending ?? 0, waiting: waitingIDs.count)
       case .share: share
       }
     }
@@ -211,10 +214,23 @@ struct ChallengeTasksView: View {
       if preview != nil { load() }
     }
     .onChange(of: changes.version) {
+      // A save went through, so there may be signal for the ones waiting.
+      outbox.flush(session, campaigns)
       load()
       Task { await session.refreshGuestStatus() }
     }
-    .task { await session.refreshGuestStatus() }
+    .task {
+      outbox.flush(session, campaigns)
+      await session.refreshGuestStatus()
+    }
+    .onChange(of: outbox.sentVersion) {
+      // A waiting answer reached the server: the tally and "Your answers" catch up.
+      load()
+      Task { await session.refreshGuestStatus() }
+    }
+    .alert(Wording.pendingLimit(noun), isPresented: Binding(get: { outbox.limitReached }, set: { outbox.limitReached = $0 })) {
+      Button("OK", role: .cancel) {}
+    }
   }
 
   #if DEBUG
@@ -241,13 +257,16 @@ struct ChallengeTasksView: View {
   private func navigate(to id: Int64) {
     let done = doneIDs
     let look = lookAgain
+    let waiting = waitingIDs
     let neighbours = shown.compactMap { task -> Neighbour? in
       guard let c = task.coordinate else { return nil }
-      let state: Neighbour.State = done.contains(task.id) ? .checked : look.contains(task.id) ? .look : .open
+      let state: Neighbour.State =
+        done.contains(task.id) || waiting.contains(task.id) ? .checked : look.contains(task.id) ? .look : .open
       return Neighbour(id: task.id, latitude: c.latitude, longitude: c.longitude, state: state)
     }
     selected = Selection(
-      id: id, candidates: shown.filter { answerable($0) && !held.contains($0.id) }, neighbours: neighbours)
+      id: id, candidates: shown.filter { answerable($0) && !held.contains($0.id) && !waiting.contains($0.id) },
+      neighbours: neighbours)
   }
 
   // MARK: Summary
@@ -283,8 +302,8 @@ struct ChallengeTasksView: View {
           if failed { Button("Retry") { load() } }
         }
       }
-      if preview == nil, session.view.guest, let mine = myAnswers, mine.pending > 0 || mine.onMap > 0 {
-        savedBanner(mine)
+      if preview == nil, session.view.guest, (myAnswers.map { $0.pending > 0 || $0.onMap > 0 } ?? false) || !waitingIDs.isEmpty {
+        savedBanner(myAnswers ?? .zero, waiting: waitingIDs.count)
         Button(Wording.doneForToday) { sheet = .daySummary }.font(.subheadline).frame(minHeight: 44)
       }
       // Reported places stay open but aren't sent to anyone (design/not-here-moved.md §4).
@@ -320,14 +339,16 @@ struct ChallengeTasksView: View {
 
   /// "Your answers": a guest's saved answers (handback §1). They are kept until a mapper has
   /// checked them, so there is no deadline. The whole row opens the sheet (Iris's parity pick 1).
-  private func savedBanner(_ mine: ChallengeAnswerCounts) -> some View {
+  private func savedBanner(_ mine: ChallengeAnswerCounts, waiting: Int) -> some View {
     Button {
       sheet = .putOnMap
     } label: {
       HStack {
         VStack(alignment: .leading, spacing: 2) {
+          // First while any wait on the phone; they aren't counted yet (offline-copy.md).
+          if waiting > 0 { Text(Wording.waitingForSignal(waiting)) }
           // n counts every answer, so it never drops when one goes on the map (Iris's review).
-          Text(Wording.savedNotOnMap(mine.pending + mine.onMap, noun))
+          if mine.pending + mine.onMap > 0 { Text(Wording.savedNotOnMap(mine.pending + mine.onMap, noun)) }
           if mine.onMap > 0 {
             Text(Wording.onMap(mine.onMap)).accessibilityLabel(Wording.onMapSpoken(mine.onMap))
           }
@@ -363,6 +384,13 @@ struct ChallengeTasksView: View {
       } header: {
         if !open.isEmpty { Text("To check") }
       }
+      let waiting = TaskLocation.sorted(tasks.filter { waitingIDs.contains($0.id) }, from: origin)
+      if !waiting.isEmpty {
+        Section(Wording.waitingToSend) {
+          // The heading says it; VoiceOver still reads it per row.
+          ForEach(waiting) { task in row(task, done: false, waiting: true) }
+        }
+      }
       if !checked.isEmpty {
         Section("Already checked") {
           ForEach(checked) { task in row(task, done: true, pending: pendingIDs.contains(task.id)) }
@@ -378,14 +406,14 @@ struct ChallengeTasksView: View {
     .refreshable { load(); await request?.value }
   }
 
-  private func row(_ task: LocatedTask, done: Bool, pending: Bool = false) -> some View {
+  private func row(_ task: LocatedTask, done: Bool, pending: Bool = false, waiting: Bool = false) -> some View {
     HStack {
       if done {
         Image(systemName: "checkmark.circle.fill").foregroundStyle(.secondary)
       }
       VStack(alignment: .leading, spacing: 2) {
         Text(Wording.placeName(task.task, noun)).foregroundStyle(done ? Color.secondary : Color.primary)
-        if !done && !pending && lookAgain.contains(task.id) {
+        if !waiting && !done && !pending && lookAgain.contains(task.id) {
           Text(Wording.needsAnotherLook).font(.footnote).foregroundStyle(Color.secondary)
         }
         if showDetails {
@@ -403,7 +431,7 @@ struct ChallengeTasksView: View {
     }
     .accessibilityElement(children: .combine)
     .accessibilityValue(
-      pending ? "Saved, not on the map yet" : done ? "Already checked" : "")
+      waiting ? Wording.waitingToSend : pending ? "Saved, not on the map yet" : done ? "Already checked" : "")
   }
 
   private var detailsFooter: String {

@@ -19,12 +19,14 @@ struct CampaignProgress {
   let open: [LocatedTask]
 
   /// `answerable` widens what can be opened beyond open tasks (preview lists broken surveys too);
-  /// it never changes the total. `offered`: the open places the campaign's bounds search returns
-  /// (`cct=3&excludeStale=true&includePending=true`), when it was read in full. An open place not
-  /// in it (gone, or stale with nothing holding it) drops out of the tally, map and list; nil
-  /// counts every open place (Sprint 3 tally rule, backend #51).
+  /// it never changes the total. `waiting`: a guest's answers kept on this phone (O1), neither
+  /// checked nor still to check until the server has them. `offered`: the open places the
+  /// campaign's bounds search returns (`cct=3&excludeStale=true&includePending=true`), when it was
+  /// read in full. An open place not in it (gone, or stale with nothing holding it) drops out of
+  /// the tally, map and list; nil counts every open place (Sprint 3 tally rule, backend #51).
   init(
-    tasks: [LocatedTask], justDone: Set<Int64>, held: Set<Int64>, offered: Set<Int64>? = nil,
+    tasks: [LocatedTask], justDone: Set<Int64>, held: Set<Int64>, waiting: Set<Int64> = [],
+    offered: Set<Int64>? = nil,
     answerable: (LocatedTask) -> Bool = { $0.isOpen }
   ) {
     let done = Set(
@@ -39,6 +41,7 @@ struct CampaignProgress {
     shown = tasks.filter { (answerable($0) && !gone.contains($0.id)) || done.contains($0.id) }
     open = tasks.filter {
       answerable($0) && !gone.contains($0.id) && !justDone.contains($0.id) && !held.contains($0.id)
+        && !waiting.contains($0.id)
     }
   }
 }

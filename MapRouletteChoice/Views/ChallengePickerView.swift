@@ -5,6 +5,11 @@ import SwiftUI
 /// Account, the backend's mapping campaigns (multiple-choice challenges), and settings.
 struct ChallengePickerView: View {
   @Environment(AppSession.self) private var session
+  @Environment(GuestOutbox.self) private var outbox
+  @Environment(CampaignStore.self) private var campaigns
+  #if DEBUG
+    @State private var demoNoSignal = DemoBackend.noSignal
+  #endif
   @Environment(\.dynamicTypeSize) private var typeSize
   @Environment(\.webAuthenticationSession) private var webAuth
 
@@ -87,10 +92,19 @@ struct ChallengePickerView: View {
       .confirmationDialog(Wording.deleteMyData, isPresented: $confirmDelete, titleVisibility: .visible) {
         Button("Delete", role: .destructive) { deleteGuestData() }
       } message: {
-        Text(Wording.deleteMyDataExplained)
+        Text(outbox.isEmpty ? Wording.deleteMyDataExplained : Wording.deleteMyDataExplained + " " + Wording.deleteMyDataWaiting)
       }
       Section {
         Toggle(Wording.showDetails, isOn: $showDetails)
+        #if DEBUG
+          if ProcessInfo.processInfo.arguments.contains("-demo") {
+            Toggle("Demo: no signal", isOn: Binding(get: { demoNoSignal }, set: { on in
+              demoNoSignal = on
+              DemoBackend.noSignal = on
+              if !on { outbox.flush(session, campaigns) }
+            }))
+          }
+        #endif
         if showDetails && session.writesConfigured {
           Toggle("Allow deleting OSM elements", isOn: $session.allowElementDeletion)
         }
@@ -193,6 +207,7 @@ struct ChallengePickerView: View {
     Task {
       do {
         try await session.deleteGuestData()
+        outbox.removeAll()
         deleteResult = Wording.deleteMyDataDone
       } catch {
         deleteResult = "Couldn't delete right now. Check your connection and try again."
