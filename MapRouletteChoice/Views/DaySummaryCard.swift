@@ -10,6 +10,10 @@ struct DaySummaryCard: View {
   let done: Int
   let total: Int
   let noun: Noun
+  /// This campaign's answers a local mapper has put on the map (handback §1).
+  var onMap = 0
+  /// Answers still waiting for a local mapper; the "will check them" line shows only while there are some.
+  var pending = 0
 
   @Environment(AppSession.self) private var session
   @Environment(\.webAuthenticationSession) private var webAuth
@@ -20,7 +24,10 @@ struct DaySummaryCard: View {
       VStack(alignment: .leading, spacing: 16) {
         Text("Nice work today.").font(.title2.weight(.semibold))
         Text(Wording.daySummary(checkedToday, done: done, total: total, noun))
-        Text(Wording.daySummarySaved)
+        if pending > 0 { Text(Wording.daySummarySaved) }
+        if onMap > 0 {
+          Text(Wording.onMap(onMap)).fontWeight(.semibold).accessibilityLabel(Wording.onMapSpoken(onMap))
+        }
         Spacer()
         Button {
           dismiss()

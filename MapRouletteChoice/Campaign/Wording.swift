@@ -263,6 +263,11 @@ enum Wording {
   static func daySummary(_ checked: Int, done: Int, total: Int, _ noun: Noun) -> String {
     "You checked \(noun.count(checked)). The tally: \(done) of \(total)."
   }
+  /// Answers a local mapper has put on the map, shown only in "Your answers" (handback §1).
+  /// Skipped or rejected answers show nothing.
+  static func onMap(_ count: Int) -> String { "\u{2713} \(count) on the map" }
+  /// What VoiceOver reads for `onMap`, without "check mark".
+  static func onMapSpoken(_ count: Int) -> String { "\(count) on the map" }
   /// Never says when, or that they will be added (handback §1).
   static let daySummarySaved = "Local mappers will check them and add them to the map."
   static let doneForToday = "I'm done for today"

@@ -27,7 +27,8 @@ struct MapRouletteChoiceApp: App {
       if args.contains("-demo") {
         let backend = DemoBackend(
           campaign: DemoBackend.demoCampaign(args), closing: args.contains("-demoClosing"), draft: args.contains("-demoDraft"),
-          reported: args.contains("-demoReported"), heldReport: args.contains("-demoHeldReport"))
+          reported: args.contains("-demoReported"), heldReport: args.contains("-demoHeldReport"),
+          onMap: args.contains("-demoOnMap") ? 1 : 0)
         return AppSession(demo: backend, guest: args.contains("-demoGuest"))
       }
     #endif

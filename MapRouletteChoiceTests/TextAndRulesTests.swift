@@ -193,6 +193,8 @@ import Testing
       == "Your answers are counted for this campaign right away. Local mappers then check them and add them to OpenStreetMap, the free map anyone can use, under their own names.")
     #expect(Wording.savedNotOnMap(14, stops) == "14 stops saved and counted.")
     #expect(Wording.daySummarySaved == "Local mappers will check them and add them to the map.")
+    #expect(Wording.onMap(3) == "\u{2713} 3 on the map")
+    #expect(Wording.onMapSpoken(3) == "3 on the map")
     #expect(Wording.savedForLaterNote == "Saved and counted. Local mappers check answers and add them to the map.")
     #expect(Wording.pendingLimit(stops)
       == "That's as many stops as one phone can answer without an account for now. Tap “I already use OpenStreetMap” to sign in and keep going.")

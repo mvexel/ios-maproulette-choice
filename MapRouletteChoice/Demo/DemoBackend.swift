@@ -15,6 +15,8 @@
   /// (design/not-here-moved.md), for the banner and map dot (`seededReports`).
   /// `-demoHeldReport` has another guest holding 188 with a saved report (`heldKind` "report", T-002)
   /// and 184 with a saved answer, for "Needs another look" against "checked".
+  /// `-demoOnMap` has a local mapper already put one of the guest's answers on the map: `/mobile-guest/me`
+  /// then sends `byChallenge` for challenge 3 (pending = answers saved this launch, onMap 1), for "✓ 1 on the map".
   /// `-demoClaimed` answers the finish-link request with 409 `guest_claimed`, for the claimed copy.
   /// `-demoWoodbine` serves the first pilot, "Woodbine entrance doors" (design/woodbine-campaign.md),
   /// on eight real entrance nodes around Woodbine Food Hall; 188 already has `door`, so only the
@@ -69,6 +71,8 @@
         : args.contains("-demoTrees") ? .trees : args.contains("-demoWoodbine") ? .woodbine : args.contains("-demoStops") ? .stops : .benches
     }
     let draft: Bool
+    /// The guest's answers a local mapper has put on the map (`-demoOnMap`); 0 sends no `byChallenge`.
+    private let onMap: Int
     private var pending: [Int64: Date] = [:]
     private var email = "none"
     /// When the guest's saved answers are removed.
@@ -79,10 +83,11 @@
 
     init(
       campaign: Campaign = .benches, closing: Bool = false, draft: Bool = false, reported: Bool = false,
-      heldReport: Bool = false
+      heldReport: Bool = false, onMap: Int = 0
     ) {
       self.campaign = campaign
       self.draft = draft
+      self.onMap = onMap
       if campaign == .trees {
         status = Dictionary(uniqueKeysWithValues: Self.treeIDs.map { ($0, 0) }).merging([1090: 1, 1094: 1]) { $1 }
         completedBy = [1090: 8, 1094: 8]
@@ -248,10 +253,14 @@
     }
 
     private var guestStatus: [String: Any] {
-      [
-        "guestId": "demo-guest", "state": "active", "email": email, "pending": pending.count, "published": 0,
+      var o: [String: Any] = [
+        "guestId": "demo-guest", "state": "active", "email": email, "pending": pending.count, "published": onMap,
         "expiresAt": stamp(expiresAt),
       ]
+      if onMap > 0 {
+        o["byChallenge"] = ["\(Self.challengeID)": ["pending": pending.count, "onMap": onMap]]
+      }
+      return o
     }
 
     private func stamp(_ date: Date) -> String { ISO8601DateFormatter().string(from: date) }
