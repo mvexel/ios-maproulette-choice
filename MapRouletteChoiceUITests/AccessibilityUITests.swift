@@ -35,6 +35,8 @@ final class AccessibilityUITests: XCTestCase {
 
   @MainActor func testLargestTextKeepsAnswersWhole() throws {
     let app = launch("-demoTask", "185", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL")
+    // This test runs first on a fresh simulator, so the location prompt can be up over the question.
+    allowLocationIfAsked(app)
     // The first launch at AX-XXXL is slow on CI runners. If the prompt never shows, print what is on
     // screen (the app and any system alert) so the CI log says why; the xcresult isn't readable there.
     guard app.staticTexts["Is there a shelter with a roof?"].waitForExistence(timeout: 30) else {
