@@ -22,7 +22,7 @@ struct DaySummaryCard: View {
   var body: some View {
     NavigationStack {
       VStack(alignment: .leading, spacing: 16) {
-        Text("Nice work today.").font(.title2.weight(.semibold))
+        Text(Wording.daySummaryTitle(checkedToday)).font(.title2.weight(.semibold))
         Text(Wording.daySummary(checkedToday, done: done, total: total, noun))
         if pending > 0 { Text(Wording.daySummarySaved) }
         if onMap > 0 {

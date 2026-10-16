@@ -260,9 +260,13 @@ enum Wording {
     "\(noun.count(count)) saved and counted."
   }
   /// Deferred sign-up §1.4 summary: "You checked 14 stops. The tally: 212 of 410."
+  /// With nothing checked today only the tally shows (Iris).
   static func daySummary(_ checked: Int, done: Int, total: Int, _ noun: Noun) -> String {
-    "You checked \(noun.count(checked)). The tally: \(done) of \(total)."
+    let tally = "The tally: \(done) of \(total)."
+    return checked == 0 ? tally : "You checked \(noun.count(checked)). " + tally
   }
+  /// The day summary's heading: "Your answers" when nothing was checked today (Iris).
+  static func daySummaryTitle(_ checked: Int) -> String { checked == 0 ? "Your answers" : "Nice work today." }
   /// Answers a local mapper has put on the map, shown only in "Your answers" (handback §1).
   /// Skipped or rejected answers show nothing.
   static func onMap(_ count: Int) -> String { "\u{2713} \(count) on the map" }
