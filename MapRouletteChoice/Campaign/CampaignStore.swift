@@ -87,6 +87,4 @@ import MapRoulette
 /// Settings keys shared by views (`@AppStorage`).
 enum SettingsKey {
   static let showOSMDetails = "showOSMDetails"
-  /// The guest's "put them on the map" card was shown after the first saved answer.
-  static let putOnMapCardShown = "putOnMapCardShown"
 }

@@ -204,7 +204,7 @@ struct SessionClient: Sendable {
   nonisolated static let signInDidNotFinish = "Sign-in didn't finish. Please try again."
 
   private func signedOutMessage() -> String {
-    if canAnswerAsGuest { return Self.noAccountNeeded() }
+    if canAnswerAsGuest { return Self.noAccountNeeded }
     return endpoints.enabled
       ? "You can look around without signing in. Sign in with OpenStreetMap to save answers."
       : "You can look around. Signing in isn't set up in this build."
@@ -233,10 +233,8 @@ struct SessionClient: Sendable {
 
   // MARK: Guests
 
-  /// Without a campaign (the status line), its places are "places".
-  nonisolated static func noAccountNeeded(_ noun: Noun = .place) -> String {
-    "No account needed to start. Answer a few \(noun.many) first, and we'll help you put them on the map afterwards."
-  }
+  /// The welcome card and the status line (handback §1).
+  nonisolated static let noAccountNeeded = "No account needed. Local mappers check your answers and add them to the map."
 
   /// Signed out in a build that lets participants answer first, unless the backend refused guests.
   var canAnswerAsGuest: Bool {
@@ -290,7 +288,6 @@ struct SessionClient: Sendable {
     defer { guestStatus = nil }
     do {
       let claim = try await auth.claimGuest(environment: Self.environment(endpoints, writes: true), transport: transport)
-      lastLinkEmail = nil
       startedClaim = claim.claimID
       return .started(pending: claim.pendingCount, waiting: claim.state == .waiting)
     } catch let error as MapRouletteError where error.reason == "not_found" || error.reason == "guest_claimed" {
@@ -347,27 +344,13 @@ struct SessionClient: Sendable {
     if let status = try? await client.getGuestStatus(), view.guest { guestStatus = status }
   }
 
-  /// Sends the "finish on a computer" link to `email` (again, to correct it). Throws for the
-  /// card to show a plain message.
-  func sendFinishLink(to email: String) async throws {
-    let status = try await newClient().client.setGuestEmail(email)
-    if view.guest {
-      guestStatus = status
-      lastLinkEmail = email
-    }
-  }
-
-  /// The address the link went to in this launch, for "Resend the link". Kept in memory only.
-  private(set) var lastLinkEmail: String?
-
-  /// Deletes the guest's email and saved answers on the server, then forgets the guest here.
+  /// Deletes the guest's saved answers on the server, then forgets the guest here.
   /// Answers already on the map stay.
   func deleteGuestData() async throws {
     guard view.guest, let auth else { return }
     try await newClient().client.deleteGuest()
     try? await auth.forgetGuest()
     guestStatus = nil
-    lastLinkEmail = nil
     await sync(auth)
     publish(signedOutMessage())
   }
