@@ -19,9 +19,10 @@ struct CampaignProgress {
   let open: [LocatedTask]
 
   /// `answerable` widens what can be opened beyond open tasks (preview lists broken surveys too);
-  /// it never changes the total.
+  /// it never changes the total. `waiting`: a guest's answers kept on this phone (O1), neither
+  /// checked nor still to check until the server has them.
   init(
-    tasks: [LocatedTask], justDone: Set<Int64>, held: Set<Int64>,
+    tasks: [LocatedTask], justDone: Set<Int64>, held: Set<Int64>, waiting: Set<Int64> = [],
     answerable: (LocatedTask) -> Bool = { $0.isOpen }
   ) {
     let done = Set(
@@ -30,6 +31,8 @@ struct CampaignProgress {
     total = tasks.filter { $0.isOpen || done.contains($0.id) }.count
     checked = tasks.filter { done.contains($0.id) }.count
     shown = tasks.filter { answerable($0) || done.contains($0.id) }
-    open = tasks.filter { answerable($0) && !justDone.contains($0.id) && !held.contains($0.id) }
+    open = tasks.filter {
+      answerable($0) && !justDone.contains($0.id) && !held.contains($0.id) && !waiting.contains($0.id)
+    }
   }
 }

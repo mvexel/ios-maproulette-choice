@@ -17,6 +17,8 @@
   /// and 184 with a saved answer, for "Needs another look" against "checked".
   /// `-demoOnMap` has a local mapper already put one of the guest's answers on the map: `/mobile-guest/me`
   /// then sends `byChallenge` for challenge 3 (pending = answers saved this launch, onMap 1), for "✓ 1 on the map".
+  /// `-demoNoSignal` starts with no signal for a guest's saves, so answers wait on the phone (O1);
+  /// "Demo: no signal" under Settings switches it.
   /// `-demoClaimed` answers the finish-link request with 409 `guest_claimed`, for the claimed copy.
   /// `-demoWoodbine` serves the first pilot, "Woodbine entrance doors" (design/woodbine-campaign.md),
   /// on eight real entrance nodes around Woodbine Food Hall; 188 already has `door`, so only the
@@ -30,6 +32,8 @@
     enum Campaign: Sendable { case benches, stops, woodbine, trees, crossings, buildings }
 
     static let challengeID: Int64 = 3
+    /// A guest's saves fail as if there were no signal (`-demoNoSignal`).
+    @MainActor static var noSignal = ProcessInfo.processInfo.arguments.contains("-demoNoSignal")
     /// `-demoClaim progress`'s claim: 3 answers, one more on the map per read, then done with one
     /// not added (changed meanwhile).
     static let claimID: Int64 = 41
@@ -166,6 +170,7 @@
       case (.post, let p) where p.count == 3 && p[2] == "skip": return ok([String: Any]())
       case (.post, let p) where p.count == 4 && p[2] == "choice" && p[3] == "pending":
         guard let id = id(p[1]) else { return notFound }
+        if await MainActor.run(body: { Self.noSignal }) { throw MapRouletteError(.network) }
         let now = Date()
         pending[id] = now
         return ok([

@@ -12,6 +12,7 @@ struct TaskView: View {
   @Environment(AppSession.self) private var session
   @Environment(TaskChanges.self) private var changes
   @Environment(CampaignStore.self) private var campaigns
+  @Environment(GuestOutbox.self) private var outbox
   @Environment(\.webAuthenticationSession) private var webAuth
   @Environment(\.dismiss) private var dismiss
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -191,8 +192,10 @@ struct TaskView: View {
       : session.writesConfigured && view.signedIn && view.canWriteTasks
         ? view.userID.map { Writer(me: $0, canEditOsm: view.canEditOsm) }
       : session.writesConfigured && view.guest ? .guestWriter : nil
+    let outbox = outbox
     controller = TaskWorkController(
-      ops: ClientTaskOps(session.newClient().client), writer: writer, noun: noun, previewing: preview != nil)
+      ops: ClientTaskOps(session.newClient().client), writer: writer, noun: noun, previewing: preview != nil,
+      keepOnPhone: { outbox.add($0) })
   }
 
   /// Account switch or sign-out: discard the old account's state and any late result.
@@ -257,7 +260,7 @@ struct TaskView: View {
 
   private var nextPlace: LocatedTask? {
     TaskLocation.nearest(
-      from: here, in: candidates, excluding: visited.union(campaigns.justDone).union(campaigns.lookAgain(allReports)).union(heldReports))
+      from: here, in: candidates, excluding: visited.union(campaigns.justDone).union(outbox.waitingIDs).union(campaigns.lookAgain(allReports)).union(heldReports))
   }
 
   private func open(_ next: LocatedTask) {
@@ -831,6 +834,15 @@ struct TaskView: View {
   @ViewBuilder private func done(_ c: TaskWorkController, _ d: TaskScreen.Done) -> some View {
     if d.byOther {
       Text(Wording.checkedByOtherFirst(noun)).font(.headline)
+    } else if d.waiting {
+      // Kept on the phone (offline-copy.md): today's count includes it, the tally doesn't yet.
+      Label {
+        Text(Wording.savedForLater(campaigns.checkedToday(d.loaded.challenge.id.value), noun))
+      } icon: {
+        Image(systemName: "checkmark.circle").foregroundStyle(.secondary)
+      }
+      .font(.title3.weight(.semibold))
+      Text(Wording.keptOnPhone).font(.footnote).foregroundStyle(.secondary)
     } else {
       Label {
         Text(
