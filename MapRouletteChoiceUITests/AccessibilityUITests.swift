@@ -35,7 +35,15 @@ final class AccessibilityUITests: XCTestCase {
 
   @MainActor func testLargestTextKeepsAnswersWhole() throws {
     let app = launch("-demoTask", "185", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL")
-    XCTAssert(app.staticTexts["Is there a shelter with a roof?"].waitForExistence(timeout: 10))
+    // This test runs first on a fresh simulator, so the location prompt can be up over the question.
+    allowLocationIfAsked(app)
+    // The first launch at AX-XXXL is slow on CI runners. If the prompt never shows, print what is on
+    // screen (the app and any system alert) so the CI log says why; the xcresult isn't readable there.
+    guard app.staticTexts["Is there a shelter with a roof?"].waitForExistence(timeout: 30) else {
+      let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+      print("AXDUMP-BEGIN\n\(app.debugDescription)\nSPRINGBOARD ALERTS: \(springboard.alerts.debugDescription)\nAXDUMP-END")
+      return XCTFail("the question prompt didn't appear at AX-XXXL")
+    }
     shot(app, "ax5-question")
     // At this size the header fills the first screen; the answers are below it.
     let yes = button(app, "Yes")

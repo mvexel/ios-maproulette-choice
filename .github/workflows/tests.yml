@@ -1,0 +1,69 @@
+name: Tests
+
+# Unit and UI tests on an iOS simulator. The repo is public, so GitHub's macOS runners are free.
+# Real-device and field checks still run on the Mac (Tess).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  simulator:
+    name: Unit and UI tests (iOS simulator)
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show Xcode
+        run: xcodebuild -version
+      # iPhone 17 on the newest iOS runtime (the Mac passes use iPhone 17), else the newest iPhone,
+      # so the job doesn't break when the image changes.
+      - name: Pick and boot a simulator
+        id: sim
+        run: |
+          udid=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          ios = sorted((k for k in devices if "iOS" in k), key=lambda k: [int(p) for p in k.rsplit("iOS-", 1)[-1].split("-")])
+          phones = [d for d in devices[ios[-1]] if d["name"].startswith("iPhone")]
+          print(next((d for d in phones if d["name"] == "iPhone 17"), phones[-1])["udid"])')
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl list devices available | grep "$udid"
+          # Booted before the tests start, so the first UI test doesn't spend its timeouts on a cold boot.
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid" -b
+      # SCREENSHOT_DIR makes the UI tests write their review shots (App Store, accessibility, previews).
+      - name: Unit and UI tests
+        env:
+          TEST_RUNNER_SCREENSHOT_DIR: ${{ github.workspace }}/shots
+        run: |
+          mkdir -p shots
+          set -o pipefail
+          xcodebuild test \
+            -project MapRouletteChoice.xcodeproj \
+            -scheme MapRouletteChoice \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -resultBundlePath TestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee xcodebuild.log | grep -E "^(Test Suite|Test [Cc]ase .*(passed|failed|skipped)|\*\* TEST|.*error:)" || true
+          # A UI test that can't find its screen prints the accessibility tree between these markers.
+          sed -n '/AXDUMP-BEGIN/,/AXDUMP-END/p' xcodebuild.log | head -300
+          grep -q "\*\* TEST SUCCEEDED \*\*" xcodebuild.log
+      - name: Upload test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-test-results
+          path: |
+            TestResults.xcresult
+            xcodebuild.log
+            shots
+          if-no-files-found: warn
+          retention-days: 14
