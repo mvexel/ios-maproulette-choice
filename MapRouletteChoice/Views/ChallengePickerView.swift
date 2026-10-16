@@ -19,8 +19,6 @@ struct ChallengePickerView: View {
   @State private var confirmDelete = false
   @State private var deleteResult: String?
   @State private var search = ""
-  /// Campaigns a guest can't answer (no `liveMissingQuestions`), from each one's first task.
-  @State private var needsAccount: Set<ChallengeID> = []
   @AppStorage(SettingsKey.showOSMDetails) private var showDetails = false
 
   /// Pages of 100 to read before stopping; enough for a pilot backend.
@@ -54,9 +52,6 @@ struct ChallengePickerView: View {
           NavigationLink(value: Route.challenge(challenge.id)) {
             VStack(alignment: .leading, spacing: 2) {
               Text(challenge.name)
-              if needsAccount.contains(challenge.id) && (session.view.guest || session.canAnswerAsGuest) {
-                Text(Wording.needsAccountBadge).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-              }
               if let blurb = Self.blurb(challenge) {
                 // Two lines keep the list short; at accessibility sizes two lines hold a few words.
                 Text(blurb).font(.footnote).foregroundStyle(.secondary).lineLimit(typeSize.isAccessibilitySize ? 6 : 2)
@@ -169,7 +164,6 @@ struct ChallengePickerView: View {
         others = all.count - choice.count
         truncated = cursor != nil
         status = choice.isEmpty ? "No campaigns here yet. Got a campaign link or QR code from your organizer? Open it to jump straight in." : ""
-        needsAccount = await Self.needingAccount(choice, client)
       } catch is CancellationError {
         return
       } catch {
@@ -178,24 +172,6 @@ struct ChallengePickerView: View {
         failed = true
       }
       request = nil
-    }
-  }
-
-  /// The survey builder sets `liveMissingQuestions` per campaign, so one task tells. A failed
-  /// read leaves the campaign unbadged; its places still say so when opened.
-  nonisolated private static func needingAccount(
-    _ challenges: [Challenge], _ client: MapRouletteClient
-  ) async -> Set<ChallengeID> {
-    await withTaskGroup(of: ChallengeID?.self) { group in
-      for challenge in challenges {
-        group.addTask {
-          guard let task = try? await client.listTasks(challenge.id, pageSize: 1).items.first else { return nil }
-          return TaskWorkController.guestAnswerable(task) ? nil : challenge.id
-        }
-      }
-      var ids: Set<ChallengeID> = []
-      for await id in group { if let id { ids.insert(id) } }
-      return ids
     }
   }
 
