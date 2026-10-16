@@ -43,7 +43,6 @@ import Network
     }
   }
 
-  /// What sending one entry came to.
   /// What sending one entry came to. `keep` stops the flush (no signal, server trouble);
   /// `later` keeps the entry but goes on with the rest.
   enum Sent: Equatable { case sent, dropped, limit, keep, later }
