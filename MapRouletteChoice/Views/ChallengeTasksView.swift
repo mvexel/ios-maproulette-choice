@@ -184,7 +184,7 @@ struct ChallengeTasksView: View {
       case .daySummary:
         DaySummaryCard(
           checkedToday: campaigns.checkedToday(challengeID.value), done: progress.checked, total: total, noun: noun,
-          onMap: myAnswers?.onMap ?? 0)
+          onMap: myAnswers?.onMap ?? 0, pending: myAnswers?.pending ?? 0)
       case .share: share
       }
     }
@@ -322,8 +322,11 @@ struct ChallengeTasksView: View {
     } label: {
       HStack {
         VStack(alignment: .leading, spacing: 2) {
-          if mine.pending > 0 { Text(Wording.savedNotOnMap(mine.pending, noun)) }
-          if mine.onMap > 0 { Text(Wording.onMap(mine.onMap)) }
+          // n counts every answer, so it never drops when one goes on the map (Iris's review).
+          Text(Wording.savedNotOnMap(mine.pending + mine.onMap, noun))
+          if mine.onMap > 0 {
+            Text(Wording.onMap(mine.onMap)).accessibilityLabel(Wording.onMapSpoken(mine.onMap))
+          }
         }
         .font(.subheadline.weight(.semibold))
         .foregroundStyle(.primary)
