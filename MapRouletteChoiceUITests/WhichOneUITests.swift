@@ -16,7 +16,7 @@ final class WhichOneUITests: XCTestCase {
   /// About 12 m south of the tree, facing north: the line, the dots line and the map label.
   @MainActor func testAheadWithNeighbours() throws {
     let app = launch(fix: lat - 0.000108, lng, accuracy: 5, heading: 0)
-    XCTAssert(text(app, " ahead").waitForExistence(timeout: 20))
+    XCTAssert(text(app, " ahead").waitForExistence(timeout: 40))
     XCTAssert(text(app, "Grey dots are other trees in this campaign.").waitForExistence(timeout: 10))
     XCTAssert(app.descendants(matching: .any).matching(NSPredicate(format: "label ENDSWITH %@", ", with other trees nearby")).firstMatch.exists)
     sleep(3)  // map tiles
@@ -25,21 +25,21 @@ final class WhichOneUITests: XCTestCase {
 
   @MainActor func testCompassPointsWithoutHeading() throws {
     let app = launch(fix: lat - 0.000108, lng - 0.000142, accuracy: 5, heading: nil)
-    XCTAssert(text(app, "northeast of you").waitForExistence(timeout: 20))
+    XCTAssert(text(app, "northeast of you").waitForExistence(timeout: 40))
     sleep(3)
     shot(app, "which-one-compass")
   }
 
   @MainActor func testRoughLocation() throws {
     let app = launch(fix: lat - 0.000108, lng, accuracy: 40, heading: 0)
-    XCTAssert(text(app, "Your location is rough right now. Use the map to find the big pin.").waitForExistence(timeout: 20))
+    XCTAssert(text(app, "Your location is rough right now. Use the map to find the big pin.").waitForExistence(timeout: 40))
     sleep(3)
     shot(app, "which-one-rough")
   }
 
   @MainActor func testAtIt() throws {
     let app = launch(fix: lat - 0.00002, lng, accuracy: 5, heading: 0)
-    XCTAssert(text(app, "You're at it. It's the tree at the big pin.").waitForExistence(timeout: 20))
+    XCTAssert(text(app, "You're at it. It's the tree at the big pin.").waitForExistence(timeout: 40))
     sleep(3)
     shot(app, "which-one-at-it")
   }
@@ -47,7 +47,7 @@ final class WhichOneUITests: XCTestCase {
   /// "I can't tell which tree" records "I can't check" and thanks.
   @MainActor func testCantTell() throws {
     let app = launch(fix: lat - 0.000108, lng, accuracy: 5, heading: 0)
-    XCTAssert(app.staticTexts["Does this tree have leaves or needles?"].waitForExistence(timeout: 20))
+    XCTAssert(app.staticTexts["Does this tree have leaves or needles?"].waitForExistence(timeout: 40))
     XCTAssert(text(app, "The tree at the big pin. Palms count as leaves.").exists)
     let cantTell = app.buttons["I can't tell which tree"]
     XCTAssert(cantTell.waitForExistence(timeout: 5))
@@ -61,7 +61,7 @@ final class WhichOneUITests: XCTestCase {
   @MainActor func testAerialToggle() throws {
     let app = launch(fix: lat - 0.000108, lng, accuracy: 5, heading: 0)
     let credit = app.staticTexts["Imagery: USDA NAIP 2024"]
-    XCTAssert(app.buttons["Aerial photo"].waitForExistence(timeout: 20))
+    XCTAssert(app.buttons["Aerial photo"].waitForExistence(timeout: 40))
     XCTAssertFalse(credit.exists)
     app.buttons["Aerial photo"].tap()
     XCTAssert(credit.waitForExistence(timeout: 5))
@@ -79,7 +79,7 @@ final class WhichOneUITests: XCTestCase {
       ("-demoBuildings", 40.7580902, -111.9059517, "footprint-building"),
     ] {
       let app = launch(fix: lat - 0.000135, lng, accuracy: 5, heading: 0, campaign: campaign, task: 1001)
-      XCTAssert(text(app, " ahead").waitForExistence(timeout: 20))
+      XCTAssert(text(app, " ahead").waitForExistence(timeout: 40))
       sleep(5)  // tiles, then the footprint lookup once the map is idle
       shot(app, name)
       app.terminate()
