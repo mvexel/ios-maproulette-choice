@@ -2,8 +2,8 @@ import AuthenticationServices
 import MapRoulette
 import SwiftUI
 
-/// "Your answers are saved": for guests who already map, signing in puts the saved answers on the
-/// map (design/handback-copy.md §1). Opened only from the campaign's saved-answers banner.
+/// "Your answers are saved": what happens to a guest's answers, and sign-in for guests who already
+/// map (design/handback-copy.md §1, parity pick 2). Opened from the campaign's "Your answers" row.
 struct PutOnMapCard: View {
   @Environment(AppSession.self) private var session
   @Environment(\.webAuthenticationSession) private var webAuth
@@ -13,7 +13,7 @@ struct PutOnMapCard: View {
     NavigationStack {
       Form {
         Section {
-          Text(Wording.savedForLaterNote)
+          Text(Wording.guestAnswersArePublic)
         }
         Section {
           Button("I already use OpenStreetMap") { signIn() }

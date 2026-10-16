@@ -297,22 +297,28 @@ struct ChallengeTasksView: View {
     .padding(.top, 8)
   }
 
-  /// A guest's saved answers that aren't on the map yet (handback §1). They are kept until a
-  /// mapper has checked them, so there is no deadline.
+  /// "Your answers": a guest's saved answers (handback §1). They are kept until a mapper has
+  /// checked them, so there is no deadline. The whole row opens the sheet (Iris's parity pick 1).
   private func savedBanner(_ saved: GuestStatus) -> some View {
-    let stacked = typeSize.isAccessibilitySize
-    let layout = stacked ? AnyLayout(VStackLayout(alignment: .leading)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline))
-    return layout {
-      Text(Wording.savedNotOnMap(saved.pendingCount, noun))
-        .font(.subheadline.weight(.semibold))
-      if !stacked { Spacer() }
-      Button("I already use OpenStreetMap") { sheet = .putOnMap }
-        .font(.subheadline)
-        .frame(minHeight: 44)
+    Button {
+      sheet = .putOnMap
+    } label: {
+      HStack {
+        Text(Wording.savedNotOnMap(saved.pendingCount, noun))
+          .font(.subheadline.weight(.semibold))
+          .foregroundStyle(.primary)
+          .multilineTextAlignment(.leading)
+        Spacer()
+        Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+      }
+      .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+      .padding(.horizontal, 10)
+      .padding(.vertical, 4)
+      .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+      .contentShape(RoundedRectangle(cornerRadius: 10))
     }
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(10)
-    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+    .buttonStyle(.plain)
+    .accessibilityHint("Shows what happens to your answers")
   }
 
   // MARK: List

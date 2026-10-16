@@ -68,7 +68,7 @@ final class AppStoreShotsUITests: XCTestCase {
     shot(app, "wrong")
   }
 
-  /// Answer every question, check the answers, save, open the sign-in card from the banner, then
+  /// Answer every question, check the answers, save, open the sheet from "Your answers", then
   /// "I'm done for today".
   @MainActor func testReviewAndDaySummary() throws {
     let app = launch("-demoTask", "185")
@@ -91,7 +91,7 @@ final class AppStoreShotsUITests: XCTestCase {
     XCTAssert(back.waitForExistence(timeout: 5))
     back.tap()
     XCTAssert(text(app, "saved and counted.").waitForExistence(timeout: 10))
-    app.buttons["I already use OpenStreetMap"].firstMatch.tap()
+    app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "saved and counted.")).firstMatch.tap()
     XCTAssert(app.navigationBars["Your answers are saved"].waitForExistence(timeout: 5))
     sleep(1)
     shot(app, "putonmap")
