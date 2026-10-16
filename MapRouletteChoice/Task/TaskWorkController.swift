@@ -196,7 +196,7 @@ enum TaskScreen: Sendable {
   /// Campaign preview mode: what would have been sent. Nothing was.
   case previewSaved(LoadedTask, ChoiceForm, ChoiceAction)
   /// Ineligible (stale) at open or submit. No actions.
-  case noLongerNeeded(LoadedTask)
+  case noLongerNeeded(LoadedTask, IneligibleReason?)
   /// The eligibility check failed (network, OSM unavailable, …): not actionable until a retry succeeds.
   case checkFailed(LoadedTask)
   /// `notice` explains why the user is back here; the answers are kept.
@@ -222,7 +222,7 @@ enum TaskScreen: Sendable {
   var loaded: LoadedTask? {
     switch self {
     case .loading, .loadFailed: nil
-    case .notAvailable(let l, _), .preview(let l, _), .noLongerNeeded(let l), .checkFailed(let l),
+    case .notAvailable(let l, _), .preview(let l, _), .noLongerNeeded(let l, _), .checkFailed(let l),
       .answering(let l, _, _), .submitting(let l, _, _), .skipped(let l, _), .takenByOther(let l),
       .staleOwnLock(let l, _, _, _), .signInRequired(let l, _), .accountNeeded(let l), .elementInUse(let l, _, _),
       .previewSaved(let l, _, _), .writesPaused(let l):
@@ -327,7 +327,7 @@ enum TaskScreen: Sendable {
     }
     if !eligibility.eligible {
       if !Task.isCancelled { changed = true }  // The server now hides it from discovery.
-      return .noLongerNeeded(loaded)
+      return .noLongerNeeded(loaded, eligibility.reason)
     }
     let current = eligibility.questionIDs.map { ids in
       ChoiceWork(
@@ -561,7 +561,7 @@ enum TaskScreen: Sendable {
       return answering("Something went wrong. Nothing was saved. Try again.")
     }
     switch error.problem {
-    case .choice(.taskIneligible)?: return .noLongerNeeded(loaded)
+    case .choice(.taskIneligible(let reason))?: return .noLongerNeeded(loaded, reason)
     case .choice(.elementInUse)?:
       if case .outcome(let outcome) = action, Self.withoutDeletion(outcome) != nil {
         return .elementInUse(loaded, form, outcome)

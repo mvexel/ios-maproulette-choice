@@ -63,7 +63,7 @@ import Testing
     let o = ops(try await makeTask())
     o.check = { ChoiceEligibility(eligible: false, deleteAllowed: false, reason: .keyChanged) }
     let c = await controller(o)
-    guard case .noLongerNeeded = c.state else { Issue.record("\(c.state.name)"); return }
+    guard case .noLongerNeeded(_, .keyChanged?) = c.state else { Issue.record("\(c.state.name)"); return }
     #expect(c.changed, "the server now hides it: refresh the map")
     #expect(o.calls == ["get", "challenge", "check"])
   }

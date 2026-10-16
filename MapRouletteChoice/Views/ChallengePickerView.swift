@@ -92,7 +92,9 @@ struct ChallengePickerView: View {
       .confirmationDialog(Wording.deleteMyData, isPresented: $confirmDelete, titleVisibility: .visible) {
         Button("Delete", role: .destructive) { deleteGuestData() }
       } message: {
-        Text(outbox.isEmpty ? Wording.deleteMyDataExplained : Wording.deleteMyDataExplained + " " + Wording.deleteMyDataWaiting)
+        Text(
+          [Wording.deleteMyDataExplained, outbox.isEmpty ? nil : Wording.deleteMyDataWaiting, Wording.deleteMyDataReinstall]
+            .compactMap { $0 }.joined(separator: " "))
       }
       Section {
         Toggle(Wording.showDetails, isOn: $showDetails)
