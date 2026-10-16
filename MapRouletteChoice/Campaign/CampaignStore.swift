@@ -87,4 +87,6 @@ import MapRoulette
 /// Settings keys shared by views (`@AppStorage`).
 enum SettingsKey {
   static let showOSMDetails = "showOSMDetails"
+  /// The task map shows the aerial photo (design/which-one-spec.md §D); kept from place to place.
+  static let aerialPhoto = "aerialPhoto"
 }

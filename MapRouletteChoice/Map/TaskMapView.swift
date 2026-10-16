@@ -30,7 +30,8 @@ struct TaskMapView: UIViewRepresentable {
   func makeCoordinator() -> Coordinator { Coordinator(open: open) }
 
   func makeUIView(context: Context) -> MLNMapView {
-    let map = interactive ? MLNMapView(frame: .zero, styleURL: styleURL) : QuietMapView(frame: .zero, styleURL: styleURL)
+    let style = MapStyle.url(styleURL, for: context.environment.colorScheme)
+    let map = interactive ? MLNMapView(frame: .zero, styleURL: style) : QuietMapView(frame: .zero, styleURL: style)
     map.delegate = context.coordinator
     // Turning this on makes MapLibre ask for location itself, so wait until the app has asked.
     map.showsUserLocation = Self.locationAllowed
@@ -53,6 +54,9 @@ struct TaskMapView: UIViewRepresentable {
 
   func updateUIView(_ map: MLNMapView, context: Context) {
     context.coordinator.open = open
+    // Pins are annotations, so they survive the style swap when the appearance changes.
+    let style = MapStyle.url(styleURL, for: context.environment.colorScheme)
+    if map.styleURL != style { map.styleURL = style }
     if map.showsUserLocation != Self.locationAllowed { map.showsUserLocation = Self.locationAllowed }
     context.coordinator.show(
       tasks, done: done, pending: pending, reports: reports, flagged: flagged, origin: origin, noun: noun,
@@ -154,6 +158,7 @@ struct TaskMapView: UIViewRepresentable {
       imageView.frame = bounds
       imageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
       imageView.contentMode = .center
+      imageView.haloInDarkMode()
       addSubview(imageView)
     }
 
@@ -269,13 +274,14 @@ struct TaskMapView: UIViewRepresentable {
         reportLines.append([from, spot.coordinate])
       }
       if !spots.isEmpty { map.addAnnotations(spots) }
-      if let style = map.style { Self.drawLines(reportLines, in: style) }
+      if let style = map.style { Self.drawLines(reportLines, in: style, dark: MapStyle.isDark(map)) }
     }
 
     static let reportLinesID = "reported-lines"
 
     /// One dashed gray line per pair, in a shape source the delegate refreshes.
-    static func drawLines(_ lines: [[CLLocationCoordinate2D]], in style: MLNStyle) {
+    /// Light grey on the dark map (which-one-spec.md, "Dark map" 1).
+    static func drawLines(_ lines: [[CLLocationCoordinate2D]], in style: MLNStyle, dark: Bool) {
       let shapes = lines.map { points in
         var points = points
         return MLNPolylineFeature(coordinates: &points, count: UInt(points.count))
@@ -288,7 +294,7 @@ struct TaskMapView: UIViewRepresentable {
       let source = MLNShapeSource(identifier: reportLinesID, shape: collection, options: nil)
       style.addSource(source)
       let line = MLNLineStyleLayer(identifier: reportLinesID, source: source)
-      line.lineColor = NSExpression(forConstantValue: UIColor.systemGray)
+      line.lineColor = NSExpression(forConstantValue: dark ? UIColor(white: 0.8, alpha: 1) : UIColor.systemGray)
       line.lineWidth = NSExpression(forConstantValue: 2)
       line.lineDashPattern = NSExpression(forConstantValue: [2, 1.5])
       style.addLayer(line)
@@ -299,6 +305,7 @@ struct TaskMapView: UIViewRepresentable {
     static let hiddenSymbolSources: Set<String> = ["poi", "aerodrome_label"]
 
     func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
+      if MapStyle.isDark(mapView) { MapStyle.brightenLabels(in: style) }
       for layer in style.layers {
         // Flat buildings: 3D extrusions clutter the small header map.
         if let buildings = layer as? MLNFillExtrusionStyleLayer {
@@ -311,7 +318,7 @@ struct TaskMapView: UIViewRepresentable {
           symbols.isVisible = false
         }
       }
-      Self.drawLines(reportLines, in: style)
+      Self.drawLines(reportLines, in: style, dark: MapStyle.isDark(mapView))
     }
 
     /// Pins are views rather than annotation images, for a 44 pt touch target and their own

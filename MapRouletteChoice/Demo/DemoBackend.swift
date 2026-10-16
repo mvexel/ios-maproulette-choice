@@ -19,8 +19,13 @@
   /// `-demoWoodbine` serves the first pilot, "Woodbine entrance doors" (design/woodbine-campaign.md),
   /// on eight real entrance nodes around Woodbine Food Hall; 188 already has `door`, so only the
   /// automatic-opening question is asked there (`liveMissingQuestions`).
+  /// `-demoTrees` serves "Woodbine trees" (`DemoTrees.swift`): 139 real tree nodes as tasks 1001–1139,
+  /// for the "Which one?" screen. 1090 and 1094 are checked, and another guest holds 1095 with a
+  /// report, so the cluster around 1092 shows every neighbour dot.
+  /// `-demoCrossings` and `-demoBuildings` serve the Woodbine crossings (81 nodes) and buildings (93
+  /// ways at their centroid) from `DemoMicro.swift` the same way, from task 1001 up, for footprints.
   actor DemoBackend: Transport {
-    enum Campaign: Sendable { case benches, stops, woodbine }
+    enum Campaign: Sendable { case benches, stops, woodbine, trees, crossings, buildings }
 
     static let challengeID: Int64 = 3
     /// `-demoClaim progress`'s claim: 3 answers, one more on the map per read, then done with one
@@ -28,6 +33,24 @@
     static let claimID: Int64 = 41
     private var claimReads = 0
     static let taskIDs: [Int64] = Array(184...191)
+    static let treeIDs: [Int64] = Array(1001...Int64(1000 + trees.count))
+    /// The real OSM features a micro campaign serves as tasks 1001 up.
+    private static func micro(_ campaign: Campaign) -> [(element: Int64, lat: Double, lng: Double)]? {
+      switch campaign {
+      case .trees: trees.map { (element: $0.node, lat: $0.lat, lng: $0.lng) }
+      case .crossings: crossings
+      case .buildings: buildings
+      default: nil
+      }
+    }
+    private static func micro(_ campaign: Campaign, _ id: Int64) -> (element: Int64, lat: Double, lng: Double)? {
+      micro(campaign)?[safe: Int(id - 1001)]
+    }
+    /// A campaign's tasks.
+    private static func ids(for campaign: Campaign) -> [Int64] {
+      micro(campaign).map { Array(1001...Int64(1000 + $0.count)) } ?? taskIDs
+    }
+    private var campaignTaskIDs: [Int64] { Self.ids(for: campaign) }
     /// The demo account: MapRoulette user 7, OpenStreetMap username "rosa_slc".
     static let me: Int64 = 7
     static let displayName = "rosa_slc"
@@ -42,7 +65,8 @@
     private var stops: Bool { campaign == .stops }
     /// The campaign a demo launch asks for.
     static func demoCampaign(_ args: [String]) -> Campaign {
-      args.contains("-demoWoodbine") ? .woodbine : args.contains("-demoStops") ? .stops : .benches
+      args.contains("-demoCrossings") ? .crossings : args.contains("-demoBuildings") ? .buildings
+        : args.contains("-demoTrees") ? .trees : args.contains("-demoWoodbine") ? .woodbine : args.contains("-demoStops") ? .stops : .benches
     }
     let draft: Bool
     private var pending: [Int64: Date] = [:]
@@ -59,6 +83,14 @@
     ) {
       self.campaign = campaign
       self.draft = draft
+      if campaign == .trees {
+        status = Dictionary(uniqueKeysWithValues: Self.treeIDs.map { ($0, 0) }).merging([1090: 1, 1094: 1]) { $1 }
+        completedBy = [1090: 8, 1094: 8]
+        othersHolds = [1095: "report"]
+      }
+      if campaign == .crossings || campaign == .buildings {
+        status = Dictionary(uniqueKeysWithValues: Self.ids(for: campaign).map { ($0, 0) })
+      }
       if heldReport { othersHolds = [184: "answer", 188: "report"] }
       if reported {
         status[185] = 6
@@ -91,14 +123,14 @@
       switch (request.method, parts) {
       case (.get, ["challenges", "extendedFind"]): return ok(firstPage ? [challenge] : [])
       case (.get, ["challenge", "3"]): return ok(challenge)
-      case (.get, ["challenge", "3", "tasks"]): return ok(firstPage ? Self.taskIDs.map { task($0) } : [])
+      case (.get, ["challenge", "3", "tasks"]): return ok(page(campaignTaskIDs, request).map { task($0) })
       // The bounds search: open tasks not held by a guest, or with `includePending` all open
       // tasks, each saying whether one holds it (backend #16).
       case (.get, let p) where p.count == 6 && p[0] == "tasks" && p[1] == "box":
         let includePending = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems?
           .contains { $0.name == "includePending" && $0.value == "true" } == true
         func held(_ id: Int64) -> Bool { pending[id] != nil || othersHolds[id] != nil }
-        let rows = Self.taskIDs.filter { [0, 3, 6].contains(status[$0] ?? 0) && (includePending || !held($0)) }
+        let rows = campaignTaskIDs.filter { [0, 3, 6].contains(status[$0] ?? 0) && (includePending || !held($0)) }
           .map { id in
             var row = summary(id)
             if includePending {
@@ -107,7 +139,7 @@
             }
             return row
           }
-        return ok(["total": firstPage ? rows.count : 0, "tasks": firstPage ? rows : []])
+        return ok(["total": rows.count, "tasks": page(rows, request)])
       case (.get, let p) where p.count == 2 && p[0] == "task":
         return id(p[1]).map { ok(task($0)) } ?? notFound
       case (.get, let p) where p.count == 4 && p[2] == "choice" && p[3] == "check":
@@ -163,6 +195,16 @@
       }
     }
 
+    /// One page of `rows` as the server pages task lists: `limit` rows from `page` × `limit`. The
+    /// SDK refuses a page longer than the limit it asked for (139 trees in a 100-row page).
+    private func page<T>(_ rows: [T], _ request: HTTPRequest) -> [T] {
+      let query = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+      func value(_ name: String) -> Int? { query.first { $0.name == name }?.value.flatMap(Int.init) }
+      let limit = max(value("limit") ?? rows.count, 1)
+      let start = (value("page") ?? 0) * limit
+      return start < rows.count ? Array(rows[start..<min(start + limit, rows.count)]) : []
+    }
+
     private func choice(_ id: Int64, _ body: [String: Any]) -> HTTPResponse {
       var changeset: Int64?
       let result: Int
@@ -198,6 +240,9 @@
         case .benches: payload(element: 0)
         case .stops: stopPayload(element: 0)
         case .woodbine: woodbinePayload(element: 0, entrance: "yes")
+        case .trees: treesPayload(element: 0)
+        case .crossings: crossingsPayload(element: 0)
+        case .buildings: buildingsPayload(element: 0)
         }
       return (work["outcomes"] as? [[String: Any]])?.first { $0["id"] as? String == id }?["status"] as? Int
     }
@@ -227,6 +272,28 @@
     }
 
     private var published: [String: Any] {
+      if campaign == .trees {
+        return [
+          "id": Self.challengeID, "parent": 1, "name": "Woodbine trees",
+          "description":
+            "Help map the trees around Woodbine Food Hall. At each tree, check whether it has leaves or needles. It takes a few seconds per tree.",
+          "instruction": "Survey the tree at the mapped node. Sets leaf_type=* only when missing. No geometry changes.",
+          "enabled": true, "cooperativeType": 3, "tags": ["mobile-survey-v1"],
+        ]
+      }
+      if campaign == .crossings || campaign == .buildings {
+        let crossings = campaign == .crossings
+        return [
+          "id": Self.challengeID, "parent": 1, "name": crossings ? "Woodbine crossings" : "Woodbine buildings",
+          "description": crossings
+            ? "Help map the street crossings around Woodbine Food Hall. At each crossing, check for the bumpy warning tiles at the curb."
+            : "Help map the buildings around Woodbine Food Hall. For each building, count its floors.",
+          "instruction": crossings
+            ? "Survey the crossing at the mapped node. Sets tactile_paving=* only when missing. No geometry changes."
+            : "Survey the building at the mapped way. Sets building:levels=* only when missing. No geometry changes.",
+          "enabled": true, "cooperativeType": 3, "tags": ["mobile-survey-v1"],
+        ]
+      }
       if campaign == .woodbine {
         return [
           "id": Self.challengeID, "parent": 1, "name": "Woodbine entrance doors",
@@ -268,6 +335,7 @@
     /// Spread around Library Square, a few minutes' walk apart.
     private static func coordinate(_ id: Int64, _ campaign: Campaign) -> (Double, Double) {
       let i = Double(id - 184)
+      if let t = micro(campaign, id) { return (t.lat, t.lng) }
       if campaign == .woodbine, let e = entrances[id] { return (e.lat, e.lng) }
       if campaign == .stops {  // along 900 E and 1300 S, around their corner
         return id.isMultiple(of: 2)
@@ -277,13 +345,17 @@
     }
 
     private func elementID(_ id: Int64) -> Int64 {
-      campaign == .woodbine ? Self.entrances[id]?.node ?? id + 1000 : id + 1000
+      switch campaign {
+      case .woodbine: Self.entrances[id]?.node ?? id + 1000
+      case .trees, .crossings, .buildings: Self.micro(campaign, id)?.element ?? id + 1000
+      default: id + 1000
+      }
     }
 
     private func summary(_ id: Int64) -> [String: Any] {
       let (lat, lng) = coordinate(id)
       return [
-        "id": id, "parentId": Self.challengeID, "title": "node/\(elementID(id))", "status": status[id] ?? 0,
+        "id": id, "parentId": Self.challengeID, "title": "\(osmType)/\(elementID(id))", "status": status[id] ?? 0,
         "point": ["lat": lat, "lng": lng],
       ]
     }
@@ -307,15 +379,24 @@
         properties = ["entrance": entrance]
         if id == 188 { properties["door"] = "hinged" }
         work = woodbinePayload(element: element, entrance: entrance)
+      case .trees:
+        properties = ["natural": "tree"]
+        work = treesPayload(element: element)
+      case .crossings:
+        properties = ["highway": "crossing", "crossing": "uncontrolled"]
+        work = crossingsPayload(element: element)
+      case .buildings:
+        properties = ["building": "yes"]
+        work = buildingsPayload(element: element)
       }
       var o: [String: Any] = [
-        "id": id, "parent": Self.challengeID, "name": "node/\(element)",
+        "id": id, "parent": Self.challengeID, "name": "\(osmType)/\(element)",
         "instruction": "", "status": status[id] ?? 0,
         "geometries": [
           "type": "FeatureCollection",
           "features": [
             [
-              "type": "Feature", "id": "node/\(element)",
+              "type": "Feature", "id": "\(osmType)/\(element)",
               "geometry": ["type": "Point", "coordinates": [lng, lat]],
               "properties": properties,
             ]
@@ -392,6 +473,76 @@
       ]
     }
 
+    /// "Woodbine trees" (backend/woodbine-micro): one question, with the description from
+    /// design/which-one-spec.md §G.
+    private func treesPayload(element: Int64) -> [String: Any] {
+      [
+        "meta": ["version": 2, "type": 3, "choiceVersion": 1],
+        "element": "node/\(element)", "match": ["natural": "tree"], "liveMissingQuestions": true,
+        "questions": [
+          [
+            "id": "leaf-type", "prompt": "Does this tree have leaves or needles?",
+            "description": "The tree at the big pin. Palms count as leaves.", "expect": ["leaf_type": NSNull()],
+            "options": [
+              ["id": "broadleaved", "label": "Leaves", "setTags": ["leaf_type": "broadleaved"]],
+              ["id": "needleleaved", "label": "Needles", "setTags": ["leaf_type": "needleleaved"]],
+            ],
+          ]
+        ],
+        "outcomes": [
+          ["id": "no-tree", "label": "There's no tree here", "description": "The tree is gone or was never there.", "status": 6]
+        ],
+      ]
+    }
+
+    /// Buildings are ways; everything else is a node.
+    private var osmType: String { campaign == .buildings ? "way" : "node" }
+
+    /// "Woodbine crossings" (backend/woodbine-micro): the warning-tile question.
+    private func crossingsPayload(element: Int64) -> [String: Any] {
+      [
+        "meta": ["version": 2, "type": 3, "choiceVersion": 1],
+        "element": "node/\(element)", "match": ["highway": "crossing"], "liveMissingQuestions": true,
+        "questions": [
+          [
+            "id": "tactile-paving", "prompt": "Are there bumpy warning tiles at the curb?",
+            "description": "The raised dots, usually yellow or red, at both ends of the crossing. Pick Yes only if both ends have them.",
+            "expect": ["tactile_paving": NSNull()],
+            "options": [
+              ["id": "yes", "label": "Yes, both ends", "setTags": ["tactile_paving": "yes"]],
+              ["id": "partial", "label": "Only one end", "setTags": ["tactile_paving": "partial"]],
+              ["id": "no", "label": "No", "setTags": ["tactile_paving": "no"]],
+            ],
+          ]
+        ],
+        "outcomes": [
+          ["id": "no-crossing", "label": "There's no crossing here", "description": "Nobody can cross the street at this spot.", "status": 6]
+        ],
+      ]
+    }
+
+    /// "Woodbine buildings" (backend/woodbine-micro): the floors question. The survey's
+    /// `matchKeys: [building]` gives each task its own feature's value as `match`.
+    private func buildingsPayload(element: Int64) -> [String: Any] {
+      [
+        "meta": ["version": 2, "type": 3, "choiceVersion": 1],
+        "element": "way/\(element)", "match": ["building": "yes"], "liveMissingQuestions": true,
+        "questions": [
+          [
+            "id": "levels", "prompt": "How many floors does it have?",
+            "description": "Count floors above the ground. Don't count the roof or an attic.",
+            "expect": ["building:levels": NSNull()],
+            "options": (1...4).map { n in
+              ["id": "\(n)", "label": n == 1 ? "1 floor" : "\(n) floors", "setTags": ["building:levels": "\(n)"]] as [String: Any]
+            },
+          ]
+        ],
+        "outcomes": [
+          ["id": "no-building", "label": "There's no building here", "description": "It's been torn down or was never there.", "status": 6]
+        ],
+      ]
+    }
+
     /// The pilot payload (docs/design/mobile-choice-challenges.md §3 in the SDK repo).
     private func payload(element: Int64) -> [String: Any] {
       func options(_ key: String, _ values: [(String, String)]) -> [[String: Any]] {
@@ -425,5 +576,9 @@
         ],
       ]
     }
+  }
+
+  extension Array {
+    fileprivate subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
   }
 #endif

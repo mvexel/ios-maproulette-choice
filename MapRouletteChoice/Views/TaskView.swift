@@ -33,6 +33,23 @@ struct TaskView: View {
   private let firstTaskID: Int64
   /// Set in campaign preview: no writer, no guest, nothing counted or stored.
   private let preview: CampaignPreview?
+  /// The campaign's other places, as dots on the close-up map (design/which-one-spec.md §B).
+  private let neighbours: [Neighbour]
+  /// Location and compass for the direction line (§C).
+  @State private var live = TaskView.makeLive()
+  /// Bumped by the recenter button; the map restores its first frame.
+  @State private var recenter = 0
+  /// Map or aerial photo on the task map, kept from place to place (§D).
+  @AppStorage(SettingsKey.aerialPhoto) private var aerial = false
+  @State private var mapMoved = false
+  /// Neighbours in the map's first frame: the "Grey dots…" line shows when there are any.
+  @State private var dotsInView = 0
+  /// The direction line's side, held against a swinging compass (§C hysteresis).
+  @State private var heldSide: DirectionLine.Side?
+  /// What VoiceOver last announced of the direction line, and when (at most every 5 s).
+  @State private var announced: (kind: String?, at: Date) = (nil, .distantPast)
+  /// "I can't tell which one" was picked: its thanks line replaces the saved one (§F).
+  @State private var cantTell = false
   /// Places opened in this screen; never offered again as next.
   @State private var visited: Set<Int64>
   @State private var controller: TaskWorkController?
@@ -55,7 +72,7 @@ struct TaskView: View {
 
   init(
     taskID: Int64, candidates: [LocatedTask], reports: [Int64: TaskReport] = [:], heldReports: Set<Int64> = [],
-    noun: Noun, userLocation: CLLocationCoordinate2D? = nil, preview: CampaignPreview? = nil
+    noun: Noun, userLocation: CLLocationCoordinate2D? = nil, preview: CampaignPreview? = nil, neighbours: [Neighbour] = []
   ) {
     _taskID = State(initialValue: taskID)
     _visited = State(initialValue: [taskID])
@@ -66,6 +83,22 @@ struct TaskView: View {
     self.userLocation = userLocation
     firstTaskID = taskID
     self.preview = preview
+    self.neighbours = neighbours
+  }
+
+  private static func makeLive() -> LiveLocation {
+    #if DEBUG
+      // `-demoFix lat,lng,accuracy[,heading]`: a fixed reading, for screenshots of each direction line.
+      let args = ProcessInfo.processInfo.arguments
+      if let i = args.firstIndex(of: "-demoFix"), i + 1 < args.count {
+        let v = args[i + 1].split(separator: ",").compactMap { Double($0) }
+        if v.count >= 3 {
+          return LiveLocation(
+            fixed: CLLocationCoordinate2D(latitude: v[0], longitude: v[1]), accuracy: v[2], heading: v.count > 3 ? v[3] : nil)
+        }
+      }
+    #endif
+    return LiveLocation()
   }
 
   /// A confirmation bound to the controller that showed it: a dialog left open across an
@@ -90,12 +123,16 @@ struct TaskView: View {
       }
       .padding()
     }
+    .hardTopEdge()
     .safeAreaInset(edge: .top, spacing: 0) {
       if let preview, preview.showsBanner { PreviewBanner(preview: preview) }
     }
     // The place name heads the screen; a title would repeat it.
     .navigationTitle("")
     .navigationBarTitleDisplayMode(.inline)
+    // The map scrolls under the bar: keep its material, so Back stays readable. iOS 26 ignores
+    // this and uses the scroll edge effect instead, made hard by hardTopEdge().
+    .toolbarBackground(.visible, for: .navigationBar)
     // Back is blocked while a write is in flight (normally a few seconds).
     .navigationBarBackButtonHidden(controller?.busy == true)
     .alert(
@@ -109,7 +146,11 @@ struct TaskView: View {
     }
     .onAppear {
       if controller == nil { start() }
+      live.start()
     }
+    .onDisappear { live.stop() }
+    .onChange(of: facingAngle) { _, angle in heldSide = angle.map { DirectionLine.side($0, held: heldSide) } }
+    .onChange(of: DirectionLine.announcementKind(directionLine)) { _, kind in announce(kind) }
     .onChange(of: session.view.generation) { accountChanged() }
     .onChange(of: controller?.changed) { if controller?.changed == true { reportChange() } }
     .onChange(of: finishedTaskID) { countFinished() }
@@ -184,6 +225,7 @@ struct TaskView: View {
     step = 0
     notSure = []
     report = nil
+    cantTell = false
   }
 
   /// The task id once it is finished by this user (saved or recorded, not skipped), or "saved"
@@ -226,6 +268,10 @@ struct TaskView: View {
     visited.insert(next.id)
     reportedChange = false
     counted = false
+    // The next place's map frames afresh.
+    mapMoved = false
+    dotsInView = 0
+    heldSide = nil
     resetQuestions()
     replaceController()
     self.controller?.load(try! TaskID(taskID))
@@ -244,7 +290,7 @@ struct TaskView: View {
 
   @ViewBuilder private func content(_ c: TaskWorkController) -> some View {
     let state = c.state
-    if let loaded = state.loaded { header(loaded, checked: Self.showsChecked(state), movedTo: reviewedSpot(state)) }
+    if let loaded = state.loaded { header(c, loaded, checked: Self.showsChecked(state), movedTo: reviewedSpot(state)) }
     if let switchNotice, !isLoading(state) { banner(switchNotice) }
     switch state {
     case .loading:
@@ -335,7 +381,9 @@ struct TaskView: View {
     return CLLocationCoordinate2D(latitude: spot.latitude, longitude: spot.longitude)
   }
 
-  @ViewBuilder private func header(_ loaded: LoadedTask, checked: Bool, movedTo: CLLocationCoordinate2D?) -> some View {
+  @ViewBuilder private func header(
+    _ c: TaskWorkController, _ loaded: LoadedTask, checked: Bool, movedTo: CLLocationCoordinate2D?
+  ) -> some View {
     let task = loaded.task
     if let coordinate = TaskLocation.coordinate(task), let movedTo {
       // "On the map", the navy pin and the dashed line, as on the moved map (§3.2 step 4).
@@ -347,22 +395,26 @@ struct TaskView: View {
         .accessibilityAddTraits(.isImage)
         .id("\(movedTo.latitude),\(movedTo.longitude)")
     } else if let coordinate = TaskLocation.coordinate(task) {
-      TaskMapView(
-        styleURL: AppConfig.detailStyle, tasks: [LocatedTask(task)], done: checked ? [task.id.value] : [],
-        reports: reports[task.id.value].map { [task.id.value: $0] } ?? [:],
-        noun: noun, interactive: false, open: { _ in }
-      )
-      .frame(height: 150)
-      .clipShape(RoundedRectangle(cornerRadius: 12))
-      // One element: the tiles' street names aren't readable text.
-      .accessibilityElement(children: .ignore)
-      .accessibilityLabel("Map of \(Wording.placeName(task, noun))")
-      .accessibilityAddTraits(.isImage)
-      .id(coordinate.latitude + coordinate.longitude)
+      closeUpMap(task, at: coordinate, checked: checked)
+      if let directionLine {
+        Text(directionLine).font(.body)
+          .accessibilityAddTraits(.updatesFrequently)
+      } else if live.denied, let settings = URL(string: UIApplication.openSettingsURLString) {
+        // Nothing while the prompt is pending or before the first fix; only when it's off (§C).
+        Text(Wording.locationOff(noun)).font(.body)
+        Link(Wording.openSettings, destination: settings).font(.subheadline).frame(minHeight: 44)
+      }
+      if dotsInView > 0 {
+        Text(Wording.otherDots(noun)).font(.footnote).foregroundStyle(.secondary)
+      }
+      cantTellLink(c)
     }
     VStack(alignment: .leading, spacing: 4) {
       Text(Wording.placeName(task, noun)).font(.title2.bold())
-      if task.id.value == firstTaskID, let whereText = TaskLocation.fromYouText(userLocation, TaskLocation.coordinate(task)) {
+      // The live line replaces the campaign list's "130 m northeast of you" once there's a fix.
+      if directionLine == nil, task.id.value == firstTaskID,
+        let whereText = TaskLocation.fromYouText(userLocation, TaskLocation.coordinate(task))
+      {
         Text(whereText).font(.subheadline).foregroundStyle(.primary)
       }
       if showDetails {
@@ -384,6 +436,103 @@ struct TaskView: View {
     {
       banner(text)
     }
+  }
+
+  /// The close-up map (design/which-one-spec.md §A, §B): 35% of the screen, at least 220 pt (so "I can't tell" fits above the fold, §F), with a
+  /// recenter button once the person has moved it.
+  private func closeUpMap(_ task: MapRouletteTask, at coordinate: CLLocationCoordinate2D, checked: Bool) -> some View {
+    let name = Wording.placeName(task, noun)
+    let others = currentNeighbours
+    return CloseUpMapView(
+      styleURL: AppConfig.detailStyle, target: coordinate,
+      pin: TaskMapView.Pin(done: checked, pending: false, reported: reports[task.id.value] != nil),
+      name: name, neighbours: others, you: live.coordinate, recenter: recenter, aerial: aerial,
+      kind: Footprint.kind(task),
+      moved: { mapMoved = $0 }, framed: { dotsInView = $0 }, demoYou: live.isFixed ? live.coordinate : nil
+    )
+    .containerRelativeFrame(.vertical) { height, _ in max(220, height * 0.35) }
+    .clipShape(RoundedRectangle(cornerRadius: 12))
+    // One element: the tiles' street names and the dots aren't readable text.
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(Wording.closeUpMapLabel(name, noun, neighbours: !others.isEmpty))
+    .accessibilityAddTraits(.isImage)
+    .overlay(alignment: .topTrailing) {
+      Picker("Map view", selection: $aerial) {
+        Text(Wording.mapView).tag(false)
+        Text(Wording.aerialView).tag(true)
+      }
+      .pickerStyle(.segmented)
+      .controlSize(.small)
+      .fixedSize()
+      .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+      .padding(8)
+    }
+    .overlay(alignment: .bottomLeading) {
+      if aerial {
+        Text(CloseUpMapView.aerialCredit)
+          .font(.caption2)
+          .padding(.horizontal, 6)
+          .padding(.vertical, 2)
+          .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 4))
+          // Above MapLibre's logo.
+          .padding(.leading, 6)
+          .padding(.bottom, 34)
+      }
+    }
+    .overlay(alignment: .bottomTrailing) {
+      if mapMoved {
+        Button {
+          recenter += 1
+        } label: {
+          Image(systemName: "location")
+            .font(.title3)
+            .frame(width: 44, height: 44)
+            .background(.regularMaterial, in: Circle())
+        }
+        .accessibilityLabel("Recenter the map")
+        .padding(8)
+      }
+    }
+    .id(coordinate.latitude + coordinate.longitude)
+  }
+
+  /// The campaign's other places, with this screen's own answers and reports applied.
+  private var currentNeighbours: [Neighbour] {
+    let look = campaigns.lookAgain(allReports).union(heldReports)
+    return neighbours.filter { $0.id != taskID }.map { n in
+      var n = n
+      if look.contains(n.id) {
+        n.state = .look
+      } else if campaigns.justDone.contains(n.id) {
+        n.state = .checked
+      }
+      return n
+    }
+  }
+
+  /// The direction line (§C) for the place on screen, or nil without a location.
+  private var directionLine: String? {
+    guard let here else { return nil }
+    return DirectionLine.text(
+      from: live.coordinate, accuracy: live.accuracy, heading: live.heading, to: here, noun: noun,
+      us: DirectionLine.usesFeet, held: heldSide)
+  }
+
+  /// The angle from the phone's facing to the place on screen.
+  private var facingAngle: Double? {
+    guard let here else { return nil }
+    return DirectionLine.angle(from: live.coordinate, heading: live.heading, to: here)
+  }
+
+  /// VoiceOver hears the line when its kind changes, at most every 5 s, at low priority (§C).
+  private func announce(_ kind: String?) {
+    guard UIAccessibility.isVoiceOverRunning, let kind, let line = directionLine, kind != announced.kind,
+      Date().timeIntervalSince(announced.at) >= 5
+    else { return }
+    announced = (kind, Date())
+    var text = AttributedString(line)
+    text.accessibilitySpeechAnnouncementPriority = .low
+    AccessibilityNotification.Announcement(text).post()
   }
 
   private func reportBanner(_ report: TaskReport?, at place: CLLocationCoordinate2D?) -> String? {
@@ -420,7 +569,7 @@ struct TaskView: View {
     } else if let report {
       reportReview(c, loaded, form, report)
     } else if step < questions.count {
-      question(c, form, questions[step], index: step, of: questions.count)
+      question(c, loaded, form, questions[step], index: step, of: questions.count)
     } else {
       review(c, loaded, form)
     }
@@ -456,6 +605,11 @@ struct TaskView: View {
     }
   }
 
+  private static func isCantCheck(_ action: ChoiceAction) -> Bool {
+    if case .outcome(let outcome) = action { return outcome.id == ChoiceOutcome.tooHardID }
+    return false
+  }
+
   /// The saved line for a report, or nil for anything else.
   private func reportedLine(_ action: ChoiceAction) -> String? {
     switch action {
@@ -466,7 +620,7 @@ struct TaskView: View {
   }
 
   @ViewBuilder private func question(
-    _ c: TaskWorkController, _ form: ChoiceForm, _ q: ChoiceQuestion, index: Int, of count: Int
+    _ c: TaskWorkController, _ loaded: LoadedTask, _ form: ChoiceForm, _ q: ChoiceQuestion, index: Int, of count: Int
   ) -> some View {
     VStack(alignment: .leading, spacing: 6) {
       Text("Question \(index + 1) of \(count)").font(.subheadline).foregroundStyle(.primary)
@@ -499,6 +653,24 @@ struct TaskView: View {
     if index > 0 {
       Button("Previous question", systemImage: "chevron.left") { step = index - 1 }
         .frame(minHeight: 44)
+    }
+  }
+
+  /// The honest way out when the place can't be told apart from its neighbours (§F): a link with
+  /// the map, under the direction and dots lines, so it shows without scrolling on any phone.
+  /// Recorded as "I can't check this", Needs another look; offered while the questions are open.
+  @ViewBuilder private func cantTellLink(_ c: TaskWorkController) -> some View {
+    if case .answering(let loaded, let form, _) = c.state, c.canEditOsm, report == nil,
+      step < form.work.questions.count,
+      let tooHard = form.outcomes.first(where: { $0.id == ChoiceOutcome.tooHardID }),
+      c.offers(loaded.task, form, .outcome(tooHard))
+    {
+      Button(Wording.cantTell(noun)) {
+        cantTell = true
+        choose(c, loaded, form, .outcome(tooHard))
+      }
+      .font(.subheadline)
+      .frame(minHeight: 44)
     }
   }
 
@@ -662,7 +834,7 @@ struct TaskView: View {
     } else {
       Label {
         Text(
-          reportedLine(d.action)
+          (cantTell && Self.isCantCheck(d.action) ? Wording.cantTellThanks(noun) : nil) ?? reportedLine(d.action)
             ?? (d.savedForLater
               ? Wording.savedForLater(campaigns.checkedToday(d.loaded.challenge.id.value), noun)
               : Wording.saved(campaigns.checkedToday(d.loaded.challenge.id.value), noun)))
@@ -860,5 +1032,17 @@ struct TaskView: View {
     }
     if let id = d.changesetID { lines.append("OpenStreetMap changeset \(id).") }
     return lines.joined(separator: "\n")
+  }
+}
+
+private extension View {
+  /// On iOS 26 the bar has no background of its own; a hard top edge keeps scrolled content
+  /// from showing behind Back and the clock.
+  @ViewBuilder func hardTopEdge() -> some View {
+    if #available(iOS 26, *) {
+      scrollEdgeEffectStyle(.hard, for: .top)
+    } else {
+      self
+    }
   }
 }

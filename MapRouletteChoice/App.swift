@@ -39,6 +39,7 @@ struct MapRouletteChoiceApp: App {
       // Demo runs start fresh (no last campaign, welcome cards unseen) and leave real state alone.
       if ProcessInfo.processInfo.arguments.contains("-demo"), let demo = UserDefaults(suiteName: "demo") {
         demo.removePersistentDomain(forName: "demo")
+        UserDefaults.standard.removeObject(forKey: SettingsKey.aerialPhoto)
         return CampaignStore(defaults: demo)
       }
     #endif

@@ -89,7 +89,8 @@ final class NotHereMovedUITests: XCTestCase {
 
   @MainActor private func launch(_ arguments: String...) -> XCUIApplication {
     let app = XCUIApplication()
-    app.launchArguments = ["-demo", "-demoStops"] + arguments
+    // Metric copy whatever the simulator region; the UK counts as metric.
+    app.launchArguments = ["-demo", "-demoStops", "-AppleLocale", "en_GB"] + arguments
     app.launch()
     return app
   }

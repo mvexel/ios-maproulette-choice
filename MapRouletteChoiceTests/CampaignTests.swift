@@ -29,6 +29,9 @@ import Testing
     #expect(Noun.from(match: ["shop": "bakery"]) == .place)
     // Woodbine: any entrance value (design/woodbine-campaign.md).
     #expect(Noun.from(match: ["entrance": "main"]).count(2) == "2 entrances")
+    #expect(Noun.from(match: ["building": "yes"]).aOne == "a building")
+    #expect(Noun.from(match: ["building": "house"]).count(2) == "2 buildings")
+    #expect(Noun.from(match: ["highway": "crossing"]).count(2) == "2 crossings")
     #expect(Noun.from(match: ["entrance": "yes"]).one == "entrance")
     #expect(Noun.from(match: ["entrance": "main"]).aOne == "an entrance")
     #expect(Noun.from(match: ["highway": "bus_stop"]).aOne == "a stop")

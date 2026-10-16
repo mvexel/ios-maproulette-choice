@@ -285,14 +285,29 @@ import Testing
     #expect(Wording.problemsMessage == "Nothing here changes OpenStreetMap. The organizer checks every report.")
     #expect(Wording.notHereExplained(stops) == "You're at the spot and there's no stop.")
     #expect(Wording.movedTitle(stops) == "Where is the stop now?")
-    #expect(Wording.reportMoved(31, stops) == "The stop has moved, about 30 m from where the map has it.")
-    #expect(Wording.someoneReportedMoved(28, stops) == "Someone reported this stop moved, about 30 m.")
-    #expect(Wording.movedFar(212, stops) == "That's 210 m away. If it's a different stop, use “It's not here” instead.")
+    #expect(Wording.reportMoved(31, stops, us: false) == "The stop has moved, about 30 m from where the map has it.")
+    #expect(Wording.someoneReportedMoved(28, stops, us: false) == "Someone reported this stop moved, about 30 m.")
+    #expect(Wording.movedFar(212, stops, us: false) == "That's 210 m away. If it's a different stop, use “It's not here” instead.")
+    #expect(Wording.reportMoved(31, stops, us: true) == "The stop has moved, about 100 ft from where the map has it.")
+    #expect(Wording.movedFar(212, stops, us: true) == "That's 700 ft away. If it's a different stop, use “It's not here” instead.")
   }
 
   /// Under 100 m to the nearest 5 m, then to the nearest 10 m.
   @Test func distancesAreRounded() {
     #expect([2, 31, 33, 97, 104, 156].map(Wording.roundedMeters) == [0, 30, 35, 95, 100, 160])
+  }
+
+  /// One unit rule on every distance line: the list, "from you", the direction line and the moved
+  /// copy all switch together; only the US uses feet (design/which-one-spec.md §C).
+  @Test func oneUnitRuleEverywhere() {
+    for us in [false, true] {
+      let unit = us ? " ft" : " m"
+      #expect(TaskLocation.distance(31, us: us).hasSuffix(unit))
+      #expect(DirectionLine.distance(31, us: us).hasSuffix(unit))
+      #expect(Wording.movedMeasure(31, us: us).hasSuffix(unit))
+    }
+    #expect(TaskLocation.distance(1500, us: false) == "1.5 km")
+    #expect(TaskLocation.distance(1609.344, us: true) == "1.0 mi")
   }
 }
 
