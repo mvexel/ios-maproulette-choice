@@ -183,7 +183,8 @@ struct ChallengeTasksView: View {
       case .putOnMap: PutOnMapCard()
       case .daySummary:
         DaySummaryCard(
-          checkedToday: campaigns.checkedToday(challengeID.value), done: progress.checked, total: total, noun: noun)
+          checkedToday: campaigns.checkedToday(challengeID.value), done: progress.checked, total: total, noun: noun,
+          onMap: myAnswers?.onMap ?? 0)
       case .share: share
       }
     }
@@ -278,11 +279,9 @@ struct ChallengeTasksView: View {
           if failed { Button("Retry") { load() } }
         }
       }
-      if preview == nil, session.view.guest, let saved = session.guestStatus {
-        if saved.pendingCount > 0 {
-          savedBanner(saved)
-          Button(Wording.doneForToday) { sheet = .daySummary }.font(.subheadline).frame(minHeight: 44)
-        }
+      if preview == nil, session.view.guest, let mine = myAnswers, mine.pending > 0 || mine.onMap > 0 {
+        savedBanner(mine)
+        Button(Wording.doneForToday) { sheet = .daySummary }.font(.subheadline).frame(minHeight: 44)
       }
       // Reported places stay open but aren't sent to anyone (design/not-here-moved.md §4).
       if let nearest = open.first(where: { !lookAgain.contains($0.id) }) {
@@ -307,17 +306,28 @@ struct ChallengeTasksView: View {
     .padding(.top, 8)
   }
 
+  /// This guest's answers in this campaign. Before backend H1c there are no per-campaign counts,
+  /// so the overall pending count stands in (and nothing shows as on the map).
+  private var myAnswers: ChallengeAnswerCounts? {
+    guard let saved = session.guestStatus else { return nil }
+    return saved.byChallenge.isEmpty
+      ? ChallengeAnswerCounts(pending: saved.pendingCount, onMap: 0) : saved.answers(in: challengeID)
+  }
+
   /// "Your answers": a guest's saved answers (handback §1). They are kept until a mapper has
   /// checked them, so there is no deadline. The whole row opens the sheet (Iris's parity pick 1).
-  private func savedBanner(_ saved: GuestStatus) -> some View {
+  private func savedBanner(_ mine: ChallengeAnswerCounts) -> some View {
     Button {
       sheet = .putOnMap
     } label: {
       HStack {
-        Text(Wording.savedNotOnMap(saved.pendingCount, noun))
-          .font(.subheadline.weight(.semibold))
-          .foregroundStyle(.primary)
-          .multilineTextAlignment(.leading)
+        VStack(alignment: .leading, spacing: 2) {
+          if mine.pending > 0 { Text(Wording.savedNotOnMap(mine.pending, noun)) }
+          if mine.onMap > 0 { Text(Wording.onMap(mine.onMap)) }
+        }
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(.primary)
+        .multilineTextAlignment(.leading)
         Spacer()
         Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
       }

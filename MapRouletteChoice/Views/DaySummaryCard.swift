@@ -10,6 +10,8 @@ struct DaySummaryCard: View {
   let done: Int
   let total: Int
   let noun: Noun
+  /// This campaign's answers a local mapper has put on the map (handback §1).
+  var onMap = 0
 
   @Environment(AppSession.self) private var session
   @Environment(\.webAuthenticationSession) private var webAuth
@@ -21,6 +23,7 @@ struct DaySummaryCard: View {
         Text("Nice work today.").font(.title2.weight(.semibold))
         Text(Wording.daySummary(checkedToday, done: done, total: total, noun))
         Text(Wording.daySummarySaved)
+        if onMap > 0 { Text(Wording.onMap(onMap)).fontWeight(.semibold) }
         Spacer()
         Button {
           dismiss()
