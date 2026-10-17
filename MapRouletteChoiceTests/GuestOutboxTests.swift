@@ -84,30 +84,37 @@ import Testing
       #expect(GuestOutbox.outcome(kept) == .keep, "\(kept)")
     }
     for dropped in [
-      MapRouletteError(.notFound, status: 404), MapRouletteError(.conflict, status: 409, reason: "task_completed"),
       MapRouletteError(.validation, status: 400), MapRouletteError(.permission, status: 403, reason: "challenge_not_published"),
     ] {
       #expect(GuestOutbox.outcome(dropped) == .dropped, "\(dropped)")
+    }
+    // Gone or changed: dropped, and said once (offline-copy.md row 17).
+    for told in [
+      MapRouletteError(.notFound, status: 404), MapRouletteError(.conflict, status: 409, reason: "task_completed"),
+      MapRouletteError(.conflict, status: 409, problem: .choice(.taskIneligible(reason: .elementGone))),
+    ] {
+      #expect(GuestOutbox.outcome(told) == .notNeeded, "\(told)")
     }
   }
 
   /// A place that changed on the map while the answer waited: the person is told, once.
   @Test func aTurnedDownAnswerIsToldNotDropped() async {
-    let changed = MapRouletteError(.conflict, status: 409, problem: .choice(.taskIneligible(reason: .elementGone)))
-    #expect(GuestOutbox.outcome(changed) == .notNeeded(.elementGone))
     let outbox = GuestOutbox(file: nil)
-    outbox.add(entry(1))
-    outbox.add(entry(2))
-    await outbox.flush(via: { $0.taskID == 1 ? .notNeeded(.keyChanged) : .sent }, record: { _ in })
+    for id in [1, 2, 3] as [Int64] { outbox.add(entry(id)) }
+    await outbox.flush(via: { $0.taskID == 2 ? .sent : .notNeeded }, record: { _ in })
     #expect(outbox.isEmpty)
-    #expect(outbox.notNeeded == [.init(taskID: 1, reason: .keyChanged)])
-    #expect(Wording.waitingNotNeededDetail(.place, [.keyChanged]) == Wording.noLongerNeeded(.place, .keyChanged))
+    #expect(outbox.notNeeded == 2)
+    #expect(Wording.waitingNotNeeded(1) == "1 waiting answer wasn't needed. The place changed on the map before it was sent.")
+    #expect(Wording.waitingNotNeeded(2).hasPrefix("2 waiting answers weren't needed. The places"))
   }
 
-  /// A question answered on the map meanwhile: the rest of the answers still go.
+  /// A question answered on the map meanwhile: the rest of the answers still go, but only when
+  /// the place asks nothing new.
   @Test func answersNarrowToTheQuestionsStillOpen() {
     let answer = GuestOutbox.Answer.answers(["armrest": "yes", "colour": "green"])
     #expect(answer.narrowed(to: ["armrest"]) == .answers(["armrest": "yes"]))
+    #expect(answer.narrowed(to: ["armrest", "backrest"]) == nil)
+    #expect(answer.narrowed(to: []) == nil)
     #expect(answer.narrowed(to: ["backrest"]) == nil)
     #expect(answer.narrowed(to: ["armrest", "colour"]) == nil)
     #expect(answer.narrowed(to: nil) == nil)

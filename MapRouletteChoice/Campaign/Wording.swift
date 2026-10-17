@@ -340,14 +340,11 @@ enum Wording {
   }
   static let savedForLaterNote = "Saved and counted. Local mappers check answers and add them to the map."
   /// The guest pending cap (200 per install, an abuse limit; handback §1).
-  /// A waiting answer the server turned down once it could check the map (O2, Tess).
+  /// Waiting answers the server turned down once it could check the map (offline-copy.md row 17).
   static func waitingNotNeeded(_ count: Int) -> String {
-    count == 1 ? "A waiting answer wasn't needed" : "\(count) waiting answers weren't needed"
-  }
-  static func waitingNotNeededDetail(_ noun: Noun, _ reasons: [IneligibleReason]) -> String {
-    reasons.count == 1
-      ? noLongerNeeded(noun, reasons[0])
-      : "Those \(noun.many) changed on the map or someone already checked them. Thanks anyway!"
+    count == 1
+      ? "1 waiting answer wasn't needed. The place changed on the map before it was sent."
+      : "\(count) waiting answers weren't needed. The places changed on the map before they were sent."
   }
   static func pendingLimit(_ noun: Noun) -> String {
     "That's as many \(noun.many) as one phone can answer without an account for now. "

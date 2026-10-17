@@ -65,6 +65,8 @@ struct ChallengeTasksView: View {
   @State private var status = "Loading…"
   @State private var failed = false
   @State private var keptTimer: Task<Void, Never>?
+  /// Waiting answers the server turned down since the last campaign screen (offline-copy.md row 17).
+  @State private var notNeededLine: String?
   /// Shown from the phone's copy (no connection, O2): when the server last sent it.
   @State private var keptFrom: Date?
   @State private var request: Task<Void, Never>?
@@ -247,13 +249,11 @@ struct ChallengeTasksView: View {
     .alert(Wording.pendingLimit(noun), isPresented: Binding(get: { outbox.limitReached }, set: { outbox.limitReached = $0 })) {
       Button("OK", role: .cancel) {}
     }
-    .alert(
-      Wording.waitingNotNeeded(outbox.notNeeded.count),
-      isPresented: Binding(get: { !outbox.notNeeded.isEmpty }, set: { if !$0 { outbox.notNeeded = [] } })
-    ) {
-      Button("OK", role: .cancel) {}
-    } message: {
-      Text(Wording.waitingNotNeededDetail(noun, outbox.notNeeded.map(\.reason)))
+    .onChange(of: outbox.notNeeded, initial: true) {
+      // Shown once, on this screen, until it closes (offline-copy.md row 17).
+      guard preview == nil, outbox.notNeeded > 0 else { return }
+      notNeededLine = Wording.waitingNotNeeded(outbox.notNeeded)
+      outbox.notNeeded = 0
     }
   }
 
@@ -325,6 +325,12 @@ struct ChallengeTasksView: View {
           Text(status).foregroundStyle(.secondary)
           if failed { Button("Retry") { load() } }
         }
+      }
+      if let notNeededLine {
+        Text(notNeededLine)
+          .font(.footnote).foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+          .frame(maxWidth: .infinity, alignment: .leading)
       }
       if let keptFrom {
         TimelineView(.periodic(from: .now, by: 60)) { context in
