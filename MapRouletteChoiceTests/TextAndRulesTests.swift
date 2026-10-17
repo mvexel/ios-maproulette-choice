@@ -345,6 +345,12 @@ import Testing
 
   /// A place the fresh OSM check turned down says why, when it's gone or changed (Iris, Tess's
   /// dev ch 5/6 finding).
+  /// A campaign bigger than the app reads says so to everyone, not only in the details (L1).
+  @Test func notAllShownSaysSo() {
+    let benches = Noun.from(match: ["amenity": "bench"])
+    #expect(Wording.notAllShown(5000, benches).hasSuffix("benches. This campaign has more."))
+  }
+
   @Test func noLongerNeededSaysWhy() {
     let benches = Noun.from(match: ["amenity": "bench"])
     #expect(Wording.noLongerNeeded(benches, .elementGone) == "This bench is no longer on the map. Thanks anyway!")
