@@ -378,6 +378,11 @@ enum Wording {
     (isOff ? "Location is off." : "Your location isn't available yet.")
       + " Choose \(noun.aOne) on the map or in the list."
   }
+  /// While a big campaign's pages still arrive; the noun first so a small count still reads well (Iris).
+  static func loadingSoFar(_ n: Int, _ noun: Noun) -> String { "Loading \(noun.many)… \(n.formatted()) so far" }
+  /// What VoiceOver reads for `loadingSoFar`.
+  static func loadingSoFarSpoken(_ n: Int, _ noun: Noun) -> String { "Loading \(noun.many), \(n.formatted()) so far" }
+
   static func progress(done: Int, total: Int, _ noun: Noun) -> String {
     "The tally: \(done.formatted()) of \(noun.count(total)) checked"
   }

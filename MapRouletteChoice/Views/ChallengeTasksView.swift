@@ -2,6 +2,7 @@ import AuthenticationServices
 import CoreLocation
 import MapRoulette
 import SwiftUI
+import os
 
 /// One campaign: progress, the nearest place still to check, and all its places on a map or in a
 /// list sorted by distance. Checked places stay visible, greyed out.
@@ -69,6 +70,8 @@ struct ChallengeTasksView: View {
   @State private var notNeededLine: String?
   /// Shown from the phone's copy (no connection, O2): when the server last sent it.
   @State private var keptFrom: Date?
+  /// The places read so far while a campaign's pages still arrive; nil once all are in.
+  @State private var loadedSoFar: Int?
   @State private var request: Task<Void, Never>?
   @State private var origin: CLLocationCoordinate2D?
   @State private var locationIsOff = false
@@ -86,6 +89,9 @@ struct ChallengeTasksView: View {
 
   /// Pages of 100 to read before stopping: the wizard makes campaigns of up to 2,000 places (L1).
   private static let maxPages = 50
+  /// While a campaign's pages arrive, the map and list update at most this often.
+  private static let redrawEvery = Duration.milliseconds(500)
+  private static let log = Logger(subsystem: "lol.osm.maproulette.choice", category: "load")
 
   private var progress: CampaignProgress {
     // Pending reports, this phone's or another guest's, need another look, not "checked"
@@ -304,7 +310,18 @@ struct ChallengeTasksView: View {
           .frame(maxWidth: .infinity, alignment: .leading)
       }
       // Preview hides the tally: nothing changes it (§4.2).
-      if !shown.isEmpty && preview == nil {
+      if let loadedSoFar, !shown.isEmpty {
+        // A tally before the holds are in would read "0 of 600" as nothing checked (Tess, AB13).
+        HStack {
+          ProgressView()
+          Text(Wording.loadingSoFar(loadedSoFar, noun)).foregroundStyle(.secondary)
+        }
+        // Read when reached, not announced for every page.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Wording.loadingSoFarSpoken(loadedSoFar, noun))
+        .font(.subheadline)
+        .frame(maxWidth: .infinity, alignment: .leading)
+      } else if !shown.isEmpty && preview == nil {
         let done = progress.checked
         let today = campaigns.checkedToday(challengeID.value)
         // Side by side until accessibility sizes, then stacked so neither line truncates.
@@ -492,13 +509,14 @@ struct ChallengeTasksView: View {
   /// on failure, none; a short read keeps the holds it read (L1). The same search is what the
   /// campaign offers (`offered`, backend #51): nil on failure, a short read or a backend without
   /// `pending`.
-  private static func heldTasks(_ tasks: [LocatedTask], in challengeID: ChallengeID, client: MapRouletteClient)
-    async -> (answers: Set<Int64>, reports: Set<Int64>, offered: Set<Int64>?)
-  {
+  /// `search` is `heldSearch`, read alongside the campaign's own pages (Tess, AB13).
+  private static func heldTasks(
+    _ tasks: [LocatedTask], search: (rows: [TaskSummary], complete: Bool)?, in challengeID: ChallengeID,
+    client: MapRouletteClient
+  ) async -> (answers: Set<Int64>, reports: Set<Int64>, offered: Set<Int64>?) {
     let open = tasks.filter(\.isOpen)
     guard let bounds = TaskLocation.bounds(open.compactMap(\.coordinate)) else { return ([], [], nil) }
-    let filter = TaskFilter(challengeIDs: [challengeID], bounds: bounds, choiceOnly: true, includePending: true)
-    guard case let (rows, complete)? = await boxSearch(filter, client: client) else { return ([], [], nil) }
+    guard case let (rows, complete)? = search else { return ([], [], nil) }
     if !rows.isEmpty, rows.allSatisfy({ $0.pending != nil }) {
       // A short read still knows its own holds; what it offers is only known in full (L1).
       let holds = rows.filter { $0.pending == true }
@@ -513,24 +531,39 @@ struct ChallengeTasksView: View {
     return (Set(open.map(\.id)).subtracting(listed.map(\.id.value)), [], nil)
   }
 
+  /// The places read so far, sorted and parsed once, off the main actor.
+  @concurrent private nonisolated static func snapshot(_ byID: [Int64: MapRouletteTask]) async
+    -> (tasks: [MapRouletteTask], located: [LocatedTask], noun: Noun, questions: [ChoiceQuestion])
+  {
+    let tasks = byID.values.sorted { $0.id < $1.id }
+    return (tasks, tasks.map(LocatedTask.init), Noun.from(tasks), questions(tasks))
+  }
+
+  /// The campaign's places with their holds. The whole world, so it can start before the campaign's
+  /// own pages say where they are; the challenge filter keeps it to this campaign.
+  private static func heldSearch(in challengeID: ChallengeID, client: MapRouletteClient) async
+    -> (rows: [TaskSummary], complete: Bool)?
+  {
+    guard let world = try? Bounds(west: -180, south: -90, east: 180, north: 90) else { return nil }
+    let filter = TaskFilter(challengeIDs: [challengeID], bounds: world, choiceOnly: true, includePending: true)
+    return await boxSearch(filter, client: client)
+  }
+
   /// The pages of a bounds search, and whether that was all of them; nil on failure.
   private static func boxSearch(_ filter: TaskFilter, client: MapRouletteClient) async
     -> (rows: [TaskSummary], complete: Bool)?
   {
-    var rows: [TaskSummary] = []
-    var cursor: PageCursor?
-    var pages = 0
+    var byID: [Int64: TaskSummary] = [:]
+    var total: Int64?
     do {
-      repeat {
-        let page = try await client.findTasksInBounds(filter: filter, pageSize: 100, after: cursor)
-        rows += page.items
-        cursor = page.next
-        pages += 1
-      } while cursor != nil && pages < maxPages
+      for try await page in client.findAllTasksInBounds(filter: filter, maxPages: maxPages) {
+        for row in page.items { byID[row.id.value] = row }
+        total = page.total ?? total
+      }
     } catch {
       return nil
     }
-    return (rows, cursor == nil)
+    return (Array(byID.values), total.map { Int64(byID.count) >= $0 } ?? false)
   }
 
   // MARK: Preview
@@ -653,7 +686,7 @@ struct ChallengeTasksView: View {
   }
 
   /// Every question asked in the campaign, in first-seen order.
-  static func questions(_ tasks: [MapRouletteTask]) -> [ChoiceQuestion] {
+  nonisolated static func questions(_ tasks: [MapRouletteTask]) -> [ChoiceQuestion] {
     var seen = Set<String>()
     var result: [ChoiceQuestion] = []
     for task in tasks {
@@ -717,28 +750,56 @@ struct ChallengeTasksView: View {
           request = nil
           return
         }
-        var all: [MapRouletteTask] = []
-        var cursor: PageCursor?
+        // The holds are read alongside the pages, not after them (Tess, AB13).
+        async let heldRows = Self.heldSearch(in: challengeID, client: client)
+        // Pages arrive in parallel and out of order; a place that changes mid-load can show up on
+        // two pages, so they merge by id. The first page shows at once, so a big campaign never
+        // waits for its last page (Tess, AE6: 72 s for 5,200 places read one page at a time). After
+        // that the map redraws at most every couple of seconds: redrawing every pin for every page
+        // made each page cost more than the last (Tess, AB13: 290 s for 5,200 places).
+        // Sorting and parsing run off the main actor; it only takes the finished snapshot.
+        let started = ContinuousClock.now
+        var byID: [Int64: MapRouletteTask] = [:]
+        var fullPages = 0
         var pages = 0
-        repeat {
-          let page = try await client.listTasks(challengeID, pageSize: 100, after: cursor)
-          all += page.items
-          cursor = page.next
+        var lastShown: ContinuousClock.Instant?
+        for try await page in client.listAllTasks(challengeID, maxPages: Self.maxPages) {
           pages += 1
-        } while cursor != nil && pages < Self.maxPages
+          for task in page.items { byID[task.id.value] = task }
+          if page.items.count == 100 { fullPages += 1 }
+          guard keptFrom == nil || byID.count >= tasks.count else { continue }
+          if let lastShown, lastShown.duration(to: .now) < Self.redrawEvery { continue }
+          lastShown = .now
+          let snapshot = await Self.snapshot(byID)
+          try Task.checkCancellation()
+          challenge = loadedChallenge
+          tasks = snapshot.located
+          noun = snapshot.noun
+          questions = snapshot.questions
+          loadedSoFar = snapshot.located.count
+          keptFrom = nil
+          status = ""
+          Self.log.debug(
+            "page \(pages): \(byID.count) places shown at \(started.duration(to: .now), privacy: .public)")
+        }
         try Task.checkCancellation()
-        let located = all.map(LocatedTask.init)
-        let heldNow = await Self.heldTasks(located, in: challengeID, client: client)
+        Self.log.debug("\(pages) pages, \(byID.count) places read at \(started.duration(to: .now), privacy: .public)")
+        let snapshot = await Self.snapshot(byID)
+        let all = snapshot.tasks
+        let located = snapshot.located
+        let heldNow = await Self.heldTasks(located, search: heldRows, in: challengeID, client: client)
+        Self.log.debug("holds read at \(started.duration(to: .now), privacy: .public)")
         try Task.checkCancellation()
         held = heldNow.answers
         heldReports = heldNow.reports
         offered = heldNow.offered
         challenge = loadedChallenge
         tasks = located
-        noun = Noun.from(all)
-        questions = Self.questions(all)
+        noun = snapshot.noun
+        questions = snapshot.questions
         hidden = located.filter { !$0.isOpen && !$0.isDone }.count
-        truncated = cursor != nil
+        truncated = fullPages >= Self.maxPages
+        loadedSoFar = nil
         keptFrom = nil
         keptTimer?.cancel()
         keptTimer = nil
@@ -782,6 +843,7 @@ struct ChallengeTasksView: View {
           }
           failed = true
         }
+        loadedSoFar = nil
       }
       request = nil
     }
@@ -800,6 +862,7 @@ struct ChallengeTasksView: View {
     hidden = located.filter { !$0.isOpen && !$0.isDone }.count
     truncated = kept.truncated
     keptFrom = kept.savedAt
+    loadedSoFar = nil
     failed = false
     status = ""
     if !campaigns.hasSeenWelcome(challengeID.value, preview: nil) && sheet == nil { sheet = .welcome }
