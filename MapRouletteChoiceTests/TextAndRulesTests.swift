@@ -356,4 +356,12 @@ import Testing
     #expect(Wording.noLongerNeeded(benches, .keyChanged, onSave: true)
       == "This bench changed on the map while you were answering. Thanks anyway!")
   }
+
+  /// Big counts group digits by the phone's locale (Tess's AE6 at 5,000 places).
+  @Test func countsGroupDigits() {
+    let benches = Noun.from(match: ["amenity": "bench"])
+    #expect(benches.count(5000) == "\(5000.formatted()) benches")
+    #expect(Wording.progress(done: 4, total: 5000, benches) == "The tally: 4 of \(5000.formatted()) benches checked")
+    #expect(benches.count(1) == "1 bench")
+  }
 }
