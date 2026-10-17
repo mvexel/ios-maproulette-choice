@@ -746,6 +746,44 @@ import Testing
     d.cancel()
   }
 
+  /// A save that hangs goes to the phone after `keptAfter`, instead of a spinner until timeout.
+  @Test func hangingGuestSaveWaitsOnThePhone() async throws {
+    let place = try await makeTask()
+    let o = FakeOps(challenge: challenge).thenRead(place)
+    o.pending = { _ in
+      try await Task.sleep(for: .seconds(600))
+      throw MapRouletteError(.network)
+    }
+    var kept: [GuestOutbox.Entry] = []
+    let c = TaskWorkController(
+      ops: o, writer: .guestWriter, keepOnPhone: { kept.append($0) }, keptAfter: .milliseconds(50))
+    c.load(taskID)
+    await c.idle()
+    c.perform(.answers(["backrest": "yes"]))
+    try await Task.sleep(for: .milliseconds(400))
+    #expect(try #require(c.state.done).waiting)
+    #expect(kept.map(\.taskID) == [42])
+    c.cancel()
+  }
+
+  /// Opened from the kept copy while the guest registration hung: when it lands, the answers in
+  /// progress stay and the guest's client takes over.
+  @Test func aLateRegistrationKeepsTheKeptForm() async throws {
+    let place = try await makeTask()
+    let o = FakeOps(challenge: challenge)
+    o.reads = [.hang]
+    let c = TaskWorkController(
+      ops: o, writer: nil, keepOnPhone: { _ in }, kept: { [challenge] in $0 == taskID ? (place, challenge) : nil },
+      unregisteredGuest: true, keptAfter: .milliseconds(50))
+    c.load(taskID)
+    await c.idle()
+    #expect(c.state.answering != nil, "\(c.state.name)")
+    #expect(c.awaitsRegistration)
+    #expect(!c.registered(ops: FakeOps(challenge: challenge)))
+    #expect(!c.awaitsRegistration)
+    #expect(c.state.answering != nil)
+  }
+
   /// The copy is only for a guest with no connection: a signed-in mapper, a server error, or a
   /// place not kept still fail to load.
   @Test func keptCopyOnlyForAGuestWithNoConnection() async throws {

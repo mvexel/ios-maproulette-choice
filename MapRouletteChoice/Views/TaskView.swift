@@ -177,7 +177,21 @@ struct TaskView: View {
     Task {
       // Registering a guest changes the session generation; do it before binding a controller.
       // Never in preview: that would leave a guest behind (§2).
-      if preview == nil && session.canAnswerAsGuest { _ = await session.ensureGuest() }
+      if preview == nil && session.canAnswerAsGuest && !session.view.guest {
+        let register = Task { await session.ensureGuest() }
+        if let slow = cache.slowAfter, cache.task(taskID) != nil {
+          // A dead spot that hangs: open the kept copy after a few seconds rather than wait for the
+          // registration; the controller takes the guest's client when it lands (accountChanged).
+          await withTaskGroup(of: Void.self) { group in
+            group.addTask { _ = await register.value }
+            group.addTask { try? await Task.sleep(for: slow) }
+            await group.next()
+            group.cancelAll()
+          }
+        } else {
+          _ = await register.value
+        }
+      }
       guard controller == nil else { return }
       generation = session.view.generation
       replaceController()
@@ -204,6 +218,10 @@ struct TaskView: View {
   private func accountChanged() {
     guard let old = controller, generation != session.view.generation else { return }
     generation = session.view.generation
+    if old.awaitsRegistration && session.view.guest {
+      if old.registered(ops: ClientTaskOps(session.newClient().client)) { old.load(try! TaskID(taskID)) }
+      return
+    }
     var interrupted = old.busy
     if case .checkAgain = old.state { interrupted = true }
     if interrupted || old.changed { reportChange() }
