@@ -21,9 +21,15 @@ import MapRoulette
   @ObservationIgnored private var cached: Snapshot?
   @ObservationIgnored private var loaded = false
 
+  /// How long a campaign or place may load before the kept copy is shown instead: one bar that
+  /// hangs is the usual dead spot, not a clean refusal (Tess, dev). Nil waits for the server
+  /// (demo runs, where a cold simulator is slow but never offline).
+  @ObservationIgnored let slowAfter: Duration?
+
   /// `file` nil keeps the copy in memory only (demo runs and tests).
-  init(file: URL? = CampaignCache.defaultFile) {
+  init(file: URL? = CampaignCache.defaultFile, slowAfter: Duration? = .seconds(6)) {
     self.file = file
+    self.slowAfter = slowAfter
   }
 
   nonisolated static var defaultFile: URL? {

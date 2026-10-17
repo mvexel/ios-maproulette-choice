@@ -64,6 +64,7 @@ struct ChallengeTasksView: View {
   @State private var truncated = false
   @State private var status = "Loading…"
   @State private var failed = false
+  @State private var keptTimer: Task<Void, Never>?
   /// Shown from the phone's copy (no connection, O2): when the server last sent it.
   @State private var keptFrom: Date?
   @State private var request: Task<Void, Never>?
@@ -653,6 +654,16 @@ struct ChallengeTasksView: View {
     failed = false
     if let preview, preview.phase == .signInNeeded || preview.phase == .noAccess { preview.phase = .opening }
     if tasks.isEmpty { status = "Loading…" }
+    keptTimer?.cancel()
+    if preview == nil, let slow = cache.slowAfter, let kept = cache.get(challengeID.value) {
+      // One bar that hangs is the usual dead spot: show the phone's copy after a few seconds, and
+      // swap in the server's list if it still arrives (Tess, dev).
+      keptTimer = Task {
+        try? await Task.sleep(for: slow)
+        guard !Task.isCancelled, request != nil, tasks.isEmpty || keptFrom != nil else { return }
+        show(kept)
+      }
+    }
     request = Task {
       do {
         let loadedChallenge = try await client.getChallenge(challengeID)
@@ -704,6 +715,7 @@ struct ChallengeTasksView: View {
         hidden = located.filter { !$0.isOpen && !$0.isDone }.count
         truncated = cursor != nil
         keptFrom = nil
+        keptTimer?.cancel()
         if self.preview == nil {
           cache.save(
             .init(

@@ -42,7 +42,7 @@ struct MapRouletteChoiceApp: App {
 
   @MainActor private static func makeCache() -> CampaignCache {
     #if DEBUG
-      if ProcessInfo.processInfo.arguments.contains("-demo") { return CampaignCache(file: nil) }
+      if ProcessInfo.processInfo.arguments.contains("-demo") { return CampaignCache(file: nil, slowAfter: nil) }
     #endif
     return CampaignCache()
   }

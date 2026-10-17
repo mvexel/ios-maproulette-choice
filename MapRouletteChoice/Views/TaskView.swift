@@ -197,7 +197,7 @@ struct TaskView: View {
     controller = TaskWorkController(
       ops: ClientTaskOps(session.newClient().client), writer: writer, noun: noun, previewing: preview != nil,
       keepOnPhone: { outbox.add($0) }, kept: { cache.task($0.value) },
-      unregisteredGuest: preview == nil && !view.guest && session.canAnswerAsGuest)
+      unregisteredGuest: preview == nil && !view.guest && session.canAnswerAsGuest, keptAfter: cache.slowAfter)
   }
 
   /// Account switch or sign-out: discard the old account's state and any late result.

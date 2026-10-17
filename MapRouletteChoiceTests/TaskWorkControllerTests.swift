@@ -722,6 +722,30 @@ import Testing
     }
   }
 
+  /// One bar that hangs: after `keptAfter` a guest gets the kept copy, and the slow read is dropped.
+  @Test func hangingLoadFallsBackToTheKeptCopy() async throws {
+    let place = try await makeTask()
+    let o = FakeOps(challenge: challenge)
+    o.reads = [.hang]
+    let c = TaskWorkController(
+      ops: o, writer: .guestWriter, keepOnPhone: { _ in }, kept: { [challenge] in $0 == taskID ? (place, challenge) : nil },
+      keptAfter: .milliseconds(50))
+    c.load(taskID)
+    await c.idle()
+    #expect(c.state.answering != nil, "\(c.state.name)")
+
+    // A signed-in mapper keeps waiting for the server.
+    let signedIn = FakeOps(challenge: challenge)
+    signedIn.reads = [.hang]
+    let d = TaskWorkController(
+      ops: signedIn, writer: Writer(me: me, canEditOsm: true), keepOnPhone: { _ in },
+      kept: { [challenge] in $0 == taskID ? (place, challenge) : nil }, keptAfter: .milliseconds(50))
+    d.load(taskID)
+    try await Task.sleep(for: .milliseconds(300))
+    guard case .loading = d.state else { Issue.record("\(d.state.name)"); return }
+    d.cancel()
+  }
+
   /// The copy is only for a guest with no connection: a signed-in mapper, a server error, or a
   /// place not kept still fail to load.
   @Test func keptCopyOnlyForAGuestWithNoConnection() async throws {

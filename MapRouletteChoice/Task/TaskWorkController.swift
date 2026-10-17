@@ -261,11 +261,15 @@ enum TaskScreen: Sendable {
   /// This phone could answer as a guest but hasn't registered yet (it had no signal to): in a dead
   /// spot it answers the kept copy as one, and registers when the answers send (Tess, Android #45).
   @ObservationIgnored private let unregisteredGuest: Bool
+  /// How long a place may load before a guest gets the phone's copy instead (CampaignCache.slowAfter).
+  @ObservationIgnored private let keptAfter: Duration?
+  @ObservationIgnored private var keptTimer: Task<Void, Never>?
 
   init(
     ops: any TaskOps, writer: Writer?, noun: Noun = .place, previewing: Bool = false,
     keepOnPhone: (@MainActor (GuestOutbox.Entry) -> Void)? = nil,
-    kept: (@MainActor (TaskID) -> (MapRouletteTask, Challenge)?)? = nil, unregisteredGuest: Bool = false
+    kept: (@MainActor (TaskID) -> (MapRouletteTask, Challenge)?)? = nil, unregisteredGuest: Bool = false,
+    keptAfter: Duration? = nil
   ) {
     self.ops = previewing ? PreviewTaskOps(reads: ops) as any TaskOps : ops
     self.writer = previewing ? nil : writer
@@ -274,6 +278,7 @@ enum TaskScreen: Sendable {
     self.keepOnPhone = keepOnPhone
     self.kept = kept
     self.unregisteredGuest = unregisteredGuest
+    self.keptAfter = keptAfter
   }
 
   var busy: Bool {
@@ -293,8 +298,9 @@ enum TaskScreen: Sendable {
   func load(_ id: TaskID) {
     if busy || discarded { return }
     job?.cancel()
+    keptTimer?.cancel()
     state = .loading
-    job = Task {
+    let job = Task {
       let next: TaskScreen
       do {
         let task = try await ops.getTask(id)
@@ -305,14 +311,31 @@ enum TaskScreen: Sendable {
       }
       publish(next)
     }
+    self.job = job
+    if keptPossible, let delay = keptAfter {
+      keptTimer = Task {
+        try? await Task.sleep(for: delay)
+        guard !Task.isCancelled, !discarded, case .loading = state, let screen = keptScreen(id) else { return }
+        // The answer is checked when it's sent, so the slow load isn't needed any more.
+        job.cancel()
+        state = screen
+      }
+    }
   }
 
   /// No connection: a guest answers the phone's copy (O2), with no eligibility check (there is
   /// none to reach). The answer waits on the phone, and the server checks it when it's sent.
   private func openedKept(_ id: TaskID, _ error: any Error) -> TaskScreen? {
-    guard !previewing, keepOnPhone != nil, writer?.guest == true || (writer == nil && unregisteredGuest),
-      CampaignCache.isOffline(error), let found = kept?(id)
-    else { return nil }
+    CampaignCache.isOffline(error) ? keptScreen(id) : nil
+  }
+
+  /// A guest (or a phone that can become one) with the campaign kept on the phone.
+  private var keptPossible: Bool {
+    !previewing && keepOnPhone != nil && kept != nil && (writer?.guest == true || (writer == nil && unregisteredGuest))
+  }
+
+  private func keptScreen(_ id: TaskID) -> TaskScreen? {
+    guard keptPossible, let found = kept?(id) else { return nil }
     let task = found.0
     let loaded = LoadedTask(task: task, challenge: found.1)
     guard task.mobileSupport() == .inPlace, let work = ChoiceWork(task.work()) else {
@@ -549,6 +572,7 @@ enum TaskScreen: Sendable {
   func cancel() {
     discarded = true
     job?.cancel()
+    keptTimer?.cancel()
   }
 
   private nonisolated static func send(_ ops: any TaskOps, _ task: MapRouletteTask, _ action: ChoiceAction) async

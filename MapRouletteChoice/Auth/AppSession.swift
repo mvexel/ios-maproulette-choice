@@ -369,6 +369,18 @@ struct SessionClient: Sendable {
   func ensureGuest() async -> Bool {
     guard canAnswerAsGuest else { return false }
     if view.guest { return true }
+    // One registration at a time: on a hanging connection several callers (outbox flushes, the
+    // place screen) wait here, and each starting its own left empty guests behind (Tess, dev).
+    if let guestStart { return await guestStart.value }
+    let start = Task { await startGuest() }
+    guestStart = start
+    defer { guestStart = nil }
+    return await start.value
+  }
+
+  @ObservationIgnored private var guestStart: Task<Bool, Never>?
+
+  private func startGuest() async -> Bool {
     guard let auth else { return false }
     do {
       _ = try await auth.startGuest()
