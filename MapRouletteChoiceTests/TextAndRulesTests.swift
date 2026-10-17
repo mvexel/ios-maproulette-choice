@@ -348,7 +348,7 @@ import Testing
   /// A campaign bigger than the app reads says so to everyone, not only in the details (L1).
   @Test func notAllShownSaysSo() {
     let benches = Noun.from(match: ["amenity": "bench"])
-    #expect(Wording.notAllShown(5000, benches).hasSuffix("benches. This campaign has more."))
+    #expect(Wording.notAllShown(5000, benches) == "Showing \(5000.formatted()) benches. This campaign has more.")
   }
 
   @Test func noLongerNeededSaysWhy() {

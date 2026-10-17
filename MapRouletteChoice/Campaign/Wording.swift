@@ -324,9 +324,9 @@ enum Wording {
     day.setLocalizedDateFormatFromTemplate("MMMd")
     return day.string(from: saved)
   }
-  /// A campaign bigger than the app reads (L1). Placeholder until Iris's words.
+  /// A campaign bigger than the app reads (L1). Not "first" or "nearest": the server order is by id (Iris).
   static func notAllShown(_ count: Int, _ noun: Noun) -> String {
-    "Showing the first \(count.formatted()) \(noun.many). This campaign has more."
+    "Showing \(count.formatted()) \(noun.many). This campaign has more."
   }
   /// A campaign opened with no signal that the phone has no copy of; shown with Retry.
   static let notKeptNoSignal = "No signal, and this campaign isn't on your phone yet. Try again when you have signal."
