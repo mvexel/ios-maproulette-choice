@@ -505,6 +505,12 @@ enum TaskScreen: Sendable {
       return
     }
     changed = true
+    // No guest yet (its registration hasn't come back): the outbox registers, then sends. A
+    // request now would go without a guest and be refused (Tess, AB5).
+    if unregisteredGuest, let kept = keep(loaded, action, MapRouletteError(.network)) {
+      state = kept
+      return
+    }
     state = .submitting(loaded, form, action)
     let ops = self.ops
     // One bar that hangs: after a few seconds the answer waits on the phone like a failed save

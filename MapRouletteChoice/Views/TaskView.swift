@@ -182,12 +182,13 @@ struct TaskView: View {
         if let slow = cache.slowAfter, cache.task(taskID) != nil {
           // A dead spot that hangs: open the kept copy after a few seconds rather than wait for the
           // registration; the controller takes the guest's client when it lands (accountChanged).
-          await withTaskGroup(of: Void.self) { group in
-            group.addTask { _ = await register.value }
-            group.addTask { try? await Task.sleep(for: slow) }
-            await group.next()
-            group.cancelAll()
+          // Not a task group: it would wait for the registration anyway (Tess, AB5).
+          let timer = Task { try? await Task.sleep(for: slow) }
+          Task {
+            _ = await register.value
+            timer.cancel()
           }
+          await timer.value
         } else {
           _ = await register.value
         }

@@ -719,6 +719,8 @@ import Testing
       await c.idle()
       #expect(try #require(c.state.done).waiting)
       #expect(kept.map(\.taskID) == [42])
+      // With no guest yet, nothing is sent: the outbox registers first.
+      #expect(o.calls.contains("pending") == (writer != nil))
     }
   }
 
