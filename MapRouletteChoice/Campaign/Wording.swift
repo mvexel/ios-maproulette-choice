@@ -43,7 +43,7 @@ struct Noun: Hashable, Sendable {
   }
 
   /// "1 stop", "7 stops".
-  func count(_ n: Int) -> String { "\(n) \(n == 1 ? one : many)" }
+  func count(_ n: Int) -> String { "\(n.formatted()) \(n == 1 ? one : many)" }
   var One: String { one.prefix(1).uppercased() + one.dropFirst() }
   /// "a stop", "an entrance". Every known noun starts with a letter that sounds as written.
   var aOne: String { ("aeiou".contains(one.prefix(1)) ? "an " : "a ") + one }
@@ -235,14 +235,14 @@ enum Wording {
     let m = status.skipped
     switch status.state {
     case .waiting, .queued, .running:
-      return "Putting your answers on the map\u{2026} \(k) of \(n)"
+      return "Putting your answers on the map\u{2026} \(k.formatted()) of \(n.formatted())"
     case .failed, .done where status.failed > 0:
-      let some = k == 0 ? "None of your answers are on the map yet." : "\(k) of \(n) \(k == 1 ? "is" : "are") on the map."
+      let some = k == 0 ? "None of your answers are on the map yet." : "\(k.formatted()) of \(n.formatted()) \(k == 1 ? "is" : "are") on the map."
       if m > 0 {
         return some + " "
           + (m == 1
             ? "1 wasn't added, because someone changed that place after you checked."
-            : "\(m) weren't added, because someone changed those places after you checked.")
+            : "\(m.formatted()) weren't added, because someone changed those places after you checked.")
           + " The rest are still saved."
       }
       guard k > 0 else {
@@ -262,7 +262,7 @@ enum Wording {
       return on + " "
         + (m == 1
           ? "1 wasn't added, because someone changed that place on the map after you checked."
-          : "\(m) weren't added, because someone changed those places on the map after you checked.")
+          : "\(m.formatted()) weren't added, because someone changed those places on the map after you checked.")
     }
   }
   /// When the app stops reading a claim that hasn't finished: the "…" line would look live.
@@ -274,16 +274,16 @@ enum Wording {
   /// Deferred sign-up §1.4 summary: "You checked 14 stops. The tally: 212 of 410."
   /// With nothing checked today only the tally shows (Iris).
   static func daySummary(_ checked: Int, done: Int, total: Int, _ noun: Noun) -> String {
-    let tally = "The tally: \(done) of \(total)."
+    let tally = "The tally: \(done.formatted()) of \(total.formatted())."
     return checked == 0 ? tally : "You checked \(noun.count(checked)). " + tally
   }
   /// The day summary's heading: "Your answers" when nothing was checked today (Iris).
   static func daySummaryTitle(_ checked: Int) -> String { checked == 0 ? "Your answers" : "Nice work today." }
   /// Answers a local mapper has put on the map, shown only in "Your answers" (handback §1).
   /// Skipped or rejected answers show nothing.
-  static func onMap(_ count: Int) -> String { "\u{2713} \(count) on the map" }
+  static func onMap(_ count: Int) -> String { "\u{2713} \(count.formatted()) on the map" }
   /// What VoiceOver reads for `onMap`, without "check mark".
-  static func onMapSpoken(_ count: Int) -> String { "\(count) on the map" }
+  static func onMapSpoken(_ count: Int) -> String { "\(count.formatted()) on the map" }
   /// Never says when, or that they will be added (handback §1).
   static let daySummarySaved = "Local mappers will check them and add them to the map."
   static let doneForToday = "I'm done for today"
@@ -341,7 +341,7 @@ enum Wording {
   /// The place's pin and list row.
   static let waitingToSend = "Waiting to send"
   /// First line of "Your answers".
-  static func waitingForSignal(_ count: Int) -> String { "\(count) waiting for signal" }
+  static func waitingForSignal(_ count: Int) -> String { "\(count.formatted()) waiting for signal" }
   /// Day summary, after the tally line.
   static func stillOnPhone(_ count: Int, _ noun: Noun) -> String {
     count == 1
@@ -354,7 +354,7 @@ enum Wording {
   static func waitingNotNeeded(_ count: Int) -> String {
     count == 1
       ? "1 waiting answer wasn't needed. The place changed on the map before it was sent."
-      : "\(count) waiting answers weren't needed. The places changed on the map before they were sent."
+      : "\(count.formatted()) waiting answers weren't needed. The places changed on the map before they were sent."
   }
   static func pendingLimit(_ noun: Noun) -> String {
     "That's as many \(noun.many) as one phone can answer without an account for now. "
@@ -379,7 +379,7 @@ enum Wording {
       + " Choose \(noun.aOne) on the map or in the list."
   }
   static func progress(done: Int, total: Int, _ noun: Noun) -> String {
-    "The tally: \(done) of \(noun.count(total)) checked"
+    "The tally: \(done.formatted()) of \(noun.count(total)) checked"
   }
 
   // MARK: Campaign preview (design/preview-mode.md §8)
