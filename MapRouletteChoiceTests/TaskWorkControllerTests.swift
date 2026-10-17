@@ -63,7 +63,7 @@ import Testing
     let o = ops(try await makeTask())
     o.check = { ChoiceEligibility(eligible: false, deleteAllowed: false, reason: .keyChanged) }
     let c = await controller(o)
-    guard case .noLongerNeeded(_, .keyChanged?) = c.state else { Issue.record("\(c.state.name)"); return }
+    guard case .noLongerNeeded(_, .keyChanged?, false) = c.state else { Issue.record("\(c.state.name)"); return }
     #expect(c.changed, "the server now hides it: refresh the map")
     #expect(o.calls == ["get", "challenge", "check"])
   }
@@ -579,13 +579,63 @@ import Testing
     guard case .notAvailable = c.state else { Issue.record("\(c.state.name)"); return }
   }
 
+  /// A place gone when opened: no retry, and lists and maps drop it.
+  @Test func aGonePlaceOpensWithoutRetry() async throws {
+    let o = FakeOps(challenge: challenge)
+    o.reads = [.error(MapRouletteError(.notFound, status: 404))]
+    let c = await controller(o, writer: .guestWriter)
+    guard case .loadFailed(let message, false) = c.state else { Issue.record("\(c.state.name)"); return }
+    #expect(message == "This place is no longer on the map.")
+    #expect(c.changed)
+  }
+
+  /// A place gone by the time the answer is sent: the place screen says so, with thanks.
+  @Test func aGonePlaceOnSaveIsNoLongerNeeded() async throws {
+    let o = ops(try await makeTask())
+    o.pending = { _ in throw MapRouletteError(.notFound, status: 404) }
+    let c = await controller(o, writer: .guestWriter)
+    c.perform(.answers(["backrest": "yes"]))
+    await c.idle()
+    guard case .noLongerNeeded(_, .elementGone?, true) = c.state else { Issue.record("\(c.state.name)"); return }
+  }
+
   @Test func guestIneligibleAnswerIsNoLongerNeeded() async throws {
     let o = ops(try await makeTask())
     o.pending = { _ in throw MapRouletteError(.conflict, problem: .choice(.taskIneligible(reason: .keyChanged))) }
     let c = await controller(o, writer: .guestWriter)
     c.perform(.answers(["backrest": "yes"]))
     await c.idle()
-    guard case .noLongerNeeded = c.state else { Issue.record("\(c.state.name)"); return }
+    guard case .noLongerNeeded(_, .keyChanged?, true) = c.state else { Issue.record("\(c.state.name)"); return }
+  }
+
+  /// A question answered on the map while the guest was answering: the answers still asked for
+  /// go, quietly (Tess, AB7).
+  @Test func guestAnswersNarrowWhenAQuestionWasAnsweredOnTheMap() async throws {
+    let o = ops(try await makeTask())
+    o.pending = { submission in
+      guard submission == .answers(["backrest": "yes"]) else {
+        throw MapRouletteError(.conflict, problem: .choice(.taskIneligible(reason: .keyChanged)))
+      }
+      return PendingChoice(taskID: taskID, state: .pending, answeredAt: Date())
+    }
+    let c = await controller(o, writer: .guestWriter)
+    o.check = { ChoiceEligibility(eligible: true, deleteAllowed: false, reason: nil, questionIDs: ["backrest"]) }
+    c.perform(.answers(["backrest": "yes", "material": "wood"]))
+    await c.idle()
+    #expect(try #require(c.state.done).savedForLater)
+    #expect(o.submissions.last == .answers(["backrest": "yes"]))
+    #expect(o.calls.suffix(3) == ["pending", "check", "pending"])
+  }
+
+  /// Refused, and the place now asks nothing: someone else filled in every answer.
+  @Test func guestAnswersFilledOnTheMapWereAlreadyChecked() async throws {
+    let o = ops(try await makeTask())
+    o.pending = { _ in throw MapRouletteError(.conflict, problem: .choice(.taskIneligible(reason: .keyChanged))) }
+    let c = await controller(o, writer: .guestWriter)
+    o.check = { ChoiceEligibility(eligible: false, deleteAllowed: false, reason: .keyChanged) }
+    c.perform(.answers(["backrest": "yes"]))
+    await c.idle()
+    guard case .noLongerNeeded(_, .keyChanged?, false) = c.state else { Issue.record("\(c.state.name)"); return }
   }
 
   /// The pending route holds answers only with `liveMissingQuestions` (422 `unsupported_task`).

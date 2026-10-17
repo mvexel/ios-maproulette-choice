@@ -188,15 +188,16 @@ enum TaskScreen: Sendable {
   }
 
   case loading
-  case loadFailed(String)
+  /// `retry` false: trying again won't help (the place is gone).
+  case loadFailed(String, retry: Bool = true)
   /// Not a choice task, or nothing left to do: read-only, "Not available on mobile".
   case notAvailable(LoadedTask, reason: String)
   /// Signed out or read-only: the questions without actions. No eligibility check is made.
   case preview(LoadedTask, ChoiceWork)
   /// Campaign preview mode: what would have been sent. Nothing was.
   case previewSaved(LoadedTask, ChoiceForm, ChoiceAction)
-  /// Ineligible (stale) at open or submit. No actions.
-  case noLongerNeeded(LoadedTask, IneligibleReason?)
+  /// Ineligible (stale) at open or submit (`onSave`). No actions.
+  case noLongerNeeded(LoadedTask, IneligibleReason?, onSave: Bool = false)
   /// The eligibility check failed (network, OSM unavailable, …): not actionable until a retry succeeds.
   case checkFailed(LoadedTask)
   /// `notice` explains why the user is back here; the answers are kept.
@@ -222,7 +223,7 @@ enum TaskScreen: Sendable {
   var loaded: LoadedTask? {
     switch self {
     case .loading, .loadFailed: nil
-    case .notAvailable(let l, _), .preview(let l, _), .noLongerNeeded(let l, _), .checkFailed(let l),
+    case .notAvailable(let l, _), .preview(let l, _), .noLongerNeeded(let l, _, _), .checkFailed(let l),
       .answering(let l, _, _), .submitting(let l, _, _), .skipped(let l, _), .takenByOther(let l),
       .staleOwnLock(let l, _, _, _), .signInRequired(let l, _), .accountNeeded(let l), .elementInUse(let l, _, _),
       .previewSaved(let l, _, _), .writesPaused(let l):
@@ -309,6 +310,10 @@ enum TaskScreen: Sendable {
         let task = try await ops.getTask(id)
         let challenge = try await ops.getChallenge(task)
         next = await opened(LoadedTask(task: task, challenge: challenge))
+      } catch let error as MapRouletteError where error.kind == .notFound {
+        // Gone: trying again won't bring it back, and lists and maps drop it (Iris, offline-copy.md).
+        if !Task.isCancelled { changed = true }
+        next = .loadFailed(Wording.goneOnOpen(noun), retry: false)
       } catch {
         next = openedKept(id, error) ?? .loadFailed(Self.readError(error, noun))
       }
@@ -532,7 +537,17 @@ enum TaskScreen: Sendable {
       let result = await Task.detached { () async -> Result<PendingChoice, any Error> in
         do {
           guard let submission = action.submission else { throw CancellationError() }
-          return .success(try await ops.submitPendingChoice(loaded.task, submission))
+          do {
+            return .success(try await ops.submitPendingChoice(loaded.task, submission))
+          } catch let error as MapRouletteError where GuestOutbox.ineligible(error) {
+            // Changed on the map while answering: if every question it asks now was answered,
+            // send those, as the outbox does (offline-copy.md row 17; Tess, AB7).
+            let open = try await ops.checkChoice(loaded.task.id)
+            // Nothing left to ask: every key was filled by someone else (Iris).
+            guard open.eligible else { throw AnsweredOnMap(reason: open.reason) }
+            guard let rest = GuestOutbox.Answer(action)?.narrowed(to: open.questionIDs) else { throw error }
+            return .success(try await ops.submitPendingChoice(loaded.task, rest))
+          }
         } catch {
           return .failure(error)
         }
@@ -542,6 +557,10 @@ enum TaskScreen: Sendable {
       // late failure keeps it.
       if keptEarly {
         if case .failure(let error) = result { _ = keep(loaded, action, error) }
+        return
+      }
+      if case .failure(let error as AnsweredOnMap) = result {
+        publish(.noLongerNeeded(loaded, error.reason))
         return
       }
       // Kept on the phone even when the person already left the place.
@@ -557,6 +576,11 @@ enum TaskScreen: Sendable {
         publish(await failedForLater(loaded, form, action, error))
       }
     }
+  }
+
+  /// A refused guest save whose place now asks nothing: the answers were filled in on the map.
+  private struct AnsweredOnMap: Error {
+    let reason: IneligibleReason?
   }
 
   /// A save that failed for lack of connection (or may not have arrived) goes to the phone's
@@ -653,7 +677,7 @@ enum TaskScreen: Sendable {
       return answering("Something went wrong. Nothing was saved. Try again.")
     }
     switch error.problem {
-    case .choice(.taskIneligible(let reason))?: return .noLongerNeeded(loaded, reason)
+    case .choice(.taskIneligible(let reason))?: return .noLongerNeeded(loaded, reason, onSave: true)
     case .choice(.elementInUse)?:
       if case .outcome(let outcome) = action, Self.withoutDeletion(outcome) != nil {
         return .elementInUse(loaded, form, outcome)
@@ -701,7 +725,7 @@ enum TaskScreen: Sendable {
       case .authentication:
         return answering(
           "Your sign-in wasn't accepted, so nothing was saved. Try again. If it keeps happening, sign in again.")
-      case .notFound: return .loadFailed("This \(noun.one) is no longer in the campaign.")
+      case .notFound: return .noLongerNeeded(loaded, .elementGone, onSave: true)
       default:
         if error.kind == .http { log.info("Write refused: HTTP \(error.status ?? 0, privacy: .public)") }
         return answering(Self.writeError(error, noun))

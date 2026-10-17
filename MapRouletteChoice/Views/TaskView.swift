@@ -322,9 +322,9 @@ struct TaskView: View {
     switch state {
     case .loading:
       HStack { ProgressView(); Text("Loading…") }
-    case .loadFailed(let message):
+    case .loadFailed(let message, let retry):
       Text(message)
-      bigButton("Try again") { c.load(try! TaskID(taskID)) }
+      if retry { bigButton("Try again") { c.load(try! TaskID(taskID)) } }
       backButton()
     case .notAvailable(let loaded, let reason):
       Text(Wording.cannotAnswer(noun)).font(.headline)
@@ -341,8 +341,8 @@ struct TaskView: View {
       Text(Wording.checkFailed(noun))
       bigButton("Try again") { c.load(try! TaskID(taskID)) }
       nextButtons(prominent: false)
-    case .noLongerNeeded(_, let reason):
-      Text(Wording.noLongerNeeded(noun, reason)).font(.headline)
+    case .noLongerNeeded(_, let reason, let onSave):
+      Text(Wording.noLongerNeeded(noun, reason, onSave: onSave)).font(.headline)
       nextButtons()
     case .answering(let loaded, let form, let notice):
       if let notice { banner(notice) }

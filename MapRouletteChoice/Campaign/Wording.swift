@@ -164,14 +164,18 @@ enum Wording {
 
   static func skip(_ noun: Noun) -> String { "Skip this \(noun.one)" }
   /// A place the fresh OSM check turned down: gone from the map, changed since the campaign
-  /// started, or (key changed, unknown) already checked.
-  static func noLongerNeeded(_ noun: Noun, _ reason: IneligibleReason?) -> String {
+  /// started, or (key changed, unknown) already checked. A save refused because the place changed
+  /// while answering says so, unless every answered key was filled by someone else (Iris, Tess AB7).
+  static func noLongerNeeded(_ noun: Noun, _ reason: IneligibleReason?, onSave: Bool = false) -> String {
     switch reason {
+    case .keyChanged? where onSave: "This \(noun.one) changed on the map while you were answering. Thanks anyway!"
     case .elementGone?: "This \(noun.one) is no longer on the map. Thanks anyway!"
     case .matchFailed?: "This \(noun.one) changed on the map since the campaign started. Thanks anyway!"
     case .keyChanged?, .unknown?, nil: "Someone already checked this \(noun.one). Thanks anyway!"
     }
   }
+  /// Opening a place that's gone: nothing was answered, so no thanks (Iris, offline-copy.md).
+  static func goneOnOpen(_ noun: Noun) -> String { "This \(noun.one) is no longer on the map." }
   static func cannotAnswer(_ noun: Noun) -> String { "This \(noun.one) can't be answered in the app." }
   static func checkFailed(_ noun: Noun) -> String {
     "Couldn't check this \(noun.one) right now. Check your connection and try again."

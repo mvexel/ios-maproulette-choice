@@ -353,5 +353,7 @@ import Testing
     for reason in [IneligibleReason.keyChanged, .unknown, nil] {
       #expect(Wording.noLongerNeeded(benches, reason) == "Someone already checked this bench. Thanks anyway!")
     }
+    #expect(Wording.noLongerNeeded(benches, .keyChanged, onSave: true)
+      == "This bench changed on the map while you were answering. Thanks anyway!")
   }
 }
