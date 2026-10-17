@@ -488,8 +488,8 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/mvexel/maproulette-mobile-sdk";
 			requirement = {
-				kind = revision;
-				revision = 823e3b567342feb5c6a0b643993cdaa15f090caa;
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.5.0;
 			};
 		};
 		AA0000000000000000000202 /* XCRemoteSwiftPackageReference "maplibre-gl-native-distribution" */ = {
