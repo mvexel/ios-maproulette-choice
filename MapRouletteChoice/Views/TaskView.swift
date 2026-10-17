@@ -338,8 +338,8 @@ struct TaskView: View {
       Text(Wording.checkFailed(noun))
       bigButton("Try again") { c.load(try! TaskID(taskID)) }
       nextButtons(prominent: false)
-    case .noLongerNeeded(_, let reason):
-      Text(Wording.noLongerNeeded(noun, reason)).font(.headline)
+    case .noLongerNeeded(_, let reason, let onSave):
+      Text(Wording.noLongerNeeded(noun, reason, onSave: onSave)).font(.headline)
       nextButtons()
     case .answering(let loaded, let form, let notice):
       if let notice { banner(notice) }
