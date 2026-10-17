@@ -35,10 +35,15 @@ final class AccessibilityUITests: XCTestCase {
 
   @MainActor func testLargestTextKeepsAnswersWhole() throws {
     // Warm up at the default size first: on a freshly booted runner the first AX-XXXL launch can
-    // time out while XCTest reads the accessibility tree (CI on #52).
+    // time out while XCTest reads the accessibility tree (CI on #52). The warm-up itself can hit that
+    // timeout (CI on #54), so its query failures don't count.
     let warm = launch("-demoTask", "185")
-    allowLocationIfAsked(warm)
-    _ = warm.staticTexts["Is there a shelter with a roof?"].waitForExistence(timeout: 60)
+    let coldRunner = XCTExpectedFailure.Options()
+    coldRunner.isStrict = false
+    XCTExpectFailure("cold simulator warm-up", options: coldRunner) {
+      allowLocationIfAsked(warm)
+      _ = warm.staticTexts["Is there a shelter with a roof?"].waitForExistence(timeout: 60)
+    }
     warm.terminate()
     let app = launch("-demoTask", "185", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL")
     // This test runs first on a fresh simulator, so the location prompt can be up over the question.
