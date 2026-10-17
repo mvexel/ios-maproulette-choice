@@ -7,13 +7,16 @@ struct LocatedTask: Identifiable, Hashable {
   let coordinate: CLLocationCoordinate2D?
   var id: Int64 { task.id.value }
   /// Answerable in place: a valid, open, unbundled choice task.
-  var isOpen: Bool { task.mobileSupport() == .inPlace }
+  let isOpen: Bool
   /// Already checked: fixed, not an issue or already fixed.
-  var isDone: Bool { task.status.map { [1, 2, 5].contains($0.code) } ?? false }
+  let isDone: Bool
 
+  /// Parses the place once: the campaign screen asks these of every place on every redraw.
   init(_ task: MapRouletteTask) {
     self.task = task
     coordinate = TaskLocation.coordinate(task)
+    isOpen = task.mobileSupport() == .inPlace
+    isDone = task.status.map { [1, 2, 5].contains($0.code) } ?? false
   }
 
   static func == (a: Self, b: Self) -> Bool { a.task == b.task }

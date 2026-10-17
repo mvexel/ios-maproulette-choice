@@ -156,10 +156,10 @@ struct TaskMapView: UIViewRepresentable {
     static let side: CGFloat = 44
 
     private let imageView = UIImageView()
-    private var name: String?
-    private var distance: String?
-    private(set) var rank = 0
-    private var pin = Pin.toCheck
+    private var task: TaskAnnotation? { annotation as? TaskAnnotation }
+    /// From the annotation, which a refresh updates without replacing the pin.
+    var rank: Int { task?.rank ?? .max }
+    private var pin: Pin { task?.pin ?? .toCheck }
     /// Opens the place; nil for pins that don't open.
     private var onActivate: (() -> Void)?
 
@@ -178,17 +178,14 @@ struct TaskMapView: UIViewRepresentable {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     func configure(_ task: TaskAnnotation, onActivate: (() -> Void)?) {
-      name = task.title
-      distance = task.distance
-      rank = task.rank
-      pin = task.pin
+      annotation = task
       imageView.image = UIImage(named: task.pin.imageName)
       self.onActivate = onActivate
     }
 
     /// Name and distance, as the list row reads them.
     override var accessibilityLabel: String? {
-      get { [name, distance].compactMap { $0 }.joined(separator: ", ") }
+      get { [task?.title, task?.distance].compactMap { $0 }.joined(separator: ", ") }
       set {}
     }
 
@@ -227,6 +224,8 @@ struct TaskMapView: UIViewRepresentable {
     /// Pin to reported spot, for each moved place; drawn once the style has loaded.
     private var reportLines: [[CLLocationCoordinate2D]] = []
     private var shownOrigin: CLLocationCoordinate2D?
+    /// The pins on the map, by task id.
+    private var pins: [Int64: TaskAnnotation] = [:]
     private var fitted = false
 
     init(open: @escaping (Int64) -> Void) { self.open = open }
@@ -247,28 +246,47 @@ struct TaskMapView: UIViewRepresentable {
       shownReports = reports
       shownFlagged = flagged
       shownOrigin = origin
-      if let old = map.annotations?.filter({ $0 is TaskAnnotation || $0 is ReportedSpot }), !old.isEmpty {
+      if let old = map.annotations?.filter({ $0 is ReportedSpot }), !old.isEmpty {
         map.removeAnnotations(old)
       }
       showReportedSpots(tasks, done: done, reports: reports, on: map)
-      // VoiceOver reads pins in the order they are added: nearest first.
+      // Only pins that are new or changed are added again: a big campaign arrives a page at a time,
+      // and replacing every pin for each page made each page cost more than the last (Tess, AB13).
+      // Rank and distance change in place; PinView reads them from its annotation.
       let from = origin ?? map.userLocation?.location?.coordinate
+      var keep: [Int64: TaskAnnotation] = [:]
+      var added: [TaskAnnotation] = []
       let annotations: [TaskAnnotation] = TaskLocation.mapOrder(tasks, from: from).enumerated().compactMap { rank, task in
         guard let coordinate = task.coordinate else { return nil }
-        let a = TaskAnnotation()
-        a.taskID = task.id
-        a.rank = rank
-        a.pin = Pin(
+        let pin = Pin(
           done: done.contains(task.id), pending: pending.contains(task.id),
           reported: reports[task.id] != nil || flagged.contains(task.id), waiting: waiting.contains(task.id))
-        a.coordinate = coordinate
-        a.title = Wording.placeName(task.task, noun)
+        let title = Wording.placeName(task.task, noun)
+        let a: TaskAnnotation
+        if let old = pins[task.id], old.pin == pin, old.title == title,
+          old.coordinate.latitude == coordinate.latitude, old.coordinate.longitude == coordinate.longitude
+        {
+          a = old
+        } else {
+          a = TaskAnnotation()
+          a.taskID = task.id
+          a.pin = pin
+          a.coordinate = coordinate
+          a.title = title
+          a.subtitle = pin.calloutSubtitle
+          added.append(a)
+        }
+        // VoiceOver reads pins nearest first (PinOrderMapView).
+        a.rank = rank
         a.distance = TaskLocation.directionText(from, coordinate)
-        a.subtitle = a.pin.calloutSubtitle
+        keep[task.id] = a
         return a
       }
+      let gone = pins.values.filter { keep[$0.taskID] !== $0 }
+      if !gone.isEmpty { map.removeAnnotations(gone) }
+      pins = keep
+      if !added.isEmpty { map.addAnnotations(added) }
       guard !annotations.isEmpty else { return }
-      map.addAnnotations(annotations)
       // Fit once; later refreshes (a task marked done) keep the user's view.
       guard refit else { return }
       fitted = true

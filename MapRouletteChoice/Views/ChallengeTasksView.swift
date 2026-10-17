@@ -2,6 +2,7 @@ import AuthenticationServices
 import CoreLocation
 import MapRoulette
 import SwiftUI
+import os
 
 /// One campaign: progress, the nearest place still to check, and all its places on a map or in a
 /// list sorted by distance. Checked places stay visible, greyed out.
@@ -89,7 +90,8 @@ struct ChallengeTasksView: View {
   /// Pages of 100 to read before stopping: the wizard makes campaigns of up to 2,000 places (L1).
   private static let maxPages = 50
   /// While a campaign's pages arrive, the map and list update at most this often.
-  private static let redrawEvery = Duration.seconds(2)
+  private static let redrawEvery = Duration.milliseconds(500)
+  private static let log = Logger(subsystem: "lol.osm.maproulette.choice", category: "load")
 
   private var progress: CampaignProgress {
     // Pending reports, this phone's or another guest's, need another look, not "checked"
@@ -526,6 +528,14 @@ struct ChallengeTasksView: View {
     return (Set(open.map(\.id)).subtracting(listed.map(\.id.value)), [], nil)
   }
 
+  /// The places read so far, sorted and parsed once, off the main actor.
+  @concurrent private nonisolated static func snapshot(_ byID: [Int64: MapRouletteTask]) async
+    -> (tasks: [MapRouletteTask], located: [LocatedTask], noun: Noun, questions: [ChoiceQuestion])
+  {
+    let tasks = byID.values.sorted { $0.id < $1.id }
+    return (tasks, tasks.map(LocatedTask.init), Noun.from(tasks), questions(tasks))
+  }
+
   /// The campaign's places with their holds. The whole world, so it can start before the campaign's
   /// own pages say where they are; the challenge filter keeps it to this campaign.
   private static func heldSearch(in challengeID: ChallengeID, client: MapRouletteClient) async
@@ -673,7 +683,7 @@ struct ChallengeTasksView: View {
   }
 
   /// Every question asked in the campaign, in first-seen order.
-  static func questions(_ tasks: [MapRouletteTask]) -> [ChoiceQuestion] {
+  nonisolated static func questions(_ tasks: [MapRouletteTask]) -> [ChoiceQuestion] {
     var seen = Set<String>()
     var result: [ChoiceQuestion] = []
     for task in tasks {
@@ -744,36 +754,46 @@ struct ChallengeTasksView: View {
         // waits for its last page (Tess, AE6: 72 s for 5,200 places read one page at a time). After
         // that the map redraws at most every couple of seconds: redrawing every pin for every page
         // made each page cost more than the last (Tess, AB13: 290 s for 5,200 places).
+        // Sorting and parsing run off the main actor; it only takes the finished snapshot.
+        let started = ContinuousClock.now
         var byID: [Int64: MapRouletteTask] = [:]
         var fullPages = 0
+        var pages = 0
         var lastShown: ContinuousClock.Instant?
         for try await page in client.listAllTasks(challengeID, maxPages: Self.maxPages) {
+          pages += 1
           for task in page.items { byID[task.id.value] = task }
           if page.items.count == 100 { fullPages += 1 }
           guard keptFrom == nil || byID.count >= tasks.count else { continue }
           if let lastShown, lastShown.duration(to: .now) < Self.redrawEvery { continue }
           lastShown = .now
-          let sofar = byID.values.sorted { $0.id < $1.id }
+          let snapshot = await Self.snapshot(byID)
+          try Task.checkCancellation()
           challenge = loadedChallenge
-          tasks = sofar.map(LocatedTask.init)
-          noun = Noun.from(sofar)
-          questions = Self.questions(sofar)
-          loadedSoFar = sofar.count
+          tasks = snapshot.located
+          noun = snapshot.noun
+          questions = snapshot.questions
+          loadedSoFar = snapshot.located.count
           keptFrom = nil
           status = ""
+          Self.log.debug(
+            "page \(pages): \(byID.count) places shown at \(started.duration(to: .now), privacy: .public)")
         }
         try Task.checkCancellation()
-        let all = byID.values.sorted { $0.id < $1.id }
-        let located = all.map(LocatedTask.init)
+        Self.log.debug("\(pages) pages, \(byID.count) places read at \(started.duration(to: .now), privacy: .public)")
+        let snapshot = await Self.snapshot(byID)
+        let all = snapshot.tasks
+        let located = snapshot.located
         let heldNow = await Self.heldTasks(located, search: heldRows, in: challengeID, client: client)
+        Self.log.debug("holds read at \(started.duration(to: .now), privacy: .public)")
         try Task.checkCancellation()
         held = heldNow.answers
         heldReports = heldNow.reports
         offered = heldNow.offered
         challenge = loadedChallenge
         tasks = located
-        noun = Noun.from(all)
-        questions = Self.questions(all)
+        noun = snapshot.noun
+        questions = snapshot.questions
         hidden = located.filter { !$0.isOpen && !$0.isDone }.count
         truncated = fullPages >= Self.maxPages
         loadedSoFar = nil
