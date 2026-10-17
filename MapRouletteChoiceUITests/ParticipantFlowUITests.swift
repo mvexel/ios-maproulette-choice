@@ -63,6 +63,7 @@ final class ParticipantFlowUITests: XCTestCase {
     let top = app.cells.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
     top.press(forDuration: 0.1, thenDragTo: top.withOffset(CGVector(dx: 0, dy: 400)))
     XCTAssert(app.staticTexts["No signal. Showing the campaign kept on this phone."].waitForExistence(timeout: 10))
+    XCTAssert(app.buttons["Retry loading campaigns"].exists, "Retry says what it retries for VoiceOver")
     shot(app, "picker-kept")
     campaign.tap()
     if start.waitForExistence(timeout: 3) { start.tap() }
