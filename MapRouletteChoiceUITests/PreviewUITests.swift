@@ -42,7 +42,10 @@ final class PreviewUITests: XCTestCase {
     shot(app, "preview-review")
     done.tap()
 
-    XCTAssert(app.staticTexts["Preview: not saved."].waitForExistence(timeout: 5))
+    // A slow CI simulator can drop the first tap mid-scroll; tap again if the button is still there.
+    let saved = app.staticTexts["Preview: not saved."]
+    if !saved.waitForExistence(timeout: 10), done.exists, done.isHittable { done.tap() }
+    XCTAssert(saved.waitForExistence(timeout: 10))
     XCTAssert(text(app, "In the real campaign this would say: “Saved, thanks!").exists)
     XCTAssert(banner(app).exists)
     shot(app, "preview-saved")

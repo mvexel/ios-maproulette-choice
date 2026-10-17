@@ -84,8 +84,8 @@ struct ChallengeTasksView: View {
     var id: Self { self }
   }
 
-  /// Pages of 100 to read before stopping.
-  private static let maxPages = 10
+  /// Pages of 100 to read before stopping: the wizard makes campaigns of up to 2,000 places (L1).
+  private static let maxPages = 50
 
   private var progress: CampaignProgress {
     // Pending reports, this phone's or another guest's, need another look, not "checked"
@@ -332,6 +332,12 @@ struct ChallengeTasksView: View {
           .fixedSize(horizontal: false, vertical: true)
           .frame(maxWidth: .infinity, alignment: .leading)
       }
+      if truncated {
+        Text(Wording.notAllShown(Self.maxPages * 100, noun))
+          .font(.footnote).foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
       if let keptFrom {
         TimelineView(.periodic(from: .now, by: 60)) { context in
           Text(Wording.keptCopy(Wording.keptTime(keptFrom, now: context.date)))
@@ -483,30 +489,34 @@ struct ChallengeTasksView: View {
   /// search with `includePending` says so per task (backend #16), and `heldKind` whether the hold
   /// is a report (T-002). A backend without `pending` leaves the held set to what the
   /// `excludePending` search leaves out; without `heldKind`, every hold is an answer. Best effort:
-  /// on failure or a short read, none. The same search is what the campaign offers (`offered`,
-  /// backend #51): nil on failure, a short read or a backend without `pending`.
+  /// on failure, none; a short read keeps the holds it read (L1). The same search is what the
+  /// campaign offers (`offered`, backend #51): nil on failure, a short read or a backend without
+  /// `pending`.
   private static func heldTasks(_ tasks: [LocatedTask], in challengeID: ChallengeID, client: MapRouletteClient)
     async -> (answers: Set<Int64>, reports: Set<Int64>, offered: Set<Int64>?)
   {
     let open = tasks.filter(\.isOpen)
     guard let bounds = TaskLocation.bounds(open.compactMap(\.coordinate)) else { return ([], [], nil) }
     let filter = TaskFilter(challengeIDs: [challengeID], bounds: bounds, choiceOnly: true, includePending: true)
-    guard let rows = await boxSearch(filter, client: client) else { return ([], [], nil) }
+    guard case let (rows, complete)? = await boxSearch(filter, client: client) else { return ([], [], nil) }
     if !rows.isEmpty, rows.allSatisfy({ $0.pending != nil }) {
+      // A short read still knows its own holds; what it offers is only known in full (L1).
       let holds = rows.filter { $0.pending == true }
       return (
         Set(holds.filter { $0.heldKind != .report }.map(\.id.value)),
         Set(holds.filter { $0.heldKind == .report }.map(\.id.value)),
-        Set(rows.map(\.id.value))
+        complete ? Set(rows.map(\.id.value)) : nil
       )
     }
     let unheld = TaskFilter(challengeIDs: [challengeID], bounds: bounds, choiceOnly: true, excludePending: true)
-    guard let listed = await boxSearch(unheld, client: client) else { return ([], [], nil) }
+    guard case let (listed, true)? = await boxSearch(unheld, client: client) else { return ([], [], nil) }
     return (Set(open.map(\.id)).subtracting(listed.map(\.id.value)), [], nil)
   }
 
-  /// Every page of a bounds search, or nil on failure or a short read.
-  private static func boxSearch(_ filter: TaskFilter, client: MapRouletteClient) async -> [TaskSummary]? {
+  /// The pages of a bounds search, and whether that was all of them; nil on failure.
+  private static func boxSearch(_ filter: TaskFilter, client: MapRouletteClient) async
+    -> (rows: [TaskSummary], complete: Bool)?
+  {
     var rows: [TaskSummary] = []
     var cursor: PageCursor?
     var pages = 0
@@ -520,7 +530,7 @@ struct ChallengeTasksView: View {
     } catch {
       return nil
     }
-    return cursor == nil ? rows : nil
+    return (rows, cursor == nil)
   }
 
   // MARK: Preview
