@@ -297,7 +297,8 @@ enum TaskScreen: Sendable {
   /// Waits for the current operation, including a write that outlives `cancel()`. For tests.
   func idle() async { await job?.value }
 
-  func load(_ id: TaskID) {
+  /// `keptWithin` shortens the wait before the kept copy, when part of it was spent already.
+  func load(_ id: TaskID, keptWithin: Duration? = nil) {
     if busy || discarded { return }
     job?.cancel()
     keptTimer?.cancel()
@@ -314,7 +315,7 @@ enum TaskScreen: Sendable {
       publish(next)
     }
     self.job = job
-    if keptPossible, let delay = keptAfter {
+    if keptPossible, let delay = keptWithin ?? keptAfter {
       keptTimer = Task {
         try? await Task.sleep(for: delay)
         guard !Task.isCancelled, !discarded, case .loading = state, let screen = keptScreen(id) else { return }
