@@ -188,7 +188,8 @@ enum TaskScreen: Sendable {
   }
 
   case loading
-  case loadFailed(String)
+  /// `retry` false: trying again won't help (the place is gone).
+  case loadFailed(String, retry: Bool = true)
   /// Not a choice task, or nothing left to do: read-only, "Not available on mobile".
   case notAvailable(LoadedTask, reason: String)
   /// Signed out or read-only: the questions without actions. No eligibility check is made.
@@ -308,6 +309,10 @@ enum TaskScreen: Sendable {
         let task = try await ops.getTask(id)
         let challenge = try await ops.getChallenge(task)
         next = await opened(LoadedTask(task: task, challenge: challenge))
+      } catch let error as MapRouletteError where error.kind == .notFound {
+        // Gone: trying again won't bring it back, and lists and maps drop it (Iris, offline-copy.md).
+        if !Task.isCancelled { changed = true }
+        next = .loadFailed(Wording.goneOnOpen(noun), retry: false)
       } catch {
         next = openedKept(id, error) ?? .loadFailed(Self.readError(error, noun))
       }
@@ -719,7 +724,7 @@ enum TaskScreen: Sendable {
       case .authentication:
         return answering(
           "Your sign-in wasn't accepted, so nothing was saved. Try again. If it keeps happening, sign in again.")
-      case .notFound: return .loadFailed("This \(noun.one) is no longer in the campaign.")
+      case .notFound: return .noLongerNeeded(loaded, .elementGone, onSave: true)
       default:
         if error.kind == .http { log.info("Write refused: HTTP \(error.status ?? 0, privacy: .public)") }
         return answering(Self.writeError(error, noun))

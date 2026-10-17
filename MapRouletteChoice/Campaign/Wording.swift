@@ -174,6 +174,8 @@ enum Wording {
     case .keyChanged?, .unknown?, nil: "Someone already checked this \(noun.one). Thanks anyway!"
     }
   }
+  /// Opening a place that's gone: nothing was answered, so no thanks (Iris, offline-copy.md).
+  static func goneOnOpen(_ noun: Noun) -> String { "This \(noun.one) is no longer on the map." }
   static func cannotAnswer(_ noun: Noun) -> String { "This \(noun.one) can't be answered in the app." }
   static func checkFailed(_ noun: Noun) -> String {
     "Couldn't check this \(noun.one) right now. Check your connection and try again."

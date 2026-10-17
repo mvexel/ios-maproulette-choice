@@ -579,6 +579,26 @@ import Testing
     guard case .notAvailable = c.state else { Issue.record("\(c.state.name)"); return }
   }
 
+  /// A place gone when opened: no retry, and lists and maps drop it.
+  @Test func aGonePlaceOpensWithoutRetry() async throws {
+    let o = FakeOps(challenge: challenge)
+    o.reads = [.error(MapRouletteError(.notFound, status: 404))]
+    let c = await controller(o, writer: .guestWriter)
+    guard case .loadFailed(let message, false) = c.state else { Issue.record("\(c.state.name)"); return }
+    #expect(message == "This place is no longer on the map.")
+    #expect(c.changed)
+  }
+
+  /// A place gone by the time the answer is sent: the place screen says so, with thanks.
+  @Test func aGonePlaceOnSaveIsNoLongerNeeded() async throws {
+    let o = ops(try await makeTask())
+    o.pending = { _ in throw MapRouletteError(.notFound, status: 404) }
+    let c = await controller(o, writer: .guestWriter)
+    c.perform(.answers(["backrest": "yes"]))
+    await c.idle()
+    guard case .noLongerNeeded(_, .elementGone?, true) = c.state else { Issue.record("\(c.state.name)"); return }
+  }
+
   @Test func guestIneligibleAnswerIsNoLongerNeeded() async throws {
     let o = ops(try await makeTask())
     o.pending = { _ in throw MapRouletteError(.conflict, problem: .choice(.taskIneligible(reason: .keyChanged))) }

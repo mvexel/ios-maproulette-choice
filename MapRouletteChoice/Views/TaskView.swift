@@ -319,9 +319,9 @@ struct TaskView: View {
     switch state {
     case .loading:
       HStack { ProgressView(); Text("Loading…") }
-    case .loadFailed(let message):
+    case .loadFailed(let message, let retry):
       Text(message)
-      bigButton("Try again") { c.load(try! TaskID(taskID)) }
+      if retry { bigButton("Try again") { c.load(try! TaskID(taskID)) } }
       backButton()
     case .notAvailable(let loaded, let reason):
       Text(Wording.cannotAnswer(noun)).font(.headline)
