@@ -175,6 +175,8 @@ struct TaskView: View {
 
   private func start() {
     Task {
+      // One budget for opening a kept place in a hanging dead spot, registration included (Tess, AB6).
+      let started = ContinuousClock.now
       // Registering a guest changes the session generation; do it before binding a controller.
       // Never in preview: that would leave a guest behind (§2).
       if preview == nil && session.canAnswerAsGuest && !session.view.guest {
@@ -196,7 +198,8 @@ struct TaskView: View {
       guard controller == nil else { return }
       generation = session.view.generation
       replaceController()
-      controller?.load(try! TaskID(taskID))
+      let left = cache.slowAfter.map { max(.zero, $0 - (ContinuousClock.now - started)) }
+      controller?.load(try! TaskID(taskID), keptWithin: left)
     }
   }
 
