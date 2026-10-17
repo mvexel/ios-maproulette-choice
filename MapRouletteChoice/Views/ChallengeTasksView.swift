@@ -517,20 +517,17 @@ struct ChallengeTasksView: View {
   private static func boxSearch(_ filter: TaskFilter, client: MapRouletteClient) async
     -> (rows: [TaskSummary], complete: Bool)?
   {
-    var rows: [TaskSummary] = []
-    var cursor: PageCursor?
-    var pages = 0
+    var byID: [Int64: TaskSummary] = [:]
+    var total: Int64?
     do {
-      repeat {
-        let page = try await client.findTasksInBounds(filter: filter, pageSize: 100, after: cursor)
-        rows += page.items
-        cursor = page.next
-        pages += 1
-      } while cursor != nil && pages < maxPages
+      for try await page in client.findAllTasksInBounds(filter: filter, maxPages: maxPages) {
+        for row in page.items { byID[row.id.value] = row }
+        total = page.total ?? total
+      }
     } catch {
       return nil
     }
-    return (rows, cursor == nil)
+    return (Array(byID.values), total.map { Int64(byID.count) >= $0 } ?? false)
   }
 
   // MARK: Preview
@@ -717,16 +714,25 @@ struct ChallengeTasksView: View {
           request = nil
           return
         }
-        var all: [MapRouletteTask] = []
-        var cursor: PageCursor?
-        var pages = 0
-        repeat {
-          let page = try await client.listTasks(challengeID, pageSize: 100, after: cursor)
-          all += page.items
-          cursor = page.next
-          pages += 1
-        } while cursor != nil && pages < Self.maxPages
+        // Pages arrive in parallel and out of order; a place that changes mid-load can show up on
+        // two pages, so they merge by id. Each page shows at once, so a big campaign never waits
+        // for its last page (Tess, AE6: 72 s for 5,200 places read one page at a time).
+        var byID: [Int64: MapRouletteTask] = [:]
+        var fullPages = 0
+        for try await page in client.listAllTasks(challengeID, maxPages: Self.maxPages) {
+          for task in page.items { byID[task.id.value] = task }
+          if page.items.count == 100 { fullPages += 1 }
+          guard keptFrom == nil || byID.count >= tasks.count else { continue }
+          let sofar = byID.values.sorted { $0.id < $1.id }
+          challenge = loadedChallenge
+          tasks = sofar.map(LocatedTask.init)
+          noun = Noun.from(sofar)
+          questions = Self.questions(sofar)
+          keptFrom = nil
+          status = ""
+        }
         try Task.checkCancellation()
+        let all = byID.values.sorted { $0.id < $1.id }
         let located = all.map(LocatedTask.init)
         let heldNow = await Self.heldTasks(located, in: challengeID, client: client)
         try Task.checkCancellation()
@@ -738,7 +744,7 @@ struct ChallengeTasksView: View {
         noun = Noun.from(all)
         questions = Self.questions(all)
         hidden = located.filter { !$0.isOpen && !$0.isDone }.count
-        truncated = cursor != nil
+        truncated = fullPages >= Self.maxPages
         keptFrom = nil
         keptTimer?.cancel()
         keptTimer = nil
