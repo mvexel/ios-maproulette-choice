@@ -325,6 +325,8 @@ enum Wording {
     return day.string(from: saved)
   }
   /// A campaign opened with no signal that the phone has no copy of; shown with Retry.
+  /// The picker in a dead spot, listing only the campaign kept on the phone (O2 follow-up).
+  static let pickerKeptOnly = "No signal. Showing the campaign kept on this phone."
   static let notKeptNoSignal = "No signal, and this campaign isn't on your phone yet. Try again when you have signal."
 
   // MARK: Waiting on the phone (BACKLOG O1, design/offline-copy.md)

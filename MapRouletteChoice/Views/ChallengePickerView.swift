@@ -7,6 +7,7 @@ struct ChallengePickerView: View {
   @Environment(AppSession.self) private var session
   @Environment(GuestOutbox.self) private var outbox
   @Environment(CampaignStore.self) private var campaigns
+  @Environment(CampaignCache.self) private var cache
   #if DEBUG
     @State private var demoNoSignal = DemoBackend.noSignal
   #endif
@@ -19,6 +20,8 @@ struct ChallengePickerView: View {
   @State private var truncated = false
   @State private var status = "Loading campaigns…"
   @State private var failed = false
+  /// No signal: only the campaign kept on the phone is listed.
+  @State private var keptOnly = false
   @State private var request: Task<Void, Never>?
   @State private var signingIn = false
   @State private var confirmDelete = false
@@ -53,6 +56,10 @@ struct ChallengePickerView: View {
           }
           if failed { Button("Retry") { load() } }
         }
+        if keptOnly {
+          Text(Wording.pickerKeptOnly).font(.footnote).foregroundStyle(.secondary)
+          Button("Retry") { load() }
+        }
         ForEach(shown) { challenge in
           NavigationLink(value: Route.challenge(challenge.id)) {
             VStack(alignment: .leading, spacing: 2) {
@@ -67,7 +74,7 @@ struct ChallengePickerView: View {
       } header: {
         Text("Mapping campaigns")
       } footer: {
-        if !challenges.isEmpty && showDetails {
+        if !challenges.isEmpty && showDetails && !keptOnly {
           Text(footer)
         }
       }
@@ -166,6 +173,7 @@ struct ChallengePickerView: View {
     guard let client = client?.client else { return }
     request?.cancel()
     failed = false
+    keptOnly = false
     status = "Loading campaigns…"
     request = Task {
       do {
@@ -187,9 +195,16 @@ struct ChallengePickerView: View {
       } catch is CancellationError {
         return
       } catch {
-        challenges = []
-        status = Self.errorMessage(error)
-        failed = true
+        if CampaignCache.isOffline(error), let kept = cache.kept {
+          // A dead spot: the campaign kept on the phone still opens (O2).
+          challenges = [kept.challenge]
+          status = ""
+          keptOnly = true
+        } else {
+          challenges = []
+          status = Self.errorMessage(error)
+          failed = true
+        }
       }
       request = nil
     }

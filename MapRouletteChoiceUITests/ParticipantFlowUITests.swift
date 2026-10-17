@@ -41,6 +41,34 @@ final class ParticipantFlowUITests: XCTestCase {
     shot(app, "campaign-list")
   }
 
+  /// No signal back at the picker: the campaign kept on the phone is still listed and opens (O2).
+  @MainActor func testPickerListsTheKeptCampaignWithNoSignal() throws {
+    let app = launch()
+    let campaign = app.staticTexts["Downtown bench check"]
+    XCTAssert(campaign.waitForExistence(timeout: 10))
+    campaign.tap()
+    let start = app.buttons["Let's go"]
+    XCTAssert(start.waitForExistence(timeout: 10))
+    start.tap()
+    allowLocationIfAsked(app)
+    let progress = app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'benches checked'")).firstMatch
+    XCTAssert(progress.waitForExistence(timeout: 10))
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+
+    let noSignal = app.switches["Demo: no signal"]
+    for _ in 0..<4 where !noSignal.isHittable { app.swipeUp() }
+    noSignal.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+    for _ in 0..<4 where !campaign.isHittable { app.swipeDown() }
+    // Pull to refresh: the reload fails with no signal.
+    let top = app.cells.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+    top.press(forDuration: 0.1, thenDragTo: top.withOffset(CGVector(dx: 0, dy: 400)))
+    XCTAssert(app.staticTexts["No signal. Showing the campaign kept on this phone."].waitForExistence(timeout: 10))
+    shot(app, "picker-kept")
+    campaign.tap()
+    if start.waitForExistence(timeout: 3) { start.tap() }
+    XCTAssert(progress.waitForExistence(timeout: 15), "the kept campaign opens")
+  }
+
   @MainActor func testAnswerAllQuestionsAndSave() throws {
     let app = launch("-demoTask", "185")
     XCTAssert(app.staticTexts["Does the bench have a backrest?"].waitForExistence(timeout: 10))

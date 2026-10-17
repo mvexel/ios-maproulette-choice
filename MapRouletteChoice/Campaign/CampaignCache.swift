@@ -42,6 +42,9 @@ import MapRoulette
     current().flatMap { $0.challenge.id.value == id ? $0 : nil }
   }
 
+  /// The one campaign kept on the phone, for the picker in a dead spot.
+  var kept: Snapshot? { current() }
+
   /// The kept copy's place `id` with its campaign, for opening a place in a dead spot.
   func task(_ id: Int64) -> (MapRouletteTask, Challenge)? {
     guard let s = current(), let task = s.tasks.first(where: { $0.id.value == id }) else { return nil }
