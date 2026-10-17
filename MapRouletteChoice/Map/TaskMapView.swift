@@ -412,8 +412,10 @@ struct TaskMapView: UIViewRepresentable {
 
 /// The campaign map. MapLibre lists visible pins to VoiceOver nearest the middle of the map first;
 /// this lists them nearest the person first (`TaskAnnotation.rank`), like the List, then the rest
-/// (puck, compass, attribution) as MapLibre has them (Tess, #50).
+/// (puck, compass, attribution) as MapLibre has them (Tess, #50). At most the nearest 200 pins are
+/// listed (Android parity, AE6).
 private final class PinOrderMapView: MLNMapView {
+  static let spokenPins = 200
   private var cached: [Any] = []
   private var cachedAt = Date.distantPast
 
@@ -428,7 +430,8 @@ private final class PinOrderMapView: MLNMapView {
       guard let element = super.accessibilityElement(at: i) else { continue }
       if let pin = element as? TaskMapView.PinView { pins.append(pin) } else { rest.append(element) }
     }
-    cached = pins.sorted { $0.rank < $1.rank } + rest
+    // Thousands of pins on screen are unusable by swiping and slow to list: the nearest 200 only.
+    cached = Array(pins.sorted { $0.rank < $1.rank }.prefix(Self.spokenPins)) + rest
     cachedAt = Date()
     return cached
   }
