@@ -164,8 +164,8 @@ enum Wording {
 
   static func skip(_ noun: Noun) -> String { "Skip this \(noun.one)" }
   /// A place the fresh OSM check turned down: gone from the map, changed since the campaign
-  /// started, or (key changed, unknown) already checked. A save refused because a question was
-  /// answered on the map meanwhile says so (Ada; placeholder until Iris's words, Tess AB7).
+  /// started, or (key changed, unknown) already checked. A save refused because the place changed
+  /// while answering says so, unless every answered key was filled by someone else (Iris, Tess AB7).
   static func noLongerNeeded(_ noun: Noun, _ reason: IneligibleReason?, onSave: Bool = false) -> String {
     switch reason {
     case .keyChanged? where onSave: "This \(noun.one) changed on the map while you were answering. Thanks anyway!"

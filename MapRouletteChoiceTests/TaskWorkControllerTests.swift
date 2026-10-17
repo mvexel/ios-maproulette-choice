@@ -607,6 +607,17 @@ import Testing
     #expect(o.calls.suffix(3) == ["pending", "check", "pending"])
   }
 
+  /// Refused, and the place now asks nothing: someone else filled in every answer.
+  @Test func guestAnswersFilledOnTheMapWereAlreadyChecked() async throws {
+    let o = ops(try await makeTask())
+    o.pending = { _ in throw MapRouletteError(.conflict, problem: .choice(.taskIneligible(reason: .keyChanged))) }
+    let c = await controller(o, writer: .guestWriter)
+    o.check = { ChoiceEligibility(eligible: false, deleteAllowed: false, reason: .keyChanged) }
+    c.perform(.answers(["backrest": "yes"]))
+    await c.idle()
+    guard case .noLongerNeeded(_, .keyChanged?, false) = c.state else { Issue.record("\(c.state.name)"); return }
+  }
+
   /// The pending route holds answers only with `liveMissingQuestions` (422 `unsupported_task`).
   @Test func guestsOpenEveryCampaignAndTheServerDecides() async throws {
     // Guests everywhere (G1): no up-front `liveMissingQuestions` check; a 422 on save is the fallback.

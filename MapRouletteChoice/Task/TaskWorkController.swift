@@ -537,8 +537,9 @@ enum TaskScreen: Sendable {
             // Changed on the map while answering: if every question it asks now was answered,
             // send those, as the outbox does (offline-copy.md row 17; Tess, AB7).
             let open = try await ops.checkChoice(loaded.task.id)
-            guard open.eligible, let rest = GuestOutbox.Answer(action)?.narrowed(to: open.questionIDs)
-            else { throw error }
+            // Nothing left to ask: every key was filled by someone else (Iris).
+            guard open.eligible else { throw AnsweredOnMap(reason: open.reason) }
+            guard let rest = GuestOutbox.Answer(action)?.narrowed(to: open.questionIDs) else { throw error }
             return .success(try await ops.submitPendingChoice(loaded.task, rest))
           }
         } catch {
@@ -550,6 +551,10 @@ enum TaskScreen: Sendable {
       // late failure keeps it.
       if keptEarly {
         if case .failure(let error) = result { _ = keep(loaded, action, error) }
+        return
+      }
+      if case .failure(let error as AnsweredOnMap) = result {
+        publish(.noLongerNeeded(loaded, error.reason))
         return
       }
       // Kept on the phone even when the person already left the place.
@@ -565,6 +570,11 @@ enum TaskScreen: Sendable {
         publish(await failedForLater(loaded, form, action, error))
       }
     }
+  }
+
+  /// A refused guest save whose place now asks nothing: the answers were filled in on the map.
+  private struct AnsweredOnMap: Error {
+    let reason: IneligibleReason?
   }
 
   /// A save that failed for lack of connection (or may not have arrived) goes to the phone's
