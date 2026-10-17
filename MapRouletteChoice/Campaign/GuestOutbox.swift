@@ -28,6 +28,15 @@ import Network
       }
     }
 
+    /// The answers to `open` questions, when every one of them was answered; nil otherwise (a
+    /// new question, or nothing to narrow), so the answer is dropped.
+    func narrowed(to open: Set<String>?) -> ChoiceSubmission? {
+      guard case .answers(let answers) = self, let open, !open.isEmpty, open.isSubset(of: answers.keys),
+        open.count < answers.count
+      else { return nil }
+      return .answers(answers.filter { open.contains($0.key) })
+    }
+
     /// The submission for a fresh read of the task; nil when its outcome no longer exists.
     func submission(_ task: MapRouletteTask, outcomes: [ChoiceOutcome]) -> ChoiceSubmission? {
       switch self {
@@ -44,14 +53,18 @@ import Network
   }
 
   /// What sending one entry came to. `keep` stops the flush (no signal, server trouble);
-  /// `later` keeps the entry but goes on with the rest.
-  enum Sent: Equatable { case sent, dropped, limit, keep, later }
+  /// `later` keeps the entry but goes on with the rest. `notNeeded`: the place changed or went
+  /// after the answer was kept, which the person is told once (offline-copy.md row 17).
+  enum Sent: Equatable { case sent, dropped, limit, keep, later, notNeeded }
 
   /// Oldest first.
   private(set) var entries: [Entry]
   /// The server refused a waiting answer for the pending limit; shown once, the next time a
   /// campaign is open.
   var limitReached = false
+  /// Waiting answers turned down because the place changed or went; shown once, the next time a
+  /// campaign is open.
+  var notNeeded = 0
   /// Bumped when an answer is sent, so lists reload and counts go up.
   private(set) var sentVersion = 0
 
@@ -114,6 +127,9 @@ import Network
         record(entry)
         sentVersion += 1
       case .dropped: remove(entry)
+      case .notNeeded:
+        remove(entry)
+        notNeeded += 1
       case .limit:
         remove(entry)
         limitReached = true
@@ -122,20 +138,33 @@ import Network
   }
 
   /// Sends what's waiting with the session's guest client; each answer the server takes is done
-  /// (it was in today's count already). Nothing for a signed-in session.
+  /// (it was in today's count already). A phone that answered in a dead spot before it could
+  /// register as a guest registers first (Tess, Android #45). Nothing for a signed-in session.
   func flush(_ session: AppSession, _ campaigns: CampaignStore) {
-    guard session.view.guest, !entries.isEmpty, !flushing else { return }
-    let client = session.newClient().client
-    Task { await flush(client) { campaigns.sent($0.taskID) } }
+    guard !entries.isEmpty, !flushing, session.view.guest || session.canAnswerAsGuest else { return }
+    Task {
+      if !session.view.guest {
+        guard await session.ensureGuest() else { return }
+      }
+      await flush(session.newClient().client) { campaigns.sent($0.taskID) }
+    }
   }
+
+  /// Bumped each time the connection comes back, so a campaign shown from the phone's copy reloads.
+  private(set) var signalReturns = 0
+
+  func signalBack() { signalReturns += 1 }
 
   /// Flushes whenever the phone gets a connection while the app runs.
   func watchNetwork(_ onSignal: @escaping @MainActor () -> Void) {
     guard monitor == nil else { return }
     let monitor = NWPathMonitor()
-    monitor.pathUpdateHandler = { path in
+    monitor.pathUpdateHandler = { [weak self] path in
       guard path.status == .satisfied else { return }
-      Task { @MainActor in onSignal() }
+      Task { @MainActor in
+        self?.signalBack()
+        onSignal()
+      }
     }
     monitor.start(queue: DispatchQueue(label: "guest-outbox.network"))
     self.monitor = monitor
@@ -162,7 +191,14 @@ import Network
       guard task.mobileSupport() == .inPlace,
         let submission = entry.answer.submission(task, outcomes: client.choiceOutcomes(task))
       else { return .dropped }
-      _ = try await client.submitPendingChoice(task, submission)
+      do {
+        _ = try await client.submitPendingChoice(task, submission)
+      } catch let error as MapRouletteError where Self.ineligible(error) {
+        // Changed on the map meanwhile: if every question it asks now was answered, send those.
+        let open = try await client.checkChoice(task.id)
+        guard open.eligible, let rest = entry.answer.narrowed(to: open.questionIDs) else { throw error }
+        _ = try await client.submitPendingChoice(task, rest)
+      }
       return .sent
     } catch let error as MapRouletteError {
       return outcome(error)
@@ -171,11 +207,16 @@ import Network
     }
   }
 
-  /// Gone, changed or refused places are dropped without a word, like a skipped answer
-  /// (offline-copy.md); anything that may pass is kept.
+  nonisolated static func ineligible(_ error: MapRouletteError) -> Bool {
+    if case .choice(.taskIneligible)? = error.problem { true } else { false }
+  }
+
+  /// Gone or changed places are dropped and said once; refused ones are dropped without a word,
+  /// like a skipped answer (offline-copy.md); anything that may pass is kept.
   nonisolated static func outcome(_ error: MapRouletteError) -> Sent {
     if error.kind == .rateLimit, error.reason == "pending_limit" { return .limit }
     if error.problem == .outcomeUnknown || error.problem == .writesPaused { return .keep }
+    if ineligible(error) || error.kind == .notFound || error.kind == .conflict { return .notNeeded }
     switch error.kind {
     case .network, .server, .rateLimit, .authentication: return .keep
     case .protocolFailure: return .later

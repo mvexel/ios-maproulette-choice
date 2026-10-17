@@ -7,6 +7,7 @@ struct MapRouletteChoiceApp: App {
   @State private var refresh = TaskChanges()
   @State private var campaigns: CampaignStore = Self.makeCampaigns()
   @State private var outbox: GuestOutbox = Self.makeOutbox()
+  @State private var cache: CampaignCache = Self.makeCache()
   @Environment(\.scenePhase) private var scenePhase
 
   var body: some Scene {
@@ -16,6 +17,7 @@ struct MapRouletteChoiceApp: App {
         .environment(refresh)
         .environment(campaigns)
         .environment(outbox)
+        .environment(cache)
         .onAppear {
           let (outbox, session, campaigns) = (outbox, session, campaigns)
           session.beforeSignIn = { client in
@@ -36,6 +38,13 @@ struct MapRouletteChoiceApp: App {
       if ProcessInfo.processInfo.arguments.contains("-demo") { return GuestOutbox(file: nil) }
     #endif
     return GuestOutbox()
+  }
+
+  @MainActor private static func makeCache() -> CampaignCache {
+    #if DEBUG
+      if ProcessInfo.processInfo.arguments.contains("-demo") { return CampaignCache(file: nil, slowAfter: nil) }
+    #endif
+    return CampaignCache()
   }
 
   @MainActor private static func makeSession() -> AppSession {

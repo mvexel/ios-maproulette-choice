@@ -243,8 +243,8 @@ enum TaskScreen: Sendable {
   /// True once a write or a stale finding may have changed the task, so maps and lists should refresh.
   private(set) var changed = false
 
-  @ObservationIgnored private let ops: any TaskOps
-  @ObservationIgnored private let writer: Writer?
+  @ObservationIgnored private var ops: any TaskOps
+  @ObservationIgnored private var writer: Writer?
   /// Campaign preview mode (design/preview-mode.md): every question is asked, with no eligibility
   /// check, and nothing is ever sent. There is no writer and the ops refuse writes.
   @ObservationIgnored let previewing: Bool
@@ -256,16 +256,31 @@ enum TaskScreen: Sendable {
   @ObservationIgnored private let noun: Noun
   /// Keeps a guest's answer on this phone when its save fails for lack of connection (O1).
   @ObservationIgnored private let keepOnPhone: (@MainActor (GuestOutbox.Entry) -> Void)?
+  /// The phone's copy of a place and its campaign (O2), opened when there is no connection.
+  @ObservationIgnored private let kept: (@MainActor (TaskID) -> (MapRouletteTask, Challenge)?)?
+  /// This phone could answer as a guest but hasn't registered yet (it had no signal to): in a dead
+  /// spot it answers the kept copy as one, and registers when the answers send (Tess, Android #45).
+  @ObservationIgnored private var unregisteredGuest: Bool
+  /// How long a place may load before a guest gets the phone's copy instead (CampaignCache.slowAfter).
+  @ObservationIgnored private let keptAfter: Duration?
+  @ObservationIgnored private var keptTimer: Task<Void, Never>?
+  /// The save in flight was already shown as waiting on the phone.
+  @ObservationIgnored private var keptEarly = false
 
   init(
     ops: any TaskOps, writer: Writer?, noun: Noun = .place, previewing: Bool = false,
-    keepOnPhone: (@MainActor (GuestOutbox.Entry) -> Void)? = nil
+    keepOnPhone: (@MainActor (GuestOutbox.Entry) -> Void)? = nil,
+    kept: (@MainActor (TaskID) -> (MapRouletteTask, Challenge)?)? = nil, unregisteredGuest: Bool = false,
+    keptAfter: Duration? = nil
   ) {
     self.ops = previewing ? PreviewTaskOps(reads: ops) as any TaskOps : ops
     self.writer = previewing ? nil : writer
     self.noun = noun
     self.previewing = previewing
     self.keepOnPhone = keepOnPhone
+    self.kept = kept
+    self.unregisteredGuest = unregisteredGuest
+    self.keptAfter = keptAfter
   }
 
   var busy: Bool {
@@ -285,18 +300,66 @@ enum TaskScreen: Sendable {
   func load(_ id: TaskID) {
     if busy || discarded { return }
     job?.cancel()
+    keptTimer?.cancel()
     state = .loading
-    job = Task {
+    let job = Task {
       let next: TaskScreen
       do {
         let task = try await ops.getTask(id)
         let challenge = try await ops.getChallenge(task)
         next = await opened(LoadedTask(task: task, challenge: challenge))
       } catch {
-        next = .loadFailed(Self.readError(error, noun))
+        next = openedKept(id, error) ?? .loadFailed(Self.readError(error, noun))
       }
       publish(next)
     }
+    self.job = job
+    if keptPossible, let delay = keptAfter {
+      keptTimer = Task {
+        try? await Task.sleep(for: delay)
+        guard !Task.isCancelled, !discarded, case .loading = state, let screen = keptScreen(id) else { return }
+        // The answer is checked when it's sent, so the slow load isn't needed any more.
+        job.cancel()
+        state = screen
+      }
+    }
+  }
+
+  /// Opened before this phone's guest registration came back (a dead spot that hangs).
+  var awaitsRegistration: Bool { unregisteredGuest && !previewing && (writer == nil || writer?.guest == true) }
+
+  /// The registration landed: carry on with the guest's client instead of starting over, so
+  /// answers in progress stay. True when the screen should load again (it had nothing to answer).
+  func registered(ops: any TaskOps) -> Bool {
+    self.ops = ops
+    unregisteredGuest = false
+    if writer == nil { writer = .guestWriter }
+    switch state {
+    case .answering, .submitting, .done: return false
+    default: return true
+    }
+  }
+
+  /// No connection: a guest answers the phone's copy (O2), with no eligibility check (there is
+  /// none to reach). The answer waits on the phone, and the server checks it when it's sent.
+  private func openedKept(_ id: TaskID, _ error: any Error) -> TaskScreen? {
+    CampaignCache.isOffline(error) ? keptScreen(id) : nil
+  }
+
+  /// A guest (or a phone that can become one) with the campaign kept on the phone.
+  private var keptPossible: Bool {
+    !previewing && keepOnPhone != nil && kept != nil && (writer?.guest == true || (writer == nil && unregisteredGuest))
+  }
+
+  private func keptScreen(_ id: TaskID) -> TaskScreen? {
+    guard keptPossible, let found = kept?(id) else { return nil }
+    let task = found.0
+    let loaded = LoadedTask(task: task, challenge: found.1)
+    guard task.mobileSupport() == .inPlace, let work = ChoiceWork(task.work()) else {
+      return .notAvailable(loaded, reason: TaskText.unavailableReason(task))
+    }
+    writer = .guestWriter
+    return .answering(loaded, Self.form(work, outcomes: ops.choiceOutcomes(task), deleteAllowed: false), notice: nil)
   }
 
   private func publish(_ next: TaskScreen) {
@@ -442,8 +505,28 @@ enum TaskScreen: Sendable {
       return
     }
     changed = true
+    // No guest yet (its registration hasn't come back): the outbox registers, then sends. A
+    // request now would go without a guest and be refused (Tess, AB5).
+    if unregisteredGuest, let kept = keep(loaded, action, MapRouletteError(.network)) {
+      state = kept
+      return
+    }
     state = .submitting(loaded, form, action)
     let ops = self.ops
+    // One bar that hangs: after a few seconds the answer waits on the phone like a failed save
+    // (sending it again is safe), instead of a spinner until the request times out (Tess, dev).
+    keptEarly = false
+    if let delay = keptAfter, keepOnPhone != nil {
+      keptTimer?.cancel()
+      keptTimer = Task {
+        try? await Task.sleep(for: delay)
+        guard !Task.isCancelled, !discarded, case .submitting = state,
+          let kept = keep(loaded, action, MapRouletteError(.network, problem: .outcomeUnknown))
+        else { return }
+        keptEarly = true
+        state = kept
+      }
+    }
     job = Task {
       let result = await Task.detached { () async -> Result<PendingChoice, any Error> in
         do {
@@ -453,6 +536,13 @@ enum TaskScreen: Sendable {
           return .failure(error)
         }
       }.value
+      keptTimer?.cancel()
+      // Already shown as waiting: a late success leaves the copy to be resent (harmless), and a
+      // late failure keeps it.
+      if keptEarly {
+        if case .failure(let error) = result { _ = keep(loaded, action, error) }
+        return
+      }
       // Kept on the phone even when the person already left the place.
       if case .failure(let error) = result, let kept = keep(loaded, action, error) {
         if !(Task.isCancelled || discarded) { publish(kept) }
@@ -526,6 +616,7 @@ enum TaskScreen: Sendable {
   func cancel() {
     discarded = true
     job?.cancel()
+    keptTimer?.cancel()
   }
 
   private nonisolated static func send(_ ops: any TaskOps, _ task: MapRouletteTask, _ action: ChoiceAction) async

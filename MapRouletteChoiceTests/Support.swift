@@ -65,6 +65,8 @@ func failure(_ kind: ErrorKind, _ problem: WriteProblem? = nil) -> MapRouletteEr
 enum Read {
   case task(MapRouletteTask)
   case error(any Error)
+  /// A connection that hangs until the read is cancelled.
+  case hang
 }
 
 /// Records every call; each operation's behavior is replaceable per test. No network.
@@ -100,6 +102,9 @@ enum Read {
     switch reads.removeFirst() {
     case .task(let t): return t
     case .error(let e): throw e
+    case .hang:
+      try await Task.sleep(for: .seconds(600))
+      throw failure(.network)
     }
   }
   func getChallenge(_ task: MapRouletteTask) async throws -> Challenge {

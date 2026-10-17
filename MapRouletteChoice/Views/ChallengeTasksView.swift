@@ -14,6 +14,7 @@ struct ChallengeTasksView: View {
   @Environment(TaskChanges.self) private var changes
   @Environment(CampaignStore.self) private var campaigns
   @Environment(GuestOutbox.self) private var outbox
+  @Environment(CampaignCache.self) private var cache
   @Environment(\.webAuthenticationSession) private var webAuth
   @AppStorage(SettingsKey.showOSMDetails) private var showDetails = false
 
@@ -63,6 +64,11 @@ struct ChallengeTasksView: View {
   @State private var truncated = false
   @State private var status = "Loading…"
   @State private var failed = false
+  @State private var keptTimer: Task<Void, Never>?
+  /// Waiting answers the server turned down since the last campaign screen (offline-copy.md row 17).
+  @State private var notNeededLine: String?
+  /// Shown from the phone's copy (no connection, O2): when the server last sent it.
+  @State private var keptFrom: Date?
   @State private var request: Task<Void, Never>?
   @State private var origin: CLLocationCoordinate2D?
   @State private var locationIsOff = false
@@ -90,6 +96,11 @@ struct ChallengeTasksView: View {
   }
   /// A guest's answers kept on this phone until there's signal (O1): neither open nor counted.
   private var waitingIDs: Set<Int64> { preview == nil ? outbox.waiting(in: challengeID.value) : [] }
+  /// A phone that answered in a dead spot before it could register is a guest too, as far as its
+  /// waiting answers go: they register it when they send (Tess, Android #45).
+  private var answersAsGuest: Bool {
+    session.view.guest || (preview == nil && !outbox.isEmpty && session.canAnswerAsGuest)
+  }
   /// A guest's saved answers: checked here, but not on the map until they finish signing up.
   private var pendingIDs: Set<Int64> {
     session.view.guest ? Set(tasks.filter { !$0.isDone && campaigns.justDone.contains($0.id) }.map(\.id)) : []
@@ -197,6 +208,8 @@ struct ChallengeTasksView: View {
     }
     .onAppear {
       campaigns.opened(challengeID.value, preview: preview)
+      // One campaign kept (O2): opening another lets the old copy go. Previews keep nothing.
+      if preview == nil { cache.keepOnly(challengeID.value) }
       if client == nil {
         client = session.newClient()
         load()
@@ -223,6 +236,11 @@ struct ChallengeTasksView: View {
       outbox.flush(session, campaigns)
       await session.refreshGuestStatus()
     }
+    .onChange(of: outbox.signalReturns) {
+      // Back online while showing the phone's copy (or after failing to load): load the server's,
+      // which drops places checked or gone meanwhile.
+      if keptFrom != nil || failed { load() }
+    }
     .onChange(of: outbox.sentVersion) {
       // A waiting answer reached the server: the tally and "Your answers" catch up.
       load()
@@ -230,6 +248,12 @@ struct ChallengeTasksView: View {
     }
     .alert(Wording.pendingLimit(noun), isPresented: Binding(get: { outbox.limitReached }, set: { outbox.limitReached = $0 })) {
       Button("OK", role: .cancel) {}
+    }
+    .onChange(of: outbox.notNeeded, initial: true) {
+      // Shown once, on this screen, until it closes (offline-copy.md row 17).
+      guard preview == nil, outbox.notNeeded > 0 else { return }
+      notNeededLine = Wording.waitingNotNeeded(outbox.notNeeded)
+      outbox.notNeeded = 0
     }
   }
 
@@ -302,7 +326,21 @@ struct ChallengeTasksView: View {
           if failed { Button("Retry") { load() } }
         }
       }
-      if preview == nil, session.view.guest, (myAnswers.map { $0.pending > 0 || $0.onMap > 0 } ?? false) || !waitingIDs.isEmpty {
+      if let notNeededLine {
+        Text(notNeededLine)
+          .font(.footnote).foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      if let keptFrom {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+          Text(Wording.keptCopy(Wording.keptTime(keptFrom, now: context.date)))
+            .font(.footnote).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+      }
+      if preview == nil, answersAsGuest, (myAnswers.map { $0.pending > 0 || $0.onMap > 0 } ?? false) || !waitingIDs.isEmpty {
         savedBanner(myAnswers ?? .zero, waiting: waitingIDs.count)
         Button(Wording.doneForToday) { sheet = .daySummary }.font(.subheadline).frame(minHeight: 44)
       }
@@ -630,6 +668,17 @@ struct ChallengeTasksView: View {
     failed = false
     if let preview, preview.phase == .signInNeeded || preview.phase == .noAccess { preview.phase = .opening }
     if tasks.isEmpty { status = "Loading…" }
+    if keptTimer == nil, preview == nil, let slow = cache.slowAfter, let kept = cache.get(challengeID.value) {
+      // One bar that hangs is the usual dead spot: show the phone's copy a few seconds after the
+      // first try, even if a reload restarts the request meanwhile (a session refresh does), and
+      // swap in the server's list if it still arrives (Tess, dev).
+      keptTimer = Task {
+        try? await Task.sleep(for: slow)
+        defer { keptTimer = nil }
+        guard !Task.isCancelled, request != nil, tasks.isEmpty || keptFrom != nil else { return }
+        show(kept)
+      }
+    }
     request = Task {
       do {
         let loadedChallenge = try await client.getChallenge(challengeID)
@@ -680,6 +729,15 @@ struct ChallengeTasksView: View {
         questions = Self.questions(all)
         hidden = located.filter { !$0.isOpen && !$0.isDone }.count
         truncated = cursor != nil
+        keptFrom = nil
+        keptTimer?.cancel()
+        keptTimer = nil
+        if self.preview == nil {
+          cache.save(
+            .init(
+              challenge: loadedChallenge, tasks: all, held: heldNow.answers, heldReports: heldNow.reports,
+              offered: heldNow.offered, truncated: truncated, savedAt: Date()))
+        }
         if let preview = self.preview, preview.phase == .opening {
           preview.phase = .active
           UIAccessibility.post(notification: .announcement, argument: Wording.previewAnnouncement)
@@ -703,13 +761,38 @@ struct ChallengeTasksView: View {
           CampaignPreview.refused(error)
         {
           preview.phase = session.view.signedIn ? .noAccess : .signInNeeded
+        } else if self.preview == nil, CampaignCache.isOffline(error), let kept = cache.get(challengeID.value) {
+          // A dead spot: the phone's copy, answered through the outbox until the connection is back.
+          show(kept)
         } else {
-          if tasks.isEmpty { status = ChallengePickerView.errorMessage(error) }
+          if tasks.isEmpty {
+            status =
+              self.preview == nil && CampaignCache.isOffline(error)
+              ? Wording.notKeptNoSignal : ChallengePickerView.errorMessage(error)
+          }
           failed = true
         }
       }
       request = nil
     }
+  }
+
+  /// The phone's copy of this campaign (O2), shown with when it was kept.
+  private func show(_ kept: CampaignCache.Snapshot) {
+    let located = kept.tasks.map(LocatedTask.init)
+    challenge = kept.challenge
+    tasks = located
+    held = kept.held
+    heldReports = kept.heldReports
+    offered = kept.offered
+    noun = Noun.from(kept.tasks)
+    questions = Self.questions(kept.tasks)
+    hidden = located.filter { !$0.isOpen && !$0.isDone }.count
+    truncated = kept.truncated
+    keptFrom = kept.savedAt
+    failed = false
+    status = ""
+    if !campaigns.hasSeenWelcome(challengeID.value, preview: nil) && sheet == nil { sheet = .welcome }
   }
 
   private func locate() {

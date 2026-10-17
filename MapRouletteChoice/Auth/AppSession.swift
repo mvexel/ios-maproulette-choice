@@ -340,9 +340,18 @@ struct SessionClient: Sendable {
       guestStatus = nil
       return
     }
+    // Reads can overlap (a campaign loading while waiting answers send): one started earlier never
+    // replaces a later one's count, so an answer sent in between stays shown (Tess, Android #45).
+    statusReads += 1
+    let read = statusReads
     let client = newClient().client
-    if let status = try? await client.getGuestStatus(), view.guest { guestStatus = status }
+    if let status = try? await client.getGuestStatus(), view.guest, read > statusLanded {
+      statusLanded = read
+      guestStatus = status
+    }
   }
+  @ObservationIgnored private var statusReads = 0
+  @ObservationIgnored private var statusLanded = 0
 
   /// Deletes the guest's saved answers on the server, then forgets the guest here.
   /// Answers already on the map stay.
@@ -360,6 +369,18 @@ struct SessionClient: Sendable {
   func ensureGuest() async -> Bool {
     guard canAnswerAsGuest else { return false }
     if view.guest { return true }
+    // One registration at a time: on a hanging connection several callers (outbox flushes, the
+    // place screen) wait here, and each starting its own left empty guests behind (Tess, dev).
+    if let guestStart { return await guestStart.value }
+    let start = Task { await startGuest() }
+    guestStart = start
+    defer { guestStart = nil }
+    return await start.value
+  }
+
+  @ObservationIgnored private var guestStart: Task<Bool, Never>?
+
+  private func startGuest() async -> Bool {
     guard let auth else { return false }
     do {
       _ = try await auth.startGuest()

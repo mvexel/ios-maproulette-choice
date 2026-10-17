@@ -13,6 +13,7 @@ struct TaskView: View {
   @Environment(TaskChanges.self) private var changes
   @Environment(CampaignStore.self) private var campaigns
   @Environment(GuestOutbox.self) private var outbox
+  @Environment(CampaignCache.self) private var cache
   @Environment(\.webAuthenticationSession) private var webAuth
   @Environment(\.dismiss) private var dismiss
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -176,7 +177,22 @@ struct TaskView: View {
     Task {
       // Registering a guest changes the session generation; do it before binding a controller.
       // Never in preview: that would leave a guest behind (§2).
-      if preview == nil && session.canAnswerAsGuest { _ = await session.ensureGuest() }
+      if preview == nil && session.canAnswerAsGuest && !session.view.guest {
+        let register = Task { await session.ensureGuest() }
+        if let slow = cache.slowAfter, cache.task(taskID) != nil {
+          // A dead spot that hangs: open the kept copy after a few seconds rather than wait for the
+          // registration; the controller takes the guest's client when it lands (accountChanged).
+          // Not a task group: it would wait for the registration anyway (Tess, AB5).
+          let timer = Task { try? await Task.sleep(for: slow) }
+          Task {
+            _ = await register.value
+            timer.cancel()
+          }
+          await timer.value
+        } else {
+          _ = await register.value
+        }
+      }
       guard controller == nil else { return }
       generation = session.view.generation
       replaceController()
@@ -192,16 +208,21 @@ struct TaskView: View {
       : session.writesConfigured && view.signedIn && view.canWriteTasks
         ? view.userID.map { Writer(me: $0, canEditOsm: view.canEditOsm) }
       : session.writesConfigured && view.guest ? .guestWriter : nil
-    let outbox = outbox
+    let (outbox, cache) = (outbox, cache)
     controller = TaskWorkController(
       ops: ClientTaskOps(session.newClient().client), writer: writer, noun: noun, previewing: preview != nil,
-      keepOnPhone: { outbox.add($0) })
+      keepOnPhone: { outbox.add($0) }, kept: { cache.task($0.value) },
+      unregisteredGuest: preview == nil && !view.guest && session.canAnswerAsGuest, keptAfter: cache.slowAfter)
   }
 
   /// Account switch or sign-out: discard the old account's state and any late result.
   private func accountChanged() {
     guard let old = controller, generation != session.view.generation else { return }
     generation = session.view.generation
+    if old.awaitsRegistration && session.view.guest {
+      if old.registered(ops: ClientTaskOps(session.newClient().client)) { old.load(try! TaskID(taskID)) }
+      return
+    }
     var interrupted = old.busy
     if case .checkAgain = old.state { interrupted = true }
     if interrupted || old.changed { reportChange() }
