@@ -23,6 +23,10 @@ struct ChallengePickerView: View {
   /// No signal: only the campaign kept on the phone is listed.
   @State private var keptOnly = false
   @State private var keptTimer: Task<Void, Never>?
+  /// While only the kept campaign shows after a failed load, ask again by itself (Tess, AB11: a
+  /// request that timed out in a dead spot never swapped in the live list).
+  @State private var autoRetry: Task<Void, Never>?
+  @State private var retryAfter: Duration = .seconds(10)
   @State private var request: Task<Void, Never>?
   @State private var signingIn = false
   @State private var confirmDelete = false
@@ -140,7 +144,13 @@ struct ChallengePickerView: View {
       if client == nil {
         client = session.newClient()
         load()
+      } else if keptOnly && request == nil {
+        scheduleRetry()
       }
+    }
+    .onDisappear {
+      autoRetry?.cancel()
+      autoRetry = nil
     }
     .onChange(of: showDetails) {
       // Deleting is an expert setting: hiding the details turns it off too.
@@ -176,6 +186,8 @@ struct ChallengePickerView: View {
     failed = false
     status = "Loading campaigns…"
     keptTimer?.cancel()
+    autoRetry?.cancel()
+    autoRetry = nil
     if let slow = cache.slowAfter, let kept = cache.kept {
       // One bar that hangs: show the kept campaign after the same budget as the campaign and place
       // screens, and swap in the server's list if it still arrives (Tess, AB9).
@@ -199,6 +211,7 @@ struct ChallengePickerView: View {
         try Task.checkCancellation()
         keptTimer?.cancel()
         keptOnly = false
+        retryAfter = .seconds(10)
         let choice = Self.published(all)
         challenges = choice.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         others = all.count - choice.count
@@ -211,6 +224,9 @@ struct ChallengePickerView: View {
         if CampaignCache.isOffline(error), let kept = cache.kept {
           // A dead spot: the campaign kept on the phone still opens (O2).
           showKept(kept)
+          request = nil
+          scheduleRetry()
+          return
         } else {
           keptOnly = false
           challenges = []
@@ -219,6 +235,18 @@ struct ChallengePickerView: View {
         }
       }
       request = nil
+    }
+  }
+
+  /// Another try in a while, backing off to a minute between tries.
+  private func scheduleRetry() {
+    autoRetry?.cancel()
+    let wait = retryAfter
+    retryAfter = min(retryAfter * 2, .seconds(60))
+    autoRetry = Task {
+      try? await Task.sleep(for: wait)
+      guard !Task.isCancelled, keptOnly, request == nil else { return }
+      load()
     }
   }
 
