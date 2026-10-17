@@ -17,8 +17,9 @@
   /// and 184 with a saved answer, for "Needs another look" against "checked".
   /// `-demoOnMap` has a local mapper already put one of the guest's answers on the map: `/mobile-guest/me`
   /// then sends `byChallenge` for challenge 3 (pending = answers saved this launch, onMap 1), for "✓ 1 on the map".
-  /// `-demoNoSignal` starts with no signal for a guest's saves, so answers wait on the phone (O1);
-  /// "Demo: no signal" under Settings switches it.
+  /// `-demoNoSignal` starts with no signal for a guest's saves, so answers wait on the phone (O1).
+  /// "Demo: no signal" under Settings is a dead spot: every request fails, so an opened campaign
+  /// shows the phone's copy (O2); switching it off brings both back.
   /// `-demoClaimed` answers the finish-link request with 409 `guest_claimed`, for the claimed copy.
   /// `-demoWoodbine` serves the first pilot, "Woodbine entrance doors" (design/woodbine-campaign.md),
   /// on eight real entrance nodes around Woodbine Food Hall; 188 already has `door`, so only the
@@ -34,6 +35,8 @@
     static let challengeID: Int64 = 3
     /// A guest's saves fail as if there were no signal (`-demoNoSignal`).
     @MainActor static var noSignal = ProcessInfo.processInfo.arguments.contains("-demoNoSignal")
+    /// Every request fails as if there were no signal ("Demo: no signal").
+    @MainActor static var deadSpot = false
     /// `-demoClaim progress`'s claim: 3 answers, one more on the map per read, then done with one
     /// not added (changed meanwhile).
     static let claimID: Int64 = 41
@@ -126,6 +129,7 @@
 
     func execute(_ request: HTTPRequest) async throws -> HTTPResponse {
       try await Task.sleep(for: .milliseconds(250))
+      if await MainActor.run(body: { Self.deadSpot }) { throw MapRouletteError(.network) }
       let parts = request.url.path.split(separator: "/").dropFirst(2).map(String.init)  // drop api/v2
       let firstPage = (URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems?
         .first { $0.name == "page" }?.value ?? "0") == "0"

@@ -122,20 +122,33 @@ import Network
   }
 
   /// Sends what's waiting with the session's guest client; each answer the server takes is done
-  /// (it was in today's count already). Nothing for a signed-in session.
+  /// (it was in today's count already). A phone that answered in a dead spot before it could
+  /// register as a guest registers first (Tess, Android #45). Nothing for a signed-in session.
   func flush(_ session: AppSession, _ campaigns: CampaignStore) {
-    guard session.view.guest, !entries.isEmpty, !flushing else { return }
-    let client = session.newClient().client
-    Task { await flush(client) { campaigns.sent($0.taskID) } }
+    guard !entries.isEmpty, !flushing, session.view.guest || session.canAnswerAsGuest else { return }
+    Task {
+      if !session.view.guest {
+        guard await session.ensureGuest() else { return }
+      }
+      await flush(session.newClient().client) { campaigns.sent($0.taskID) }
+    }
   }
+
+  /// Bumped each time the connection comes back, so a campaign shown from the phone's copy reloads.
+  private(set) var signalReturns = 0
+
+  func signalBack() { signalReturns += 1 }
 
   /// Flushes whenever the phone gets a connection while the app runs.
   func watchNetwork(_ onSignal: @escaping @MainActor () -> Void) {
     guard monitor == nil else { return }
     let monitor = NWPathMonitor()
-    monitor.pathUpdateHandler = { path in
+    monitor.pathUpdateHandler = { [weak self] path in
       guard path.status == .satisfied else { return }
-      Task { @MainActor in onSignal() }
+      Task { @MainActor in
+        self?.signalBack()
+        onSignal()
+      }
     }
     monitor.start(queue: DispatchQueue(label: "guest-outbox.network"))
     self.monitor = monitor

@@ -13,6 +13,7 @@ struct TaskView: View {
   @Environment(TaskChanges.self) private var changes
   @Environment(CampaignStore.self) private var campaigns
   @Environment(GuestOutbox.self) private var outbox
+  @Environment(CampaignCache.self) private var cache
   @Environment(\.webAuthenticationSession) private var webAuth
   @Environment(\.dismiss) private var dismiss
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -192,10 +193,11 @@ struct TaskView: View {
       : session.writesConfigured && view.signedIn && view.canWriteTasks
         ? view.userID.map { Writer(me: $0, canEditOsm: view.canEditOsm) }
       : session.writesConfigured && view.guest ? .guestWriter : nil
-    let outbox = outbox
+    let (outbox, cache) = (outbox, cache)
     controller = TaskWorkController(
       ops: ClientTaskOps(session.newClient().client), writer: writer, noun: noun, previewing: preview != nil,
-      keepOnPhone: { outbox.add($0) })
+      keepOnPhone: { outbox.add($0) }, kept: { cache.task($0.value) },
+      unregisteredGuest: preview == nil && !view.guest && session.canAnswerAsGuest)
   }
 
   /// Account switch or sign-out: discard the old account's state and any late result.

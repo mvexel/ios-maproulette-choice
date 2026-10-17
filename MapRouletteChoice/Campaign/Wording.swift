@@ -292,6 +292,37 @@ enum Wording {
   /// Added to the explainer while answers wait on the phone (offline-copy.md).
   static let deleteMyDataWaiting = "It also removes answers still waiting on this phone."
 
+  /// The campaign shown from the phone's copy, with no connection (offline-copy.md, O2).
+  static func keptCopy(_ time: String) -> String { "No signal. Showing the list from \(time). Some may be done already." }
+  /// When the kept copy was saved: minutes within the hour (at least 1), the device's time the same
+  /// day, "yesterday", then the device's month and day.
+  static func keptTime(_ saved: Date, now: Date = Date(), calendar: Calendar = .current, locale: Locale = .current)
+    -> String
+  {
+    let minutes = max(0, Int(now.timeIntervalSince(saved) / 60))
+    if minutes < 60 { return "\(max(1, minutes)) min ago" }
+    if calendar.isDate(saved, inSameDayAs: now) {
+      let time = DateFormatter()
+      time.locale = locale
+      time.calendar = calendar
+      time.timeZone = calendar.timeZone
+      time.dateStyle = .none
+      time.timeStyle = .short
+      return time.string(from: saved)
+    }
+    if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(saved, inSameDayAs: yesterday) {
+      return "yesterday"
+    }
+    let day = DateFormatter()
+    day.locale = locale
+    day.calendar = calendar
+    day.timeZone = calendar.timeZone
+    day.setLocalizedDateFormatFromTemplate("MMMd")
+    return day.string(from: saved)
+  }
+  /// A campaign opened with no signal that the phone has no copy of; shown with Retry.
+  static let notKeptNoSignal = "No signal, and this campaign isn't on your phone yet. Try again when you have signal."
+
   // MARK: Waiting on the phone (BACKLOG O1, design/offline-copy.md)
   // Never "offline", "queue", "sync" or "upload"; never "saved and counted" for these.
 

@@ -698,4 +698,49 @@ import Testing
     #expect(store.justDone.isEmpty)
     #expect(store.lookAgain(store.justReported) == [42, 43])
   }
+
+  /// A dead spot (O2): a guest answers the phone's copy without the eligibility check, and the
+  /// answer waits on the phone.
+  @Test func deadSpotGuestAnswersTheKeptCopy() async throws {
+    let place = try await makeTask()
+    for writer in [Writer.guestWriter, nil] {
+      let o = FakeOps(challenge: challenge)
+      o.reads = [.error(MapRouletteError(.network))]
+      o.pending = { _ in throw MapRouletteError(.network) }
+      var kept: [GuestOutbox.Entry] = []
+      let c = TaskWorkController(
+        ops: o, writer: writer, keepOnPhone: { kept.append($0) }, kept: { [challenge] in $0 == taskID ? (place, challenge) : nil },
+        unregisteredGuest: writer == nil)
+      c.load(taskID)
+      await c.idle()
+      #expect(c.state.answering != nil, "\(c.state.name)")
+      #expect(!o.calls.contains("check"))
+      c.perform(.answers(["backrest": "yes"]))
+      await c.idle()
+      #expect(try #require(c.state.done).waiting)
+      #expect(kept.map(\.taskID) == [42])
+    }
+  }
+
+  /// The copy is only for a guest with no connection: a signed-in mapper, a server error, or a
+  /// place not kept still fail to load.
+  @Test func keptCopyOnlyForAGuestWithNoConnection() async throws {
+    let place = try await makeTask()
+    let cases: [(Writer?, Bool, any Error, Int64)] = [
+      (Writer(me: me, canEditOsm: true), false, MapRouletteError(.network), 42),
+      (nil, false, MapRouletteError(.network), 42),
+      (.guestWriter, false, MapRouletteError(.server, status: 503), 42),
+      (.guestWriter, false, MapRouletteError(.network), 7),
+    ]
+    for (writer, unregistered, error, keptID) in cases {
+      let o = FakeOps(challenge: challenge)
+      o.reads = [.error(error)]
+      let c = TaskWorkController(
+        ops: o, writer: writer, keepOnPhone: { _ in }, kept: { [challenge] in $0.value == keptID ? (place, challenge) : nil },
+        unregisteredGuest: unregistered)
+      c.load(taskID)
+      await c.idle()
+      guard case .loadFailed = c.state else { Issue.record("\(c.state.name)"); continue }
+    }
+  }
 }

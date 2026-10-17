@@ -244,7 +244,7 @@ enum TaskScreen: Sendable {
   private(set) var changed = false
 
   @ObservationIgnored private let ops: any TaskOps
-  @ObservationIgnored private let writer: Writer?
+  @ObservationIgnored private var writer: Writer?
   /// Campaign preview mode (design/preview-mode.md): every question is asked, with no eligibility
   /// check, and nothing is ever sent. There is no writer and the ops refuse writes.
   @ObservationIgnored let previewing: Bool
@@ -256,16 +256,24 @@ enum TaskScreen: Sendable {
   @ObservationIgnored private let noun: Noun
   /// Keeps a guest's answer on this phone when its save fails for lack of connection (O1).
   @ObservationIgnored private let keepOnPhone: (@MainActor (GuestOutbox.Entry) -> Void)?
+  /// The phone's copy of a place and its campaign (O2), opened when there is no connection.
+  @ObservationIgnored private let kept: (@MainActor (TaskID) -> (MapRouletteTask, Challenge)?)?
+  /// This phone could answer as a guest but hasn't registered yet (it had no signal to): in a dead
+  /// spot it answers the kept copy as one, and registers when the answers send (Tess, Android #45).
+  @ObservationIgnored private let unregisteredGuest: Bool
 
   init(
     ops: any TaskOps, writer: Writer?, noun: Noun = .place, previewing: Bool = false,
-    keepOnPhone: (@MainActor (GuestOutbox.Entry) -> Void)? = nil
+    keepOnPhone: (@MainActor (GuestOutbox.Entry) -> Void)? = nil,
+    kept: (@MainActor (TaskID) -> (MapRouletteTask, Challenge)?)? = nil, unregisteredGuest: Bool = false
   ) {
     self.ops = previewing ? PreviewTaskOps(reads: ops) as any TaskOps : ops
     self.writer = previewing ? nil : writer
     self.noun = noun
     self.previewing = previewing
     self.keepOnPhone = keepOnPhone
+    self.kept = kept
+    self.unregisteredGuest = unregisteredGuest
   }
 
   var busy: Bool {
@@ -293,10 +301,25 @@ enum TaskScreen: Sendable {
         let challenge = try await ops.getChallenge(task)
         next = await opened(LoadedTask(task: task, challenge: challenge))
       } catch {
-        next = .loadFailed(Self.readError(error, noun))
+        next = openedKept(id, error) ?? .loadFailed(Self.readError(error, noun))
       }
       publish(next)
     }
+  }
+
+  /// No connection: a guest answers the phone's copy (O2), with no eligibility check (there is
+  /// none to reach). The answer waits on the phone, and the server checks it when it's sent.
+  private func openedKept(_ id: TaskID, _ error: any Error) -> TaskScreen? {
+    guard !previewing, keepOnPhone != nil, writer?.guest == true || (writer == nil && unregisteredGuest),
+      CampaignCache.isOffline(error), let found = kept?(id)
+    else { return nil }
+    let task = found.0
+    let loaded = LoadedTask(task: task, challenge: found.1)
+    guard task.mobileSupport() == .inPlace, let work = ChoiceWork(task.work()) else {
+      return .notAvailable(loaded, reason: TaskText.unavailableReason(task))
+    }
+    writer = .guestWriter
+    return .answering(loaded, Self.form(work, outcomes: ops.choiceOutcomes(task), deleteAllowed: false), notice: nil)
   }
 
   private func publish(_ next: TaskScreen) {

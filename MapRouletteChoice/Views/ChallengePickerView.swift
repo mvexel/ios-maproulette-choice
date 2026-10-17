@@ -102,8 +102,12 @@ struct ChallengePickerView: View {
           if ProcessInfo.processInfo.arguments.contains("-demo") {
             Toggle("Demo: no signal", isOn: Binding(get: { demoNoSignal }, set: { on in
               demoNoSignal = on
-              DemoBackend.noSignal = on
-              if !on { outbox.flush(session, campaigns) }
+              DemoBackend.deadSpot = on
+              if !on {
+                DemoBackend.noSignal = false
+                outbox.signalBack()
+                outbox.flush(session, campaigns)
+              }
             }))
           }
         #endif
