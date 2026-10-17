@@ -69,6 +69,8 @@ struct ChallengeTasksView: View {
   @State private var notNeededLine: String?
   /// Shown from the phone's copy (no connection, O2): when the server last sent it.
   @State private var keptFrom: Date?
+  /// The places read so far while a campaign's pages still arrive; nil once all are in.
+  @State private var loadedSoFar: Int?
   @State private var request: Task<Void, Never>?
   @State private var origin: CLLocationCoordinate2D?
   @State private var locationIsOff = false
@@ -86,6 +88,8 @@ struct ChallengeTasksView: View {
 
   /// Pages of 100 to read before stopping: the wizard makes campaigns of up to 2,000 places (L1).
   private static let maxPages = 50
+  /// While a campaign's pages arrive, the map and list update at most this often.
+  private static let redrawEvery = Duration.seconds(2)
 
   private var progress: CampaignProgress {
     // Pending reports, this phone's or another guest's, need another look, not "checked"
@@ -304,7 +308,15 @@ struct ChallengeTasksView: View {
           .frame(maxWidth: .infinity, alignment: .leading)
       }
       // Preview hides the tally: nothing changes it (§4.2).
-      if !shown.isEmpty && preview == nil {
+      if let loadedSoFar, !shown.isEmpty {
+        // A tally before the holds are in would read "0 of 600" as nothing checked (Tess, AB13).
+        HStack {
+          ProgressView()
+          Text(Wording.loadingSoFar(loadedSoFar, noun)).foregroundStyle(.secondary)
+        }
+        .font(.subheadline)
+        .frame(maxWidth: .infinity, alignment: .leading)
+      } else if !shown.isEmpty && preview == nil {
         let done = progress.checked
         let today = campaigns.checkedToday(challengeID.value)
         // Side by side until accessibility sizes, then stacked so neither line truncates.
@@ -492,13 +504,14 @@ struct ChallengeTasksView: View {
   /// on failure, none; a short read keeps the holds it read (L1). The same search is what the
   /// campaign offers (`offered`, backend #51): nil on failure, a short read or a backend without
   /// `pending`.
-  private static func heldTasks(_ tasks: [LocatedTask], in challengeID: ChallengeID, client: MapRouletteClient)
-    async -> (answers: Set<Int64>, reports: Set<Int64>, offered: Set<Int64>?)
-  {
+  /// `search` is `heldSearch`, read alongside the campaign's own pages (Tess, AB13).
+  private static func heldTasks(
+    _ tasks: [LocatedTask], search: (rows: [TaskSummary], complete: Bool)?, in challengeID: ChallengeID,
+    client: MapRouletteClient
+  ) async -> (answers: Set<Int64>, reports: Set<Int64>, offered: Set<Int64>?) {
     let open = tasks.filter(\.isOpen)
     guard let bounds = TaskLocation.bounds(open.compactMap(\.coordinate)) else { return ([], [], nil) }
-    let filter = TaskFilter(challengeIDs: [challengeID], bounds: bounds, choiceOnly: true, includePending: true)
-    guard case let (rows, complete)? = await boxSearch(filter, client: client) else { return ([], [], nil) }
+    guard case let (rows, complete)? = search else { return ([], [], nil) }
     if !rows.isEmpty, rows.allSatisfy({ $0.pending != nil }) {
       // A short read still knows its own holds; what it offers is only known in full (L1).
       let holds = rows.filter { $0.pending == true }
@@ -511,6 +524,16 @@ struct ChallengeTasksView: View {
     let unheld = TaskFilter(challengeIDs: [challengeID], bounds: bounds, choiceOnly: true, excludePending: true)
     guard case let (listed, true)? = await boxSearch(unheld, client: client) else { return ([], [], nil) }
     return (Set(open.map(\.id)).subtracting(listed.map(\.id.value)), [], nil)
+  }
+
+  /// The campaign's places with their holds. The whole world, so it can start before the campaign's
+  /// own pages say where they are; the challenge filter keeps it to this campaign.
+  private static func heldSearch(in challengeID: ChallengeID, client: MapRouletteClient) async
+    -> (rows: [TaskSummary], complete: Bool)?
+  {
+    guard let world = try? Bounds(west: -180, south: -90, east: 180, north: 90) else { return nil }
+    let filter = TaskFilter(challengeIDs: [challengeID], bounds: world, choiceOnly: true, includePending: true)
+    return await boxSearch(filter, client: client)
   }
 
   /// The pages of a bounds search, and whether that was all of them; nil on failure.
@@ -714,27 +737,35 @@ struct ChallengeTasksView: View {
           request = nil
           return
         }
+        // The holds are read alongside the pages, not after them (Tess, AB13).
+        async let heldRows = Self.heldSearch(in: challengeID, client: client)
         // Pages arrive in parallel and out of order; a place that changes mid-load can show up on
-        // two pages, so they merge by id. Each page shows at once, so a big campaign never waits
-        // for its last page (Tess, AE6: 72 s for 5,200 places read one page at a time).
+        // two pages, so they merge by id. The first page shows at once, so a big campaign never
+        // waits for its last page (Tess, AE6: 72 s for 5,200 places read one page at a time). After
+        // that the map redraws at most every couple of seconds: redrawing every pin for every page
+        // made each page cost more than the last (Tess, AB13: 290 s for 5,200 places).
         var byID: [Int64: MapRouletteTask] = [:]
         var fullPages = 0
+        var lastShown: ContinuousClock.Instant?
         for try await page in client.listAllTasks(challengeID, maxPages: Self.maxPages) {
           for task in page.items { byID[task.id.value] = task }
           if page.items.count == 100 { fullPages += 1 }
           guard keptFrom == nil || byID.count >= tasks.count else { continue }
+          if let lastShown, lastShown.duration(to: .now) < Self.redrawEvery { continue }
+          lastShown = .now
           let sofar = byID.values.sorted { $0.id < $1.id }
           challenge = loadedChallenge
           tasks = sofar.map(LocatedTask.init)
           noun = Noun.from(sofar)
           questions = Self.questions(sofar)
+          loadedSoFar = sofar.count
           keptFrom = nil
           status = ""
         }
         try Task.checkCancellation()
         let all = byID.values.sorted { $0.id < $1.id }
         let located = all.map(LocatedTask.init)
-        let heldNow = await Self.heldTasks(located, in: challengeID, client: client)
+        let heldNow = await Self.heldTasks(located, search: heldRows, in: challengeID, client: client)
         try Task.checkCancellation()
         held = heldNow.answers
         heldReports = heldNow.reports
@@ -745,6 +776,7 @@ struct ChallengeTasksView: View {
         questions = Self.questions(all)
         hidden = located.filter { !$0.isOpen && !$0.isDone }.count
         truncated = fullPages >= Self.maxPages
+        loadedSoFar = nil
         keptFrom = nil
         keptTimer?.cancel()
         keptTimer = nil
@@ -788,6 +820,7 @@ struct ChallengeTasksView: View {
           }
           failed = true
         }
+        loadedSoFar = nil
       }
       request = nil
     }
@@ -806,6 +839,7 @@ struct ChallengeTasksView: View {
     hidden = located.filter { !$0.isOpen && !$0.isDone }.count
     truncated = kept.truncated
     keptFrom = kept.savedAt
+    loadedSoFar = nil
     failed = false
     status = ""
     if !campaigns.hasSeenWelcome(challengeID.value, preview: nil) && sheet == nil { sheet = .welcome }

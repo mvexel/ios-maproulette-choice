@@ -376,6 +376,9 @@ enum Wording {
     (isOff ? "Location is off." : "Your location isn't available yet.")
       + " Choose \(noun.aOne) on the map or in the list."
   }
+  /// While a big campaign's pages still arrive.
+  static func loadingSoFar(_ n: Int, _ noun: Noun) -> String { "Loading… \(noun.count(n)) so far" }
+
   static func progress(done: Int, total: Int, _ noun: Noun) -> String {
     "The tally: \(done) of \(noun.count(total)) checked"
   }
