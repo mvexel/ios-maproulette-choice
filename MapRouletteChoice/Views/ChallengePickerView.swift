@@ -22,6 +22,7 @@ struct ChallengePickerView: View {
   @State private var failed = false
   /// No signal: only the campaign kept on the phone is listed.
   @State private var keptOnly = false
+  @State private var keptTimer: Task<Void, Never>?
   @State private var request: Task<Void, Never>?
   @State private var signingIn = false
   @State private var confirmDelete = false
@@ -54,11 +55,11 @@ struct ChallengePickerView: View {
             if request != nil { ProgressView() }
             Text(status).foregroundStyle(.secondary)
           }
-          if failed { Button("Retry") { load() } }
+          if failed { Button("Retry") { load() }.accessibilityLabel("Retry loading campaigns") }
         }
         if keptOnly {
           Text(Wording.pickerKeptOnly).font(.footnote).foregroundStyle(.secondary)
-          Button("Retry") { load() }
+          Button("Retry") { load() }.accessibilityLabel("Retry loading campaigns")
         }
         ForEach(shown) { challenge in
           NavigationLink(value: Route.challenge(challenge.id)) {
@@ -173,8 +174,17 @@ struct ChallengePickerView: View {
     guard let client = client?.client else { return }
     request?.cancel()
     failed = false
-    keptOnly = false
     status = "Loading campaigns…"
+    keptTimer?.cancel()
+    if let slow = cache.slowAfter, let kept = cache.kept {
+      // One bar that hangs: show the kept campaign after the same budget as the campaign and place
+      // screens, and swap in the server's list if it still arrives (Tess, AB9).
+      keptTimer = Task {
+        try? await Task.sleep(for: slow)
+        guard !Task.isCancelled, request != nil, challenges.isEmpty || keptOnly else { return }
+        showKept(kept)
+      }
+    }
     request = Task {
       do {
         var all: [Challenge] = []
@@ -187,6 +197,8 @@ struct ChallengePickerView: View {
           pages += 1
         } while cursor != nil && pages < Self.maxPages
         try Task.checkCancellation()
+        keptTimer?.cancel()
+        keptOnly = false
         let choice = Self.published(all)
         challenges = choice.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         others = all.count - choice.count
@@ -195,12 +207,12 @@ struct ChallengePickerView: View {
       } catch is CancellationError {
         return
       } catch {
+        keptTimer?.cancel()
         if CampaignCache.isOffline(error), let kept = cache.kept {
           // A dead spot: the campaign kept on the phone still opens (O2).
-          challenges = [kept.challenge]
-          status = ""
-          keptOnly = true
+          showKept(kept)
         } else {
+          keptOnly = false
           challenges = []
           status = Self.errorMessage(error)
           failed = true
@@ -208,6 +220,12 @@ struct ChallengePickerView: View {
       }
       request = nil
     }
+  }
+
+  private func showKept(_ kept: CampaignCache.Snapshot) {
+    challenges = [kept.challenge]
+    status = ""
+    keptOnly = true
   }
 
   private var needsReconsent: Bool {

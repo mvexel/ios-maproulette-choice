@@ -324,6 +324,10 @@ enum Wording {
     day.setLocalizedDateFormatFromTemplate("MMMd")
     return day.string(from: saved)
   }
+  /// A campaign bigger than the app reads (L1). Not "first" or "nearest": the server order is by id (Iris).
+  static func notAllShown(_ count: Int, _ noun: Noun) -> String {
+    "Showing \(count.formatted()) \(noun.many). This campaign has more."
+  }
   /// A campaign opened with no signal that the phone has no copy of; shown with Retry.
   /// The picker in a dead spot, listing only the campaign kept on the phone (O2 follow-up).
   static let pickerKeptOnly = "No signal. Showing the campaign kept on this phone."
