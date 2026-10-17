@@ -316,6 +316,9 @@ struct ChallengeTasksView: View {
           ProgressView()
           Text(Wording.loadingSoFar(loadedSoFar, noun)).foregroundStyle(.secondary)
         }
+        // Read when reached, not announced for every page.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Wording.loadingSoFarSpoken(loadedSoFar, noun))
         .font(.subheadline)
         .frame(maxWidth: .infinity, alignment: .leading)
       } else if !shown.isEmpty && preview == nil {
