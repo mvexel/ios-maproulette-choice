@@ -143,6 +143,8 @@ struct TaskMapView: UIViewRepresentable {
   final class TaskAnnotation: MLNPointAnnotation {
     var taskID: Int64 = 0
     var pin = Pin.toCheck
+    /// "130 m northeast", as the list row reads it; nil without a location.
+    var distance: String?
   }
 
   /// A brand pin drawn at its own size (28 pt) in the middle of a 44 pt frame, so the touch
@@ -153,6 +155,7 @@ struct TaskMapView: UIViewRepresentable {
 
     private let imageView = UIImageView()
     private var name: String?
+    private var distance: String?
     private var pin = Pin.toCheck
     /// Opens the place; nil for pins that don't open.
     private var onActivate: (() -> Void)?
@@ -173,13 +176,15 @@ struct TaskMapView: UIViewRepresentable {
 
     func configure(_ task: TaskAnnotation, onActivate: (() -> Void)?) {
       name = task.title
+      distance = task.distance
       pin = task.pin
       imageView.image = UIImage(named: task.pin.imageName)
       self.onActivate = onActivate
     }
 
+    /// Name and distance, as the list row reads them.
     override var accessibilityLabel: String? {
-      get { name }
+      get { [name, distance].compactMap { $0 }.joined(separator: ", ") }
       set {}
     }
 
@@ -253,6 +258,7 @@ struct TaskMapView: UIViewRepresentable {
           reported: reports[task.id] != nil || flagged.contains(task.id), waiting: waiting.contains(task.id))
         a.coordinate = coordinate
         a.title = Wording.placeName(task.task, noun)
+        a.distance = TaskLocation.directionText(from, coordinate)
         a.subtitle = a.pin.calloutSubtitle
         return a
       }
