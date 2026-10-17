@@ -588,6 +588,25 @@ import Testing
     guard case .noLongerNeeded = c.state else { Issue.record("\(c.state.name)"); return }
   }
 
+  /// A question answered on the map while the guest was answering: the answers still asked for
+  /// go, quietly (Tess, AB7).
+  @Test func guestAnswersNarrowWhenAQuestionWasAnsweredOnTheMap() async throws {
+    let o = ops(try await makeTask())
+    o.pending = { submission in
+      guard submission == .answers(["backrest": "yes"]) else {
+        throw MapRouletteError(.conflict, problem: .choice(.taskIneligible(reason: .keyChanged)))
+      }
+      return PendingChoice(taskID: taskID, state: .pending, answeredAt: Date())
+    }
+    let c = await controller(o, writer: .guestWriter)
+    o.check = { ChoiceEligibility(eligible: true, deleteAllowed: false, reason: nil, questionIDs: ["backrest"]) }
+    c.perform(.answers(["backrest": "yes", "material": "wood"]))
+    await c.idle()
+    #expect(try #require(c.state.done).savedForLater)
+    #expect(o.submissions.last == .answers(["backrest": "yes"]))
+    #expect(o.calls.suffix(3) == ["pending", "check", "pending"])
+  }
+
   /// The pending route holds answers only with `liveMissingQuestions` (422 `unsupported_task`).
   @Test func guestsOpenEveryCampaignAndTheServerDecides() async throws {
     // Guests everywhere (G1): no up-front `liveMissingQuestions` check; a 422 on save is the fallback.

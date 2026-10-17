@@ -531,7 +531,16 @@ enum TaskScreen: Sendable {
       let result = await Task.detached { () async -> Result<PendingChoice, any Error> in
         do {
           guard let submission = action.submission else { throw CancellationError() }
-          return .success(try await ops.submitPendingChoice(loaded.task, submission))
+          do {
+            return .success(try await ops.submitPendingChoice(loaded.task, submission))
+          } catch let error as MapRouletteError where GuestOutbox.ineligible(error) {
+            // Changed on the map while answering: if every question it asks now was answered,
+            // send those, as the outbox does (offline-copy.md row 17; Tess, AB7).
+            let open = try await ops.checkChoice(loaded.task.id)
+            guard open.eligible, let rest = GuestOutbox.Answer(action)?.narrowed(to: open.questionIDs)
+            else { throw error }
+            return .success(try await ops.submitPendingChoice(loaded.task, rest))
+          }
         } catch {
           return .failure(error)
         }
