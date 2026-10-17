@@ -28,6 +28,13 @@ import Network
       }
     }
 
+    /// The answers to `open` questions only; nil when none is left or there's nothing to narrow.
+    func narrowed(to open: Set<String>?) -> ChoiceSubmission? {
+      guard case .answers(let answers) = self, let open else { return nil }
+      let rest = answers.filter { open.contains($0.key) }
+      return rest.isEmpty || rest.count == answers.count ? nil : .answers(rest)
+    }
+
     /// The submission for a fresh read of the task; nil when its outcome no longer exists.
     func submission(_ task: MapRouletteTask, outcomes: [ChoiceOutcome]) -> ChoiceSubmission? {
       switch self {
@@ -44,14 +51,24 @@ import Network
   }
 
   /// What sending one entry came to. `keep` stops the flush (no signal, server trouble);
-  /// `later` keeps the entry but goes on with the rest.
-  enum Sent: Equatable { case sent, dropped, limit, keep, later }
+  /// `later` keeps the entry but goes on with the rest. `notNeeded`: the fresh OSM check turned
+  /// the place down after the answer was kept, which the person is told (Tess, dev).
+  enum Sent: Equatable { case sent, dropped, limit, keep, later, notNeeded(IneligibleReason) }
+
+  /// Why a waiting answer the person was told would send was turned down instead.
+  struct NotNeeded: Equatable {
+    let taskID: Int64
+    let reason: IneligibleReason
+  }
 
   /// Oldest first.
   private(set) var entries: [Entry]
   /// The server refused a waiting answer for the pending limit; shown once, the next time a
   /// campaign is open.
   var limitReached = false
+  /// Waiting answers the server turned down because the place changed on the map; shown once, the
+  /// next time a campaign is open.
+  var notNeeded: [NotNeeded] = []
   /// Bumped when an answer is sent, so lists reload and counts go up.
   private(set) var sentVersion = 0
 
@@ -114,6 +131,9 @@ import Network
         record(entry)
         sentVersion += 1
       case .dropped: remove(entry)
+      case .notNeeded(let reason):
+        remove(entry)
+        notNeeded.append(NotNeeded(taskID: entry.taskID, reason: reason))
       case .limit:
         remove(entry)
         limitReached = true
@@ -175,7 +195,14 @@ import Network
       guard task.mobileSupport() == .inPlace,
         let submission = entry.answer.submission(task, outcomes: client.choiceOutcomes(task))
       else { return .dropped }
-      _ = try await client.submitPendingChoice(task, submission)
+      do {
+        _ = try await client.submitPendingChoice(task, submission)
+      } catch let error as MapRouletteError where error.problem == .choice(.taskIneligible(reason: .keyChanged)) {
+        // A question was answered on the map meanwhile: send the answers still open.
+        let open = try await client.checkChoice(task.id)
+        guard open.eligible, let rest = entry.answer.narrowed(to: open.questionIDs) else { throw error }
+        _ = try await client.submitPendingChoice(task, rest)
+      }
       return .sent
     } catch let error as MapRouletteError {
       return outcome(error)
@@ -189,6 +216,7 @@ import Network
   nonisolated static func outcome(_ error: MapRouletteError) -> Sent {
     if error.kind == .rateLimit, error.reason == "pending_limit" { return .limit }
     if error.problem == .outcomeUnknown || error.problem == .writesPaused { return .keep }
+    if case .choice(.taskIneligible(let reason))? = error.problem { return .notNeeded(reason) }
     switch error.kind {
     case .network, .server, .rateLimit, .authentication: return .keep
     case .protocolFailure: return .later

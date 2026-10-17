@@ -91,6 +91,29 @@ import Testing
     }
   }
 
+  /// A place that changed on the map while the answer waited: the person is told, once.
+  @Test func aTurnedDownAnswerIsToldNotDropped() async {
+    let changed = MapRouletteError(.conflict, status: 409, problem: .choice(.taskIneligible(reason: .elementGone)))
+    #expect(GuestOutbox.outcome(changed) == .notNeeded(.elementGone))
+    let outbox = GuestOutbox(file: nil)
+    outbox.add(entry(1))
+    outbox.add(entry(2))
+    await outbox.flush(via: { $0.taskID == 1 ? .notNeeded(.keyChanged) : .sent }, record: { _ in })
+    #expect(outbox.isEmpty)
+    #expect(outbox.notNeeded == [.init(taskID: 1, reason: .keyChanged)])
+    #expect(Wording.waitingNotNeededDetail(.place, [.keyChanged]) == Wording.noLongerNeeded(.place, .keyChanged))
+  }
+
+  /// A question answered on the map meanwhile: the rest of the answers still go.
+  @Test func answersNarrowToTheQuestionsStillOpen() {
+    let answer = GuestOutbox.Answer.answers(["armrest": "yes", "colour": "green"])
+    #expect(answer.narrowed(to: ["armrest"]) == .answers(["armrest": "yes"]))
+    #expect(answer.narrowed(to: ["backrest"]) == nil)
+    #expect(answer.narrowed(to: ["armrest", "colour"]) == nil)
+    #expect(answer.narrowed(to: nil) == nil)
+    #expect(GuestOutbox.Answer.outcome("not-a-bench").narrowed(to: ["armrest"]) == nil)
+  }
+
   @Test func waitingPlacesAreNeitherCheckedNorOffered() async throws {
     let tasks = [LocatedTask(try await makeTask(id: 1)), LocatedTask(try await makeTask(id: 2))]
     let p = CampaignProgress(tasks: tasks, justDone: [], held: [], waiting: [2])

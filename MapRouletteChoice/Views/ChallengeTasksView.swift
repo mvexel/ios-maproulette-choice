@@ -247,6 +247,14 @@ struct ChallengeTasksView: View {
     .alert(Wording.pendingLimit(noun), isPresented: Binding(get: { outbox.limitReached }, set: { outbox.limitReached = $0 })) {
       Button("OK", role: .cancel) {}
     }
+    .alert(
+      Wording.waitingNotNeeded(outbox.notNeeded.count),
+      isPresented: Binding(get: { !outbox.notNeeded.isEmpty }, set: { if !$0 { outbox.notNeeded = [] } })
+    ) {
+      Button("OK", role: .cancel) {}
+    } message: {
+      Text(Wording.waitingNotNeededDetail(noun, outbox.notNeeded.map(\.reason)))
+    }
   }
 
   #if DEBUG
@@ -654,12 +662,13 @@ struct ChallengeTasksView: View {
     failed = false
     if let preview, preview.phase == .signInNeeded || preview.phase == .noAccess { preview.phase = .opening }
     if tasks.isEmpty { status = "Loading…" }
-    keptTimer?.cancel()
-    if preview == nil, let slow = cache.slowAfter, let kept = cache.get(challengeID.value) {
-      // One bar that hangs is the usual dead spot: show the phone's copy after a few seconds, and
+    if keptTimer == nil, preview == nil, let slow = cache.slowAfter, let kept = cache.get(challengeID.value) {
+      // One bar that hangs is the usual dead spot: show the phone's copy a few seconds after the
+      // first try, even if a reload restarts the request meanwhile (a session refresh does), and
       // swap in the server's list if it still arrives (Tess, dev).
       keptTimer = Task {
         try? await Task.sleep(for: slow)
+        defer { keptTimer = nil }
         guard !Task.isCancelled, request != nil, tasks.isEmpty || keptFrom != nil else { return }
         show(kept)
       }
@@ -716,6 +725,7 @@ struct ChallengeTasksView: View {
         truncated = cursor != nil
         keptFrom = nil
         keptTimer?.cancel()
+        keptTimer = nil
         if self.preview == nil {
           cache.save(
             .init(
