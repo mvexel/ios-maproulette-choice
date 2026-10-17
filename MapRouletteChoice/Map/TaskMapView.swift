@@ -33,7 +33,7 @@ struct TaskMapView: UIViewRepresentable {
 
   func makeUIView(context: Context) -> MLNMapView {
     let style = MapStyle.url(styleURL, for: context.environment.colorScheme)
-    let map = interactive ? MLNMapView(frame: .zero, styleURL: style) : QuietMapView(frame: .zero, styleURL: style)
+    let map = interactive ? PinOrderMapView(frame: .zero, styleURL: style) : QuietMapView(frame: .zero, styleURL: style)
     map.delegate = context.coordinator
     // Turning this on makes MapLibre ask for location itself, so wait until the app has asked.
     map.showsUserLocation = Self.locationAllowed
@@ -143,6 +143,10 @@ struct TaskMapView: UIViewRepresentable {
   final class TaskAnnotation: MLNPointAnnotation {
     var taskID: Int64 = 0
     var pin = Pin.toCheck
+    /// "130 m northeast", as the list row reads it; nil without a location.
+    var distance: String?
+    /// Place in VoiceOver's reading order: 0 is nearest.
+    var rank = 0
   }
 
   /// A brand pin drawn at its own size (28 pt) in the middle of a 44 pt frame, so the touch
@@ -153,6 +157,8 @@ struct TaskMapView: UIViewRepresentable {
 
     private let imageView = UIImageView()
     private var name: String?
+    private var distance: String?
+    private(set) var rank = 0
     private var pin = Pin.toCheck
     /// Opens the place; nil for pins that don't open.
     private var onActivate: (() -> Void)?
@@ -173,13 +179,16 @@ struct TaskMapView: UIViewRepresentable {
 
     func configure(_ task: TaskAnnotation, onActivate: (() -> Void)?) {
       name = task.title
+      distance = task.distance
+      rank = task.rank
       pin = task.pin
       imageView.image = UIImage(named: task.pin.imageName)
       self.onActivate = onActivate
     }
 
+    /// Name and distance, as the list row reads them.
     override var accessibilityLabel: String? {
-      get { name }
+      get { [name, distance].compactMap { $0 }.joined(separator: ", ") }
       set {}
     }
 
@@ -244,15 +253,17 @@ struct TaskMapView: UIViewRepresentable {
       showReportedSpots(tasks, done: done, reports: reports, on: map)
       // VoiceOver reads pins in the order they are added: nearest first.
       let from = origin ?? map.userLocation?.location?.coordinate
-      let annotations: [TaskAnnotation] = TaskLocation.mapOrder(tasks, from: from).compactMap { task in
+      let annotations: [TaskAnnotation] = TaskLocation.mapOrder(tasks, from: from).enumerated().compactMap { rank, task in
         guard let coordinate = task.coordinate else { return nil }
         let a = TaskAnnotation()
         a.taskID = task.id
+        a.rank = rank
         a.pin = Pin(
           done: done.contains(task.id), pending: pending.contains(task.id),
           reported: reports[task.id] != nil || flagged.contains(task.id), waiting: waiting.contains(task.id))
         a.coordinate = coordinate
         a.title = Wording.placeName(task.task, noun)
+        a.distance = TaskLocation.directionText(from, coordinate)
         a.subtitle = a.pin.calloutSubtitle
         return a
       }
@@ -378,6 +389,39 @@ struct TaskMapView: UIViewRepresentable {
       mapView.deselectAnnotation(task, animated: false)
       open(task.taskID)
     }
+  }
+}
+
+/// The campaign map. MapLibre lists visible pins to VoiceOver nearest the middle of the map first;
+/// this lists them nearest the person first (`TaskAnnotation.rank`), like the List, then the rest
+/// (puck, compass, attribution) as MapLibre has them (Tess, #50).
+private final class PinOrderMapView: MLNMapView {
+  private var cached: [Any] = []
+  private var cachedAt = Date.distantPast
+
+  /// VoiceOver asks for every index in turn, so the order is kept briefly rather than rebuilt for
+  /// each; a pan or new pins change MapLibre's count, which rebuilds it.
+  private func ordered() -> [Any] {
+    let count = super.accessibilityElementCount()
+    if count == cached.count, Date().timeIntervalSince(cachedAt) < 0.5 { return cached }
+    var pins: [TaskMapView.PinView] = []
+    var rest: [Any] = []
+    for i in 0..<count {
+      guard let element = super.accessibilityElement(at: i) else { continue }
+      if let pin = element as? TaskMapView.PinView { pins.append(pin) } else { rest.append(element) }
+    }
+    cached = pins.sorted { $0.rank < $1.rank } + rest
+    cachedAt = Date()
+    return cached
+  }
+
+  override func accessibilityElementCount() -> Int { ordered().count }
+  override func accessibilityElement(at index: Int) -> Any? {
+    let all = ordered()
+    return all.indices.contains(index) ? all[index] : nil
+  }
+  override func index(ofAccessibilityElement element: Any) -> Int {
+    ordered().firstIndex { ($0 as AnyObject) === (element as AnyObject) } ?? NSNotFound
   }
 }
 

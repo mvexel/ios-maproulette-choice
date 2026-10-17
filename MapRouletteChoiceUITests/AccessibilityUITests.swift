@@ -39,7 +39,7 @@ final class AccessibilityUITests: XCTestCase {
     allowLocationIfAsked(app)
     // The first launch at AX-XXXL is slow on CI runners. If the prompt never shows, print what is on
     // screen (the app and any system alert) so the CI log says why; the xcresult isn't readable there.
-    guard app.staticTexts["Is there a shelter with a roof?"].waitForExistence(timeout: 30) else {
+    guard app.staticTexts["Is there a shelter with a roof?"].waitForExistence(timeout: 60) else {
       let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
       print("AXDUMP-BEGIN\n\(app.debugDescription)\nSPRINGBOARD ALERTS: \(springboard.alerts.debugDescription)\nAXDUMP-END")
       return XCTFail("the question prompt didn't appear at AX-XXXL")
@@ -74,7 +74,7 @@ final class AccessibilityUITests: XCTestCase {
 
     // Nearest first needs a location fix; the list's first row to check is the nearest.
     let nearest = app.buttons.containing(NSPredicate(format: "label BEGINSWITH 'Nearest stop ·'")).firstMatch
-    guard nearest.waitForExistence(timeout: 30) else { throw XCTSkip("No location fix in the simulator") }
+    guard nearest.waitForExistence(timeout: 60) else { throw XCTSkip("No location fix in the simulator") }
     sleep(1)  // the map re-adds its pins in the new order
     let firstPin = toCheck.element(boundBy: 0).label
     XCTAssertFalse(firstPin.isEmpty)
