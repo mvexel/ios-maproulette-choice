@@ -61,11 +61,14 @@
     /// `-demoLoad`'s trees: a square grid about 45 m apart, centred on Woodbine Food Hall.
     private static let loadPlaces: [(element: Int64, lat: Double, lng: Double)] = {
       let args = ProcessInfo.processInfo.arguments
-      let count = args.firstIndex(of: "-demoLoad").flatMap { args.indices.contains($0 + 1) ? Int(args[$0 + 1]) : nil } ?? 5200
+      var count = 5200
+      if let i = args.firstIndex(of: "-demoLoad"), i + 1 < args.count, let n = Int(args[i + 1]) { count = n }
       let side = Int(Double(count).squareRoot().rounded(.up))
-      return (0..<count).map { i in
-        (element: Int64(20_000_000 + i), lat: 40.7545 + 0.0004 * Double(i / side - side / 2),
-         lng: -111.9040 + 0.0005 * Double(i % side - side / 2))
+      return (0..<count).map { i -> (element: Int64, lat: Double, lng: Double) in
+        let row: Double = Double(i / side - side / 2)
+        let column: Double = Double(i % side - side / 2)
+        let element = Int64(20_000_000 + i)
+        return (element: element, lat: 40.7545 + 0.0004 * row, lng: -111.9040 + 0.0005 * column)
       }
     }()
     /// A campaign's tasks.
