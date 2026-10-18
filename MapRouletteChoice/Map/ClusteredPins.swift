@@ -121,10 +121,13 @@ import UIKit
     style.addSource(source)
     style.addSource(lookSource)
 
-    // 36, 44 and 52 pt across for under 100, under 1,000 and more places.
+    // 36, 44 and 52 pt across for under 100, under 1,000 and more places, ring included: MapLibre
+    // draws the stroke outside the radius, so the radius gives up the ring's width (Tess AB16).
     let circles = MLNCircleStyleLayer(identifier: Self.circleLayerID, source: source)
     circles.predicate = NSPredicate(format: "cluster == YES")
-    circles.circleRadius = NSExpression(format: "mgl_step:from:stops:(point_count, 18, %@)", [100: 22, 1000: 26] as NSDictionary)
+    let outerRadius: [Any] = ["step", ["get", "point_count"] as [Any], 18, 100, 22, 1000, 26]
+    let ring: [Any] = ["case", [">", ["get", "left"] as [Any], 0] as [Any], 3, 2]
+    circles.circleRadius = NSExpression(mglJSONObject: ["-", outerRadius, ring] as [Any])
     circles.circleColor = NSExpression(
       format: "TERNARY(left > 0, %@, %@)", Self.color(0xA84F00), Self.color(dark ? 0x34D399 : 0x1F7A4D))
     // A 3 pt ring while places are left (navy, white on the dark map: Tess AE8); all checked, a
