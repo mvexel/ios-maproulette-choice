@@ -138,8 +138,7 @@ import UIKit
     // The full number, grouped as the phone's region writes it ("1,240"), never "1.2k".
     let counts = MLNSymbolStyleLayer(identifier: Self.countLayerID, source: source)
     counts.predicate = NSPredicate(format: "cluster == YES AND left > 0")
-    let locale = Locale.current.identifier(.bcp47)
-    counts.text = NSExpression(mglJSONObject: ["number-format", ["get", "left"], ["locale": locale]] as [Any])
+    counts.text = Self.groupedCount("left")
     counts.textFontNames = NSExpression(forConstantValue: ["Noto Sans Bold"])
     counts.textFontSize = NSExpression(format: "mgl_step:from:stops:(point_count, 13, %@)", [1000: 14] as NSDictionary)
     counts.textColor = NSExpression(forConstantValue: UIColor.white)
@@ -165,6 +164,20 @@ import UIKit
       pins.iconIgnoresPlacement = NSExpression(forConstantValue: true)
       style.addLayer(pins)
     }
+  }
+
+  /// `key` as text with the region's thousands separator, built from plain expressions: MapLibre's
+  /// iOS bridge wraps `number-format`'s options in a literal, which the style rejects. Counts stay
+  /// under a million (the app reads at most 5,000 places).
+  static func groupedCount(_ key: String) -> NSExpression {
+    let n: [Any] = ["to-number", ["get", key] as [Any]]
+    let rest: [Any] = ["%", n, 1000]
+    let separator = Locale.current.groupingSeparator ?? ","
+    let padding: [Any] = ["case", ["<", rest, 10] as [Any], "00", ["<", rest, 100] as [Any], "0", ""]
+    let thousands: [Any] = ["to-string", ["floor", ["/", n, 1000] as [Any]] as [Any]]
+    let grouped: [Any] = ["concat", thousands, separator, padding, ["to-string", rest] as [Any]]
+    let json: [Any] = ["case", ["<", n, 1000] as [Any], ["to-string", n] as [Any], grouped]
+    return NSExpression(mglJSONObject: json)
   }
 
   private static func color(_ rgb: Int) -> UIColor {

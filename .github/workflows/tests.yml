@@ -92,6 +92,7 @@ jobs:
           path: |
             open-time.json
             open-time.log
+            open-time-errors.log
             open-time.png
             build.log
           if-no-files-found: warn

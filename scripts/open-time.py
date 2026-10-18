@@ -21,6 +21,7 @@ import re
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 BUNDLE = "lol.osm.maproulette.choice"
 LIMIT = 420  # seconds; AB13 took 290 s before #57
@@ -50,6 +51,12 @@ def main():
         sim + ["spawn", udid, "log", "stream", "--level", "debug", "--style", "compact", "--predicate",
                f'subsystem == "{BUNDLE}" AND category == "load"'],
         stdout=log_file, stderr=subprocess.STDOUT)
+    # The app's errors and faults (an uncaught exception's reason), printed if the tally never shows.
+    errors_file = open("open-time-errors.log", "w")
+    errors = subprocess.Popen(
+        sim + ["spawn", udid, "log", "stream", "--style", "compact", "--predicate",
+               'process == "MapRouletteChoice" AND (messageType == error OR messageType == fault)'],
+        stdout=errors_file, stderr=subprocess.STDOUT)
     time.sleep(2)  # let the stream attach before the first line
 
     launched = time.monotonic()
@@ -82,9 +89,11 @@ def main():
                 break
         else:
             idle_since = None
-    stream.terminate()
-    stream.wait()
+    for p in (stream, errors):
+        p.terminate()
+        p.wait()
     log_file.close()
+    errors_file.close()
     lines = open("open-time.log").read().splitlines()
     # What the map looked like once loaded (cluster look, Iris and Juno).
     subprocess.run(sim + ["io", udid, "screenshot", "open-time.png"], capture_output=True)
@@ -145,6 +154,13 @@ def main():
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
             f.write(table + "\n")
     print("\n".join(lines[-40:]))
+    if tally_at is None:
+        print("\nThe app's errors and faults:")
+        print("\n".join(open("open-time-errors.log").read().splitlines()[-40:]))
+        reports = sorted(Path.home().glob("Library/Logs/DiagnosticReports/MapRouletteChoice*.ips"), key=os.path.getmtime)
+        if reports:
+            print(f"\nCrash report {reports[-1].name}:")
+            print(reports[-1].read_text()[:6000])
     return 0 if tally_at is not None else 1
 
 
