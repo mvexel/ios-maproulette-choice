@@ -13,6 +13,8 @@ import UIKit
 /// (`PinOrderMapView`), each with a 44 pt frame.
 @MainActor final class ClusteredPins {
   static let threshold = 500
+  /// Places stop merging above this zoom (Android parity).
+  static let clusterMaxZoom = 15
 
   struct Place {
     let task: LocatedTask
@@ -29,6 +31,9 @@ import UIKit
   static let pinLayerID = "campaign-pins"
   static let lookLayerID = "campaign-look-pins"
   private static let tappable: Set<String> = [circleLayerID, countLayerID, tickLayerID, pinLayerID, lookLayerID]
+  /// One layer per cluster or pin, so VoiceOver lists each once (the count and tick layers draw
+  /// on top of the same features).
+  private static let spokenLayers: Set<String> = [circleLayerID, pinLayerID, lookLayerID]
   private static let tickImage = "campaign-cluster-tick"
   private static let pinImages = ["PinTodo", "PinDone", "PinPending", "PinWaiting", "PinLook"]
 
@@ -116,7 +121,7 @@ import UIKit
     ]
     let source = MLNShapeSource(
       identifier: Self.sourceID, shape: shape,
-      options: [.clustered: true, .clusterRadius: 50, .maximumZoomLevelForClustering: 15, .clusterProperties: left])
+      options: [.clustered: true, .clusterRadius: 50, .maximumZoomLevelForClustering: Self.clusterMaxZoom, .clusterProperties: left])
     let lookSource = MLNShapeSource(identifier: Self.lookSourceID, shape: lookShape, options: nil)
     style.addSource(source)
     style.addSource(lookSource)
@@ -210,23 +215,50 @@ import UIKit
     }
     guard let hit = hits.min(by: { distance($0) < distance($1) }) else { return false }
     if let cluster = hit as? MLNPointFeatureCluster {
-      zoom(into: cluster, on: map)
+      zoom(toCluster: cluster.clusterIdentifier, at: cluster.coordinate, on: map)
     } else if let id = (hit.identifier as? NSNumber)?.int64Value, let place = byID[id] {
       select(place)
     }
     return true
   }
 
-  private func zoom(into cluster: MLNPointFeatureCluster, on map: MLNMapView) {
-    guard let source = map.style?.source(withIdentifier: Self.sourceID) as? MLNShapeSource else { return }
-    let zoom = max(source.zoomLevel(forExpanding: cluster), map.zoomLevel + 1)
-    map.setCenter(cluster.coordinate, zoomLevel: zoom, animated: !UIAccessibility.isReduceMotionEnabled)
+  /// Zooms in on the cluster `id` drawn at `coordinate`. The expansion zoom is asked only of a
+  /// cluster the map shows now: the source re-clusters as pages and answers arrive, and a VoiceOver
+  /// element can be activated after its last rebuild; MapLibre throws for a cluster id the source no longer has ("No cluster
+  /// with the specified id", Android). A cluster that is gone zooms in two levels instead, at most to
+  /// zoom 16, where every place has its own pin.
+  private func zoom(toCluster id: UInt, at coordinate: CLLocationCoordinate2D, on map: MLNMapView) {
+    let source = map.style?.source(withIdentifier: Self.sourceID) as? MLNShapeSource
+    let expansion = source.flatMap { source in
+      Self.current(id, at: coordinate, on: map).map { source.zoomLevel(forExpanding: $0) }
+    }
+    let zoom = Self.zoom(expansion: expansion, from: map.zoomLevel)
+    map.setCenter(coordinate, zoomLevel: zoom, animated: !UIAccessibility.isReduceMotionEnabled)
+  }
+
+  /// The zoom to go to: the cluster's expansion zoom but at least one level in, else two levels in,
+  /// no further than the first zoom without clusters (Android parity) and never out.
+  static func zoom(expansion: Double?, from current: Double) -> Double {
+    expansion.map { max($0, current + 1) } ?? max(current, min(current + 2, Double(clusterMaxZoom + 1)))
+  }
+
+  /// The cluster on screen now with this id, near where it was drawn.
+  private static func current(_ id: UInt, at coordinate: CLLocationCoordinate2D, on map: MLNMapView)
+    -> MLNPointFeatureCluster?
+  {
+    let p = map.convert(coordinate, toPointTo: map)
+    let near = CGRect(x: p.x - 22, y: p.y - 22, width: 44, height: 44)
+    return map.visibleFeatures(in: near, styleLayerIdentifiers: [circleLayerID])
+      .lazy.compactMap { $0 as? MLNPointFeatureCluster }
+      .first { $0.clusterIdentifier == id }
   }
 
   // MARK: VoiceOver
 
   /// What a VoiceOver double tap does.
   final class Element: UIAccessibilityElement {
+    /// `cluster-<id>` or `place-<task id>`.
+    var key = ""
     var action: (() -> Void)?
     override func accessibilityActivate() -> Bool {
       guard let action else { return false }
@@ -235,36 +267,98 @@ import UIKit
     }
   }
 
+  /// One element per cluster or pin, kept across rebuilds: VoiceOver finds its place again by
+  /// identity, so a new object for the same pin after the questions close sent focus to Back
+  /// (A11y1, Android parity). Also remembers which one was last activated.
+  @MainActor final class Pool {
+    private var byKey: [String: Element] = [:]
+    private var activated: String?
+
+    /// `key`'s element, the same object as last time if it was listed then.
+    func element(_ key: String, in container: Any) -> Element {
+      if let element = byKey[key] { return element }
+      let element = Element(accessibilityContainer: container)
+      element.key = key
+      byKey[key] = element
+      return element
+    }
+
+    /// Drops elements no longer listed, except the activated one.
+    func keep(_ keys: [String]) {
+      var kept: [String: Element] = [:]
+      for key in keys { kept[key] = byKey[key] }
+      if let activated, let element = byKey[activated] { kept[activated] = element }
+      byKey = kept
+    }
+
+    func activate(_ key: String) { activated = key }
+    var hasActivation: Bool { activated != nil }
+
+    /// Where focus goes when the map is back on screen after an activation: the same element if it
+    /// is still listed, else the first one. Nil when nothing was activated; asked once.
+    func returnFocus(in listed: [UIAccessibilityElement]) -> UIAccessibilityElement? {
+      guard let key = activated else { return nil }
+      activated = nil
+      if let element = byKey[key], listed.contains(where: { $0 === element }) { return element }
+      return listed.first
+    }
+  }
+
+  private let pool = Pool()
+  /// Set by a cluster's zoom: once the map settles, focus goes to the nearest cluster or pin.
+  private var focusAfterZoom = false
+
   /// The visible clusters and pins, nearest the person first (else north to south), at most
   /// `limit`. Kept briefly: VoiceOver asks for every index in turn.
   func accessibilityElements(in map: MLNMapView, limit: Int) -> [UIAccessibilityElement] {
     if let spoken, Date().timeIntervalSince(spokenAt) < 1 { return spoken }
     let from = origin ?? map.userLocation?.location?.coordinate
     var found: [(key: Double, element: Element)] = []
-    for feature in map.visibleFeatures(in: map.bounds, styleLayerIdentifiers: Self.tappable) {
+    var keys: [String] = []
+    let features = map.visibleFeatures(in: map.bounds, styleLayerIdentifiers: Self.spokenLayers)
+    let clusters = Self.distinctClusters(
+      features.compactMap { $0 as? MLNPointFeatureCluster }.map {
+        (id: $0.clusterIdentifier, count: $0.clusterPointCount, at: map.convert($0.coordinate, toPointTo: map))
+      })
+    for feature in features {
       let coordinate = feature.coordinate
-      let element = Element(accessibilityContainer: map)
+      let element: Element
       if let cluster = feature as? MLNPointFeatureCluster {
+        let key = "cluster-\(cluster.clusterIdentifier)"
+        guard clusters.contains(cluster.clusterIdentifier), !keys.contains(key) else { continue }
+        keys.append(key)
+        element = pool.element(key, in: map)
         let left = (cluster.attribute(forKey: "left") as? NSNumber)?.intValue ?? 0
         element.accessibilityLabel =
           left > 0
           ? Wording.clusterLeft(left, noun) : Wording.clusterAllChecked(Int(cluster.clusterPointCount), noun)
+        element.accessibilityValue = nil
         element.accessibilityHint = Wording.clusterHint
         element.accessibilityTraits = .button
-        element.action = { [weak self, weak map, weak cluster] in
-          guard let self, let map, let cluster else { return }
-          self.zoom(into: cluster, on: map)
+        // The id and coordinate, not the feature: MapLibre doesn't keep the feature alive.
+        let id = cluster.clusterIdentifier
+        element.action = { [weak self, weak map] in
+          guard let self, let map else { return }
+          self.focusAfterZoom = true
+          self.zoom(toCluster: id, at: coordinate, on: map)
         }
       } else if let id = (feature.identifier as? NSNumber)?.int64Value, let place = byID[id] {
+        let key = "place-\(id)"
+        guard !keys.contains(key) else { continue }
+        keys.append(key)
+        element = pool.element(key, in: map)
         element.accessibilityLabel = [
           Wording.placeName(place.task.task, noun), TaskLocation.directionText(from, place.coordinate),
         ].compactMap { $0 }.joined(separator: ", ")
         element.accessibilityValue = place.pin.accessibilityValue
         element.accessibilityHint = place.pin.accessibilityHint
-        if place.pin.opens {
-          element.accessibilityTraits = .button
-          element.action = { [weak self] in self?.open(id) }
-        }
+        element.accessibilityTraits = place.pin.opens ? .button : .none
+        element.action =
+          place.pin.opens
+          ? { [weak self] in
+            self?.pool.activate(key)
+            self?.open(id)
+          } : nil
       } else {
         continue
       }
@@ -277,9 +371,57 @@ import UIKit
         ?? -coordinate.latitude
       found.append((key, element))
     }
+    pool.keep(keys)
     let elements = found.sorted { $0.key < $1.key }.prefix(limit).map(\.element)
     spoken = elements
     spokenAt = Date()
     return elements
+  }
+
+  /// The first listed cluster or place, activated as a VoiceOver double tap does (`AXProbe`). Its
+  /// label, or nil when none is listed.
+  func activateFirst(_ kind: AXProbe.Kind, in map: MLNMapView, limit: Int) -> String? {
+    let prefix = kind == .cluster ? "cluster-" : "place-"
+    invalidate()
+    guard
+      let element = accessibilityElements(in: map, limit: limit).lazy.compactMap({ $0 as? Element })
+        .first(where: { $0.key.hasPrefix(prefix) && $0.action != nil })
+    else { return nil }
+    let label = element.accessibilityLabel
+    return element.accessibilityActivate() ? label : nil
+  }
+
+  /// The clusters to list, by id: one per id (a cluster crossing a tile edge comes back once per
+  /// tile), and of distinct ids drawn at the same spot (two zoom levels drawn at once, CI f5b7e03)
+  /// the one with the most places, so VoiceOver never says fewer than the map shows.
+  static func distinctClusters(_ found: [(id: UInt, count: UInt, at: CGPoint)]) -> Set<UInt> {
+    var kept: [(id: UInt, count: UInt, at: CGPoint)] = []
+    for cluster in found where !kept.contains(where: { $0.id == cluster.id }) {
+      if let i = kept.firstIndex(where: { hypot($0.at.x - cluster.at.x, $0.at.y - cluster.at.y) < 3 }) {
+        if cluster.count > kept[i].count { kept[i] = cluster }
+      } else {
+        kept.append(cluster)
+      }
+    }
+    return Set(kept.map(\.id))
+  }
+
+  /// The map is on screen again (the questions closed): the place that was opened, so VoiceOver
+  /// doesn't start over at Back. Nil when nothing was opened from the map.
+  func returnFocus(in map: MLNMapView, limit: Int) -> UIAccessibilityElement? {
+    guard pool.hasActivation else { return nil }
+    invalidate()
+    return pool.returnFocus(in: accessibilityElements(in: map, limit: limit))
+  }
+
+  /// After a cluster's zoom has settled: the nearest cluster or pin, since the one activated is
+  /// gone. Nil when the move wasn't a VoiceOver zoom, or nothing is drawn yet (asked again when
+  /// the map is idle).
+  func focusAfterMove(in map: MLNMapView, limit: Int) -> UIAccessibilityElement? {
+    guard focusAfterZoom else { return nil }
+    invalidate()
+    guard let first = accessibilityElements(in: map, limit: limit).first else { return nil }
+    focusAfterZoom = false
+    return first
   }
 }

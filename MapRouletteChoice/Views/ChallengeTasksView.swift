@@ -80,6 +80,8 @@ struct ChallengeTasksView: View {
   }
   @State private var locator = Locator()
   @State private var selected: Selection?
+  /// Bumped each time the questions close, so the map can send VoiceOver back to the place.
+  @State private var returns = 0
   @State private var sheet: Sheet?
 
   enum Sheet: String, Identifiable {
@@ -163,11 +165,15 @@ struct ChallengeTasksView: View {
           case .map:
             TaskMapView(
               styleURL: session.mapStyleURL, tasks: shown, done: doneIDs, pending: pendingIDs, waiting: waitingIDs,
-              reports: reports, flagged: campaigns.justFlagged.union(heldReports), origin: origin, noun: noun
+              reports: reports, flagged: campaigns.justFlagged.union(heldReports), origin: origin, noun: noun,
+              returns: returns
             ) { id in navigate(to: id) }
               .background(Color(.secondarySystemBackground))
               .overlay {
                 if tasks.isEmpty && request != nil { ProgressView("Loading…").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) }
+              }
+              .overlay(alignment: .bottomLeading) {
+                if AXProbe.isOn { AXProbeOverlay().padding(.bottom, 40) }
               }
               .ignoresSafeArea(edges: .bottom)
           case .list: list
@@ -223,6 +229,9 @@ struct ChallengeTasksView: View {
       }
     }
     .onDisappear { locator.stop() }
+    .onChange(of: selected == nil) { wasNil, isNil in
+      if isNil && !wasNil { returns += 1 }
+    }
     .onChange(of: session.view.generation) {
       client = session.newClient()
       load()

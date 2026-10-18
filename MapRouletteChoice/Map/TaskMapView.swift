@@ -28,6 +28,9 @@ struct TaskMapView: UIViewRepresentable {
   var origin: CLLocationCoordinate2D?
   var noun = Noun.place
   var interactive = true
+  /// Counts the times the questions for a place closed: each new value sends VoiceOver back to
+  /// the place that was opened (A11y1).
+  var returns = 0
   let open: (Int64) -> Void
 
   func makeCoordinator() -> Coordinator { Coordinator(open: open) }
@@ -36,6 +39,7 @@ struct TaskMapView: UIViewRepresentable {
     let style = MapStyle.url(styleURL, for: context.environment.colorScheme)
     let map = interactive ? PinOrderMapView(frame: .zero, styleURL: style) : QuietMapView(frame: .zero, styleURL: style)
     map.delegate = context.coordinator
+    context.coordinator.returns = returns
     // Turning this on makes MapLibre ask for location itself, so wait until the app has asked.
     map.showsUserLocation = Self.locationAllowed
     map.compassViewPosition = .topRight
@@ -59,6 +63,12 @@ struct TaskMapView: UIViewRepresentable {
       }
       tap.delegate = context.coordinator
       map.addGestureRecognizer(tap)
+      if AXProbe.isOn {
+        AXProbe.shared.activate = { [weak ordered, weak clusters = context.coordinator.clusters] kind in
+          guard let ordered, let clusters else { return nil }
+          return clusters.activateFirst(kind, in: ordered, limit: PinOrderMapView.spokenPins)
+        }
+      }
     }
     // Salt Lake City until tasks load.
     map.setCenter(CLLocationCoordinate2D(latitude: 40.7608, longitude: -111.8910), zoomLevel: 11, animated: false)
@@ -67,6 +77,10 @@ struct TaskMapView: UIViewRepresentable {
 
   func updateUIView(_ map: MLNMapView, context: Context) {
     context.coordinator.open = open
+    if returns != context.coordinator.returns {
+      context.coordinator.returns = returns
+      (map as? PinOrderMapView)?.focusReturnedPlace()
+    }
     // Pins are annotations, so they survive the style swap when the appearance changes.
     let style = MapStyle.url(styleURL, for: context.environment.colorScheme)
     if context.coordinator.styleFallback.shouldLoad(style, on: map) { map.styleURL = style }
@@ -226,6 +240,7 @@ struct TaskMapView: UIViewRepresentable {
 
   @MainActor final class Coordinator: NSObject, @preconcurrency MLNMapViewDelegate, UIGestureRecognizerDelegate {
     var open: (Int64) -> Void
+    var returns = 0
     /// Campaigns over 500 places, drawn as clusters instead of `pins`.
     private(set) lazy var clusters = ClusteredPins(
       open: { [weak self] id in self?.open(id) }, select: { [weak self] place in self?.showCallout(place) })
@@ -399,7 +414,21 @@ struct TaskMapView: UIViewRepresentable {
       self.calloutPin = nil
     }
 
-    func mapView(_ mapView: MLNMapView, regionDidChangeAnimated animated: Bool) { clusters.invalidate() }
+    func mapView(_ mapView: MLNMapView, regionDidChangeAnimated animated: Bool) {
+      clusters.invalidate()
+      if AXProbe.isOn { AXProbe.shared.zoom = mapView.zoomLevel }
+      // A VoiceOver zoom into a cluster: the cluster is gone, so focus the nearest of what is shown.
+      if let next = clusters.focusAfterMove(in: mapView, limit: PinOrderMapView.spokenPins) {
+        AXProbe.post(.layoutChanged, next)
+      }
+    }
+
+    /// The zoomed-in clusters and pins weren't drawn yet when the region changed.
+    func mapViewDidBecomeIdle(_ mapView: MLNMapView) {
+      if let next = clusters.focusAfterMove(in: mapView, limit: PinOrderMapView.spokenPins) {
+        AXProbe.post(.layoutChanged, next)
+      }
+    }
 
     /// A dot and a dashed line for each open place reported as moved. Added before the pins, so
     /// they sit underneath.
@@ -557,6 +586,29 @@ private final class PinOrderMapView: MLNMapView {
     cached = Array(pins.sorted { $0.rank < $1.rank }.prefix(Self.spokenPins)) + rest
     cachedAt = Date()
     return cached
+  }
+
+  /// The questions for a place opened from here closed: VoiceOver goes to that place again, not
+  /// to Back (A11y1). A layout change, posted once the pop has ended, after the navigation's own
+  /// screen change (which would otherwise win); a pop with no transition to wait for (or one
+  /// already over) gets a short delay instead.
+  func focusReturnedPlace() {
+    guard let clusters, clusters.isActive else { return }
+    let focus = { [weak self] in
+      guard let self, self.window != nil, let target = clusters.returnFocus(in: self, limit: Self.spokenPins)
+      else { return }
+      AXProbe.post(.layoutChanged, target)
+    }
+    var responder: UIResponder? = self
+    while let next = responder?.next, !(next is UIViewController) { responder = next }
+    if let transition = (responder?.next as? UIViewController)?.navigationController?.transitionCoordinator {
+      transition.animate(alongsideTransition: nil) { context in
+        guard !context.isCancelled else { return }
+        DispatchQueue.main.async(execute: focus)
+      }
+    } else {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: focus)
+    }
   }
 
   override func accessibilityElementCount() -> Int { ordered().count }
