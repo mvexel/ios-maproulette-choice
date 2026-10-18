@@ -39,7 +39,7 @@ jobs:
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -resultBundlePath TestResults.xcresult \
             CODE_SIGNING_ALLOWED=NO \
-            | tee xcodebuild.log | grep -E "^(Test Suite|Test [Cc]ase .*(passed|failed|skipped)|\*\* TEST|.*error:)" || true
+            | tee xcodebuild.log | grep -E "^(Test Suite|Test [Cc]ase .*(passed|failed|skipped)|\*\* TEST|.*error:)|recorded an issue|Expectation failed" || true
           # A UI test that can't find its screen prints the accessibility tree between these markers.
           sed -n '/AXDUMP-BEGIN/,/AXDUMP-END/p' xcodebuild.log | head -300
           grep -q "\*\* TEST SUCCEEDED \*\*" xcodebuild.log
@@ -82,6 +82,12 @@ jobs:
           grep -q "\*\* BUILD SUCCEEDED \*\*" build.log
           app=$(find DerivedData/Build/Products/Debug-iphonesimulator -maxdepth 1 -name "*.app" ! -name "*Tests*" | head -1)
           xcrun simctl install "${{ steps.sim.outputs.udid }}" "$app"
+      # The floor: the app and map with a handful of places, so the 5,200-place memory reads as a
+      # difference rather than a simulator total.
+      - name: Open a 50-place campaign (floor)
+        run: |
+          scripts/open-time.py "${{ steps.sim.outputs.udid }}" 50
+          for f in open-time.json open-time.log open-time.png; do mv "$f" "floor-$f"; done
       - name: Open a 5,200-place campaign
         run: scripts/open-time.py "${{ steps.sim.outputs.udid }}" 5200
       - name: Upload timings
@@ -94,6 +100,9 @@ jobs:
             open-time.log
             open-time-errors.log
             open-time.png
+            floor-open-time.json
+            floor-open-time.log
+            floor-open-time.png
             build.log
           if-no-files-found: warn
           retention-days: 14
