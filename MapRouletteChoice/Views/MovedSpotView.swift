@@ -182,6 +182,8 @@ struct SpotMapView: UIViewRepresentable {
   func makeUIView(context: Context) -> MLNMapView {
     let map = MLNMapView(frame: .zero, styleURL: MapStyle.url(AppConfig.detailStyle, for: context.environment.colorScheme))
     map.delegate = context.coordinator
+    // The first style starts loading in init, before the delegate is set (Tess AB18).
+    context.coordinator.styleFallback.styleStarted(on: map)
     map.tintColor = .systemBlue
     map.setCenter(mapped, zoomLevel: 18, animated: false)
     let mappedMarker = MappedSpot()
@@ -209,7 +211,7 @@ struct SpotMapView: UIViewRepresentable {
     context.coordinator.picked = picked
     context.coordinator.located = located
     let style = MapStyle.url(AppConfig.detailStyle, for: context.environment.colorScheme)
-    if map.styleURL != style { map.styleURL = style }
+    if context.coordinator.styleFallback.shouldLoad(style, on: map) { map.styleURL = style }
     if interactive, map.showsUserLocation != Self.locationAllowed { map.showsUserLocation = Self.locationAllowed }
     context.coordinator.show(spot, on: map)
     if !interactive { context.coordinator.frameBoth(on: map) }
@@ -313,6 +315,7 @@ struct SpotMapView: UIViewRepresentable {
     var mapped: CLLocationCoordinate2D?
     var interactive = true
     private var pin: NewSpot?
+    let styleFallback = MapStyle.Fallback()
 
     init(picked: @escaping (CLLocationCoordinate2D) -> Void, located: @escaping (CLLocationCoordinate2D) -> Void) {
       self.picked = picked
@@ -366,7 +369,15 @@ struct SpotMapView: UIViewRepresentable {
       TaskMapView.Coordinator.drawLines(pin.map { [[mapped, $0.coordinate]] } ?? [], in: style, dark: MapStyle.isDark(map))
     }
 
+    /// No style (offline with none cached): a plain background, so the pins still show.
+    func mapViewDidFailLoadingMap(_ mapView: MLNMapView, withError error: any Error) {
+      styleFallback.styleFailed(on: mapView)
+    }
+
+    func mapViewWillStartLoadingMap(_ mapView: MLNMapView) { styleFallback.styleStarted(on: mapView) }
+
     func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
+      styleFallback.styleLoaded()
       if MapStyle.isDark(mapView) { MapStyle.brightenLabels(in: style) }
       for layer in style.layers {
         if let buildings = layer as? MLNFillExtrusionStyleLayer { buildings.isVisible = false }

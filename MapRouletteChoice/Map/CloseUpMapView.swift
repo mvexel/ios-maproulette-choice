@@ -58,6 +58,8 @@ struct CloseUpMapView: UIViewRepresentable {
     context.coordinator.dark = context.environment.colorScheme == .dark
     let map = CloseUpMap(frame: .zero, styleURL: MapStyle.url(styleURL, for: context.environment.colorScheme))
     map.delegate = context.coordinator
+    // The first style starts loading in init, before the delegate is set (Tess AB18).
+    context.coordinator.styleFallback.styleStarted(on: map)
     map.tintColor = .systemBlue
     // North-up: the heading on the blue dot shows facing (§A).
     map.allowsRotating = false
@@ -83,7 +85,7 @@ struct CloseUpMapView: UIViewRepresentable {
     // Appearance changed: load the other style. Its didFinishLoading redraws every layer below in
     // the new colours.
     let wanted = MapStyle.url(styleURL, for: context.environment.colorScheme)
-    if map.styleURL != wanted {
+    if c.styleFallback.shouldLoad(wanted, on: map) {
       c.dark = context.environment.colorScheme == .dark
       c.styleLoaded = false
       map.styleURL = wanted
@@ -127,6 +129,7 @@ struct CloseUpMapView: UIViewRepresentable {
     private var lookedFor: Set<Int64> = []
     private var drawnFootprints: [String] = []
     var styleLoaded = false
+    let styleFallback = MapStyle.Fallback()
     /// The map is in its dark style: layer colours resolve to their dark variants.
     var dark = false
 
@@ -406,7 +409,15 @@ struct CloseUpMapView: UIViewRepresentable {
       style.addLayer(dot)
     }
 
+    /// No style (offline with none cached): a plain background, so the place and its outline show.
+    func mapViewDidFailLoadingMap(_ mapView: MLNMapView, withError error: any Error) {
+      styleFallback.styleFailed(on: mapView)
+    }
+
+    func mapViewWillStartLoadingMap(_ mapView: MLNMapView) { styleFallback.styleStarted(on: mapView) }
+
     func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
+      styleFallback.styleLoaded()
       if MapStyle.isDark(mapView) { MapStyle.brightenLabels(in: style) }
       // 3D buildings tilt and hide the street at this zoom; flat footprints keep the context.
       for buildings in style.layers.compactMap({ $0 as? MLNFillExtrusionStyleLayer }) {

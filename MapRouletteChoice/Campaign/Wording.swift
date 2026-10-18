@@ -418,6 +418,8 @@ enum Wording {
   static let close = "Close"
   static let previewAlreadyPublished = "This campaign is published, so answers are saved for real."
   static func previewingAs(_ account: String) -> String { "You're previewing as \(account)." }
+  /// Replaces the line about answers going on OpenStreetMap (design/preview-mode.md §4, §8).
+  static let previewNothingSaved = "In preview, nothing you answer is saved."
   /// The signed-in account as preview names it: the OpenStreetMap username (no "@"), else
   /// "MapRoulette user 7" when the server didn't send one.
   static func account(_ userID: Int64?, displayName: String? = nil) -> String? {

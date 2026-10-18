@@ -641,7 +641,11 @@ struct ChallengeTasksView: View {
             Text("Instructions for mappers").font(.headline)
             Text(instruction).font(.subheadline).textSelection(.enabled)
           }
-          Label(session.canAnswerAsGuest ? Wording.guestAnswersArePublic : Wording.answersArePublic, systemImage: "map")
+          Label(
+            preview != nil
+              ? Wording.previewNothingSaved
+              : session.canAnswerAsGuest ? Wording.guestAnswersArePublic : Wording.answersArePublic,
+            systemImage: "map")
           Label(Wording.locationStaysOnPhone(noun), systemImage: "location")
           if preview != nil {
             if let account = Wording.account(session.view.userID, displayName: session.view.displayName) {
