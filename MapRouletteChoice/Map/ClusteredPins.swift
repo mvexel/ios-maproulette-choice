@@ -13,6 +13,8 @@ import UIKit
 /// (`PinOrderMapView`), each with a 44 pt frame.
 @MainActor final class ClusteredPins {
   static let threshold = 500
+  /// Places stop merging above this zoom (Android parity).
+  static let clusterMaxZoom = 15
 
   struct Place {
     let task: LocatedTask
@@ -116,7 +118,7 @@ import UIKit
     ]
     let source = MLNShapeSource(
       identifier: Self.sourceID, shape: shape,
-      options: [.clustered: true, .clusterRadius: 50, .maximumZoomLevelForClustering: 15, .clusterProperties: left])
+      options: [.clustered: true, .clusterRadius: 50, .maximumZoomLevelForClustering: Self.clusterMaxZoom, .clusterProperties: left])
     let lookSource = MLNShapeSource(identifier: Self.lookSourceID, shape: lookShape, options: nil)
     style.addSource(source)
     style.addSource(lookSource)
@@ -220,7 +222,8 @@ import UIKit
   /// Zooms in on `cluster`. The expansion zoom is asked only of a cluster the map shows now: the
   /// source re-clusters as pages and answers arrive, and a VoiceOver element can hold the cluster
   /// from its last rebuild; MapLibre throws for a cluster id the source no longer has ("No cluster
-  /// with the specified id", Android). A cluster that is gone zooms in two levels instead.
+  /// with the specified id", Android). A cluster that is gone zooms in two levels instead, at most to
+  /// zoom 16, where every place has its own pin.
   private func zoom(into cluster: MLNPointFeatureCluster, on map: MLNMapView) {
     let source = map.style?.source(withIdentifier: Self.sourceID) as? MLNShapeSource
     let expansion = source.flatMap { source in
@@ -230,9 +233,10 @@ import UIKit
     map.setCenter(cluster.coordinate, zoomLevel: zoom, animated: !UIAccessibility.isReduceMotionEnabled)
   }
 
-  /// The zoom to go to: the cluster's expansion zoom but at least one level in, else two levels in.
+  /// The zoom to go to: the cluster's expansion zoom but at least one level in, else two levels in,
+  /// no further than the first zoom without clusters (Android parity) and never out.
   static func zoom(expansion: Double?, from current: Double) -> Double {
-    expansion.map { max($0, current + 1) } ?? current + 2
+    expansion.map { max($0, current + 1) } ?? max(current, min(current + 2, Double(clusterMaxZoom + 1)))
   }
 
   /// The cluster on screen now with `cluster`'s id, near where it was drawn.

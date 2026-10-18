@@ -51,5 +51,8 @@ import UIKit
     #expect(ClusteredPins.zoom(expansion: nil, from: 12) == 14)
     #expect(ClusteredPins.zoom(expansion: 15, from: 12) == 15)
     #expect(ClusteredPins.zoom(expansion: 12.5, from: 12) == 13)
+    // Capped at the first zoom without clusters, and never zooming out.
+    #expect(ClusteredPins.zoom(expansion: nil, from: 15) == 16)
+    #expect(ClusteredPins.zoom(expansion: nil, from: 17) == 17)
   }
 }
