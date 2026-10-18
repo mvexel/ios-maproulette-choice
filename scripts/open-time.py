@@ -11,8 +11,8 @@ No XCUITest and no accessibility queries: an accessibility snapshot of thousands
 (Tess, AB12) and would load the app while it is being timed.
 
 Usage: open-time.py <simulator udid> [places]
-Prints a Markdown table (also appended to $GITHUB_STEP_SUMMARY) and writes open-time.json and
-open-time.log. Exits 1 if the tally isn't set within the time limit.
+Prints a Markdown table (also appended to $GITHUB_STEP_SUMMARY) and writes open-time.json,
+open-time.log and open-time.png. Exits 1 if the tally isn't set within the time limit.
 """
 
 import json
@@ -86,6 +86,8 @@ def main():
     stream.wait()
     log_file.close()
     lines = open("open-time.log").read().splitlines()
+    # What the map looked like once loaded (cluster look, Iris and Juno).
+    subprocess.run(sim + ["io", udid, "screenshot", "open-time.png"], capture_output=True)
     subprocess.run(sim + ["terminate", udid, BUNDLE], capture_output=True)
 
     def at(pattern):
