@@ -398,7 +398,13 @@ struct TaskMapView: UIViewRepresentable {
       self.calloutPin = nil
     }
 
-    func mapView(_ mapView: MLNMapView, regionDidChangeAnimated animated: Bool) { clusters.invalidate() }
+    func mapView(_ mapView: MLNMapView, regionDidChangeAnimated animated: Bool) {
+      clusters.invalidate()
+      // A VoiceOver zoom into a cluster: the cluster is gone, so focus the nearest of what is shown.
+      if let next = clusters.focusAfterMove(in: mapView, limit: PinOrderMapView.spokenPins) {
+        UIAccessibility.post(notification: .layoutChanged, argument: next)
+      }
+    }
 
     /// A dot and a dashed line for each open place reported as moved. Added before the pins, so
     /// they sit underneath.
@@ -547,6 +553,24 @@ private final class PinOrderMapView: MLNMapView {
     cached = Array(pins.sorted { $0.rank < $1.rank }.prefix(Self.spokenPins)) + rest
     cachedAt = Date()
     return cached
+  }
+
+  /// Back on screen after the questions for a place opened from here: VoiceOver goes to that
+  /// place again, not to Back (A11y1). Posted once the navigation transition ends, after its own
+  /// screen change.
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    guard window != nil, let clusters, clusters.isActive,
+      let target = clusters.returnFocus(in: self, limit: Self.spokenPins)
+    else { return }
+    let focus = { UIAccessibility.post(notification: .screenChanged, argument: target) }
+    var responder: UIResponder? = self
+    while let next = responder?.next, !(next is UIViewController) { responder = next }
+    if let transition = (responder?.next as? UIViewController)?.transitionCoordinator {
+      transition.animate(alongsideTransition: nil) { _ in DispatchQueue.main.async(execute: focus) }
+    } else {
+      DispatchQueue.main.async(execute: focus)
+    }
   }
 
   override func accessibilityElementCount() -> Int { ordered().count }
