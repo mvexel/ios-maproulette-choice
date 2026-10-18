@@ -137,7 +137,7 @@ import UIKit
     let counts = MLNSymbolStyleLayer(identifier: Self.countLayerID, source: source)
     counts.predicate = NSPredicate(format: "cluster == YES AND left > 0")
     let locale = Locale.current.identifier(.bcp47)
-    counts.text = NSExpression(mlnJSONObject: ["number-format", ["get", "left"], ["locale": locale]] as [Any])
+    counts.text = NSExpression(mglJSONObject: ["number-format", ["get", "left"], ["locale": locale]] as [Any])
     counts.textFontNames = NSExpression(forConstantValue: ["Noto Sans Bold"])
     counts.textFontSize = NSExpression(format: "mgl_step:from:stops:(point_count, 13, %@)", [1000: 14] as NSDictionary)
     counts.textColor = NSExpression(forConstantValue: UIColor.white)
@@ -201,7 +201,7 @@ import UIKit
 
   private func zoom(into cluster: MLNPointFeatureCluster, on map: MLNMapView) {
     guard let source = map.style?.source(withIdentifier: Self.sourceID) as? MLNShapeSource else { return }
-    let zoom = max(source.zoomLevelForExpandingCluster(cluster), map.zoomLevel + 1)
+    let zoom = max(source.zoomLevel(forExpanding: cluster), map.zoomLevel + 1)
     map.setCenter(cluster.coordinate, zoomLevel: zoom, animated: !UIAccessibility.isReduceMotionEnabled)
   }
 
