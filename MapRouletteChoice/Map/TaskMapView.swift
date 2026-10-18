@@ -28,6 +28,9 @@ struct TaskMapView: UIViewRepresentable {
   var origin: CLLocationCoordinate2D?
   var noun = Noun.place
   var interactive = true
+  /// Counts the times the questions for a place closed: each new value sends VoiceOver back to
+  /// the place that was opened (A11y1).
+  var returns = 0
   let open: (Int64) -> Void
 
   func makeCoordinator() -> Coordinator { Coordinator(open: open) }
@@ -36,6 +39,7 @@ struct TaskMapView: UIViewRepresentable {
     let style = MapStyle.url(styleURL, for: context.environment.colorScheme)
     let map = interactive ? PinOrderMapView(frame: .zero, styleURL: style) : QuietMapView(frame: .zero, styleURL: style)
     map.delegate = context.coordinator
+    context.coordinator.returns = returns
     // Turning this on makes MapLibre ask for location itself, so wait until the app has asked.
     map.showsUserLocation = Self.locationAllowed
     map.compassViewPosition = .topRight
@@ -67,6 +71,10 @@ struct TaskMapView: UIViewRepresentable {
 
   func updateUIView(_ map: MLNMapView, context: Context) {
     context.coordinator.open = open
+    if returns != context.coordinator.returns {
+      context.coordinator.returns = returns
+      (map as? PinOrderMapView)?.focusReturnedPlace()
+    }
     // Pins are annotations, so they survive the style swap when the appearance changes.
     let style = MapStyle.url(styleURL, for: context.environment.colorScheme)
     if map.styleURL != style { map.styleURL = style }
@@ -226,6 +234,7 @@ struct TaskMapView: UIViewRepresentable {
 
   @MainActor final class Coordinator: NSObject, @preconcurrency MLNMapViewDelegate, UIGestureRecognizerDelegate {
     var open: (Int64) -> Void
+    var returns = 0
     /// Campaigns over 500 places, drawn as clusters instead of `pins`.
     private(set) lazy var clusters = ClusteredPins(
       open: { [weak self] id in self?.open(id) }, select: { [weak self] place in self?.showCallout(place) })
@@ -555,21 +564,25 @@ private final class PinOrderMapView: MLNMapView {
     return cached
   }
 
-  /// Back on screen after the questions for a place opened from here: VoiceOver goes to that
-  /// place again, not to Back (A11y1). Posted once the navigation transition ends, after its own
-  /// screen change.
-  override func didMoveToWindow() {
-    super.didMoveToWindow()
-    guard window != nil, let clusters, clusters.isActive,
-      let target = clusters.returnFocus(in: self, limit: Self.spokenPins)
-    else { return }
-    let focus = { UIAccessibility.post(notification: .screenChanged, argument: target) }
+  /// The questions for a place opened from here closed: VoiceOver goes to that place again, not
+  /// to Back (A11y1). Posted once the pop has ended, after the navigation's own screen change; a
+  /// pop with no transition to wait for (or one already over) gets a short delay instead.
+  func focusReturnedPlace() {
+    guard let clusters, clusters.isActive else { return }
+    let focus = { [weak self] in
+      guard let self, self.window != nil, let target = clusters.returnFocus(in: self, limit: Self.spokenPins)
+      else { return }
+      UIAccessibility.post(notification: .screenChanged, argument: target)
+    }
     var responder: UIResponder? = self
     while let next = responder?.next, !(next is UIViewController) { responder = next }
-    if let transition = (responder?.next as? UIViewController)?.transitionCoordinator {
-      transition.animate(alongsideTransition: nil) { _ in DispatchQueue.main.async(execute: focus) }
+    if let transition = (responder?.next as? UIViewController)?.navigationController?.transitionCoordinator {
+      transition.animate(alongsideTransition: nil) { context in
+        guard !context.isCancelled else { return }
+        DispatchQueue.main.async(execute: focus)
+      }
     } else {
-      DispatchQueue.main.async(execute: focus)
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: focus)
     }
   }
 

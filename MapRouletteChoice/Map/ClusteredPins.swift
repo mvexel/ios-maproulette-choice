@@ -31,6 +31,9 @@ import UIKit
   static let pinLayerID = "campaign-pins"
   static let lookLayerID = "campaign-look-pins"
   private static let tappable: Set<String> = [circleLayerID, countLayerID, tickLayerID, pinLayerID, lookLayerID]
+  /// One layer per cluster or pin, so VoiceOver lists each once (the count and tick layers draw
+  /// on top of the same features).
+  private static let spokenLayers: Set<String> = [circleLayerID, pinLayerID, lookLayerID]
   private static let tickImage = "campaign-cluster-tick"
   private static let pinImages = ["PinTodo", "PinDone", "PinPending", "PinWaiting", "PinLook"]
 
@@ -212,25 +215,25 @@ import UIKit
     }
     guard let hit = hits.min(by: { distance($0) < distance($1) }) else { return false }
     if let cluster = hit as? MLNPointFeatureCluster {
-      zoom(into: cluster, on: map)
+      zoom(toCluster: cluster.clusterIdentifier, at: cluster.coordinate, on: map)
     } else if let id = (hit.identifier as? NSNumber)?.int64Value, let place = byID[id] {
       select(place)
     }
     return true
   }
 
-  /// Zooms in on `cluster`. The expansion zoom is asked only of a cluster the map shows now: the
-  /// source re-clusters as pages and answers arrive, and a VoiceOver element can hold the cluster
-  /// from its last rebuild; MapLibre throws for a cluster id the source no longer has ("No cluster
+  /// Zooms in on the cluster `id` drawn at `coordinate`. The expansion zoom is asked only of a
+  /// cluster the map shows now: the source re-clusters as pages and answers arrive, and a VoiceOver
+  /// element can be activated after its last rebuild; MapLibre throws for a cluster id the source no longer has ("No cluster
   /// with the specified id", Android). A cluster that is gone zooms in two levels instead, at most to
   /// zoom 16, where every place has its own pin.
-  private func zoom(into cluster: MLNPointFeatureCluster, on map: MLNMapView) {
+  private func zoom(toCluster id: UInt, at coordinate: CLLocationCoordinate2D, on map: MLNMapView) {
     let source = map.style?.source(withIdentifier: Self.sourceID) as? MLNShapeSource
     let expansion = source.flatMap { source in
-      Self.current(cluster, on: map).map { source.zoomLevel(forExpanding: $0) }
+      Self.current(id, at: coordinate, on: map).map { source.zoomLevel(forExpanding: $0) }
     }
     let zoom = Self.zoom(expansion: expansion, from: map.zoomLevel)
-    map.setCenter(cluster.coordinate, zoomLevel: zoom, animated: !UIAccessibility.isReduceMotionEnabled)
+    map.setCenter(coordinate, zoomLevel: zoom, animated: !UIAccessibility.isReduceMotionEnabled)
   }
 
   /// The zoom to go to: the cluster's expansion zoom but at least one level in, else two levels in,
@@ -239,13 +242,15 @@ import UIKit
     expansion.map { max($0, current + 1) } ?? max(current, min(current + 2, Double(clusterMaxZoom + 1)))
   }
 
-  /// The cluster on screen now with `cluster`'s id, near where it was drawn.
-  private static func current(_ cluster: MLNPointFeatureCluster, on map: MLNMapView) -> MLNPointFeatureCluster? {
-    let p = map.convert(cluster.coordinate, toPointTo: map)
+  /// The cluster on screen now with this id, near where it was drawn.
+  private static func current(_ id: UInt, at coordinate: CLLocationCoordinate2D, on map: MLNMapView)
+    -> MLNPointFeatureCluster?
+  {
+    let p = map.convert(coordinate, toPointTo: map)
     let near = CGRect(x: p.x - 22, y: p.y - 22, width: 44, height: 44)
     return map.visibleFeatures(in: near, styleLayerIdentifiers: [circleLayerID])
       .lazy.compactMap { $0 as? MLNPointFeatureCluster }
-      .first { $0.clusterIdentifier == cluster.clusterIdentifier }
+      .first { $0.clusterIdentifier == id }
   }
 
   // MARK: VoiceOver
@@ -307,11 +312,12 @@ import UIKit
     let from = origin ?? map.userLocation?.location?.coordinate
     var found: [(key: Double, element: Element)] = []
     var keys: [String] = []
-    for feature in map.visibleFeatures(in: map.bounds, styleLayerIdentifiers: Self.tappable) {
+    for feature in map.visibleFeatures(in: map.bounds, styleLayerIdentifiers: Self.spokenLayers) {
       let coordinate = feature.coordinate
       let element: Element
       if let cluster = feature as? MLNPointFeatureCluster {
         let key = "cluster-\(cluster.clusterIdentifier)"
+        guard !keys.contains(key) else { continue }
         keys.append(key)
         element = pool.element(key, in: map)
         let left = (cluster.attribute(forKey: "left") as? NSNumber)?.intValue ?? 0
@@ -321,13 +327,16 @@ import UIKit
         element.accessibilityValue = nil
         element.accessibilityHint = Wording.clusterHint
         element.accessibilityTraits = .button
-        element.action = { [weak self, weak map, weak cluster] in
-          guard let self, let map, let cluster else { return }
+        // The id and coordinate, not the feature: MapLibre doesn't keep the feature alive.
+        let id = cluster.clusterIdentifier
+        element.action = { [weak self, weak map] in
+          guard let self, let map else { return }
           self.focusAfterZoom = true
-          self.zoom(into: cluster, on: map)
+          self.zoom(toCluster: id, at: coordinate, on: map)
         }
       } else if let id = (feature.identifier as? NSNumber)?.int64Value, let place = byID[id] {
         let key = "place-\(id)"
+        guard !keys.contains(key) else { continue }
         keys.append(key)
         element = pool.element(key, in: map)
         element.accessibilityLabel = [

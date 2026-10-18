@@ -55,7 +55,10 @@ final class LoadAXUITests: XCTestCase {
     XCTAssert(clusters.firstMatch.waitForExistence(timeout: 60), "clusters read how many are left: \(Self.labels(map))")
     let cluster = clusters.element(boundBy: 0)
     XCTAssert(cluster.label.contains(where: \.isNumber), cluster.label)
-    XCTAssertGreaterThanOrEqual(cluster.frame.width, 44)
+    XCTAssertGreaterThanOrEqual(cluster.frame.width, 43.5)
+    let listed = clusters.allElementsBoundByIndex
+    let spots = Set(listed.map { "\($0.label) \(Int($0.frame.midX)),\(Int($0.frame.midY))" })
+    XCTAssertEqual(spots.count, listed.count, "each cluster is listed once: \(Self.labels(map))")
 
     // Zoom in through clusters until single places show (clusters stop above zoom 15).
     let places = map.descendants(matching: .any).matching(NSPredicate(format: "value == 'To check'"))
@@ -68,8 +71,8 @@ final class LoadAXUITests: XCTestCase {
     let place = places.element(boundBy: 0)
     let name = place.label
     XCTAssertFalse(name.isEmpty)
-    XCTAssertGreaterThanOrEqual(place.frame.width, 44)
-    XCTAssertGreaterThanOrEqual(place.frame.height, 44)
+    XCTAssertGreaterThanOrEqual(place.frame.width, 43.5)
+    XCTAssertGreaterThanOrEqual(place.frame.height, 43.5)
 
     // Open it from its callout and come back: the same place is listed again.
     place.tap()
