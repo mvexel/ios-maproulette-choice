@@ -315,20 +315,17 @@ import UIKit
     let from = origin ?? map.userLocation?.location?.coordinate
     var found: [(key: Double, element: Element)] = []
     var keys: [String] = []
-    var clusterSpots: [(count: UInt, at: CGPoint)] = []
-    for feature in map.visibleFeatures(in: map.bounds, styleLayerIdentifiers: Self.spokenLayers) {
+    let features = map.visibleFeatures(in: map.bounds, styleLayerIdentifiers: Self.spokenLayers)
+    let clusters = Self.distinctClusters(
+      features.compactMap { $0 as? MLNPointFeatureCluster }.map {
+        (id: $0.clusterIdentifier, count: $0.clusterPointCount, at: map.convert($0.coordinate, toPointTo: map))
+      })
+    for feature in features {
       let coordinate = feature.coordinate
       let element: Element
       if let cluster = feature as? MLNPointFeatureCluster {
         let key = "cluster-\(cluster.clusterIdentifier)"
-        guard !keys.contains(key) else { continue }
-        // The same cluster can come back twice under different ids (two tiles or zoom levels drawn
-        // at once, CI f5b7e03): one element per count and spot.
-        let at = map.convert(coordinate, toPointTo: map)
-        let count = cluster.clusterPointCount
-        guard !clusterSpots.contains(where: { $0.count == count && hypot($0.at.x - at.x, $0.at.y - at.y) < 3 })
-        else { continue }
-        clusterSpots.append((count, at))
+        guard clusters.contains(cluster.clusterIdentifier), !keys.contains(key) else { continue }
         keys.append(key)
         element = pool.element(key, in: map)
         let left = (cluster.attribute(forKey: "left") as? NSNumber)?.intValue ?? 0
@@ -392,6 +389,21 @@ import UIKit
     else { return nil }
     let label = element.accessibilityLabel
     return element.accessibilityActivate() ? label : nil
+  }
+
+  /// The clusters to list, by id: one per id (a cluster crossing a tile edge comes back once per
+  /// tile), and of distinct ids drawn at the same spot (two zoom levels drawn at once, CI f5b7e03)
+  /// the one with the most places, so VoiceOver never says fewer than the map shows.
+  static func distinctClusters(_ found: [(id: UInt, count: UInt, at: CGPoint)]) -> Set<UInt> {
+    var kept: [(id: UInt, count: UInt, at: CGPoint)] = []
+    for cluster in found where !kept.contains(where: { $0.id == cluster.id }) {
+      if let i = kept.firstIndex(where: { hypot($0.at.x - cluster.at.x, $0.at.y - cluster.at.y) < 3 }) {
+        if cluster.count > kept[i].count { kept[i] = cluster }
+      } else {
+        kept.append(cluster)
+      }
+    }
+    return Set(kept.map(\.id))
   }
 
   /// The map is on screen again (the questions closed): the place that was opened, so VoiceOver

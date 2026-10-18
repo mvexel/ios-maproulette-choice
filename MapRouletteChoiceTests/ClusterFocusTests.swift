@@ -46,6 +46,21 @@ import UIKit
     #expect(pool.returnFocus(in: [near]) === near)
   }
 
+  /// A cluster crossing a tile edge comes back once per tile, and two zoom levels drawn at once can
+  /// put two ids on one spot: each is listed once, with the larger count.
+  @Test func clustersListedOncePerSpot() {
+    let kept = ClusteredPins.distinctClusters([
+      (id: 1, count: 344, at: CGPoint(x: 100, y: 100)),
+      (id: 1, count: 344, at: CGPoint(x: 100, y: 101)),  // the same cluster from the next tile
+      (id: 2, count: 300, at: CGPoint(x: 101, y: 100)),  // another id on the same spot
+      (id: 3, count: 344, at: CGPoint(x: 160, y: 100)),  // the same count elsewhere
+    ])
+    #expect(kept == [1, 3])
+    #expect(ClusteredPins.distinctClusters([
+      (id: 2, count: 300, at: .zero), (id: 1, count: 344, at: CGPoint(x: 1, y: 1)),
+    ]) == [1], "the larger count wins")
+  }
+
   /// A cluster the source no longer has (re-clustered since its element was built) is never asked
   /// for its expansion zoom; the map zooms in two levels instead.
   @Test func goneClusterZoomsInTwoLevels() {
