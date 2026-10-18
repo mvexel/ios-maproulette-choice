@@ -72,7 +72,10 @@ import Testing
     #expect(DirectionLine.distance(8, us: true) == "25 ft")
     #expect(DirectionLine.distance(40, us: true) == "130 ft")
     #expect(DirectionLine.distance(400, us: true) == "0.2 mi")
-    #expect(line(point(8, 45), us: true) == "25 ft northeast of you")
+    // The made-up point's distance comes from CoreLocation, so keep it mid-step: 7.6 m is the
+    // middle of the 25 ft step (6.9–8.4 m). At 8 m (26.2 ft, 5% under the 30 ft step) CI run 72
+    // read "30 ft" once, while the pure lines above passed in the same run.
+    #expect(line(point(7.6, 45), us: true) == "25 ft northeast of you")
   }
 
   @Test func announcementsFollowTheKindNotTheNumber() {
