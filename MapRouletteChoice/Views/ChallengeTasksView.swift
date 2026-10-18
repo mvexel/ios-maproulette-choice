@@ -172,6 +172,9 @@ struct ChallengeTasksView: View {
               .overlay {
                 if tasks.isEmpty && request != nil { ProgressView("Loading…").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) }
               }
+              .overlay(alignment: .bottomLeading) {
+                if AXProbe.isOn { AXProbeOverlay().padding(.bottom, 40) }
+              }
               .ignoresSafeArea(edges: .bottom)
           case .list: list
           }

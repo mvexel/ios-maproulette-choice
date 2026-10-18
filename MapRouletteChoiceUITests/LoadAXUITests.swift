@@ -87,6 +87,77 @@ final class LoadAXUITests: XCTestCase {
     XCTAssert(again.waitForExistence(timeout: 10), "\(name) listed after Back: \(Self.labels(map))")
   }
 
+  /// A VoiceOver double tap on a cluster zooms in, and focus moves to what the zoom shows (Tess
+  /// AB17a 1). `-demoAXProbe` activates the element as VoiceOver does and reads back the zoom and
+  /// the element the app asked VoiceOver to focus.
+  @MainActor func testActivatingAClusterZoomsIn() throws {
+    let (app, map) = Self.launchProbe()
+    let clusters = Self.clusters(in: map)
+    XCTAssert(clusters.firstMatch.waitForExistence(timeout: 60), "clusters: \(Self.labels(map))")
+    sleep(2)  // the first framing settles
+    let zoom = app.staticTexts["probe-zoom"]
+    let before = Double(zoom.label) ?? 0
+    app.buttons["probe-cluster"].tap()
+    let activated = app.staticTexts["probe-activated"]
+    XCTAssert(activated.label.hasSuffix("left to check here."), "a cluster was activated: \(activated.label)")
+    XCTAssert(
+      Self.wait(until: { (Double(zoom.label) ?? 0) > before + 0.5 }),
+      "zoom \(before) → \(zoom.label) after activating \(activated.label)")
+    let focused = app.staticTexts["probe-focused"]
+    XCTAssert(Self.wait(until: { focused.label != "none" }), "focus moves after the zoom")
+  }
+
+  /// Activating a place opens its questions; after Back, the app asks VoiceOver to focus that same
+  /// place, not Back (Tess AB17a 2).
+  @MainActor func testFocusReturnsToThePlaceAfterBack() throws {
+    let (app, map) = Self.launchProbe()
+    XCTAssert(Self.clusters(in: map).firstMatch.waitForExistence(timeout: 60), "clusters: \(Self.labels(map))")
+    let back = app.navigationBars.buttons["BackButton"].firstMatch
+    let activated = app.staticTexts["probe-activated"]
+    let zoom = app.staticTexts["probe-zoom"]
+    // Zoom in through clusters until a place can be opened (clusters stop above zoom 15).
+    for _ in 0..<8 {
+      app.buttons["probe-place"].tap()
+      if back.waitForExistence(timeout: 3) { break }
+      let before = Double(zoom.label) ?? 0
+      app.buttons["probe-cluster"].tap()
+      _ = Self.wait(until: { (Double(zoom.label) ?? 0) > before + 0.5 })
+      sleep(1)
+    }
+    XCTAssert(back.exists, "a place opened: \(Self.labels(map))")
+    let name = activated.label
+    back.tap()
+    XCTAssert(map.waitForExistence(timeout: 10))
+    let focused = app.staticTexts["probe-focused"]
+    XCTAssert(Self.wait(until: { focused.label == name }), "focus after Back: \(focused.label), opened: \(name)")
+  }
+
+  @MainActor private static func launchProbe() -> (XCUIApplication, XCUIElement) {
+    let app = XCUIApplication()
+    app.launchArguments = ["-demo", "-demoLoad", String(places), "-demoMap", "-demoAXProbe"]
+    app.launch()
+    let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    let allow = springboard.buttons["Allow While Using App"]
+    if allow.waitForExistence(timeout: 3) { allow.tap() }
+    let map = app.descendants(matching: .any)["TaskMap"]
+    XCTAssert(map.waitForExistence(timeout: 30))
+    return (app, map)
+  }
+
+  @MainActor private static func clusters(in map: XCUIElement) -> XCUIElementQuery {
+    map.descendants(matching: .any).matching(NSPredicate(format: "label MATCHES %@", "^[0-9].* left to check here\\.$"))
+  }
+
+  /// Polls `condition` for up to `timeout` seconds.
+  @MainActor private static func wait(timeout: TimeInterval = 10, until condition: () -> Bool) -> Bool {
+    let end = Date().addingTimeInterval(timeout)
+    while Date() < end {
+      if condition() { return true }
+      RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+    }
+    return condition()
+  }
+
   /// The map's spoken labels, for a failure message.
   @MainActor private static func labels(_ map: XCUIElement) -> String {
     guard let snapshot = try? map.snapshot() else { return "(no snapshot)" }

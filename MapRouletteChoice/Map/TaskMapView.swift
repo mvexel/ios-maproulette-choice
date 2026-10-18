@@ -63,6 +63,12 @@ struct TaskMapView: UIViewRepresentable {
       }
       tap.delegate = context.coordinator
       map.addGestureRecognizer(tap)
+      if AXProbe.isOn {
+        AXProbe.shared.activate = { [weak ordered, weak clusters = context.coordinator.clusters] kind in
+          guard let ordered, let clusters else { return nil }
+          return clusters.activateFirst(kind, in: ordered, limit: PinOrderMapView.spokenPins)
+        }
+      }
     }
     // Salt Lake City until tasks load.
     map.setCenter(CLLocationCoordinate2D(latitude: 40.7608, longitude: -111.8910), zoomLevel: 11, animated: false)
@@ -409,9 +415,17 @@ struct TaskMapView: UIViewRepresentable {
 
     func mapView(_ mapView: MLNMapView, regionDidChangeAnimated animated: Bool) {
       clusters.invalidate()
+      if AXProbe.isOn { AXProbe.shared.zoom = mapView.zoomLevel }
       // A VoiceOver zoom into a cluster: the cluster is gone, so focus the nearest of what is shown.
       if let next = clusters.focusAfterMove(in: mapView, limit: PinOrderMapView.spokenPins) {
-        UIAccessibility.post(notification: .layoutChanged, argument: next)
+        AXProbe.post(.layoutChanged, next)
+      }
+    }
+
+    /// The zoomed-in clusters and pins weren't drawn yet when the region changed.
+    func mapViewDidBecomeIdle(_ mapView: MLNMapView) {
+      if let next = clusters.focusAfterMove(in: mapView, limit: PinOrderMapView.spokenPins) {
+        AXProbe.post(.layoutChanged, next)
       }
     }
 
@@ -565,14 +579,15 @@ private final class PinOrderMapView: MLNMapView {
   }
 
   /// The questions for a place opened from here closed: VoiceOver goes to that place again, not
-  /// to Back (A11y1). Posted once the pop has ended, after the navigation's own screen change; a
-  /// pop with no transition to wait for (or one already over) gets a short delay instead.
+  /// to Back (A11y1). A layout change, posted once the pop has ended, after the navigation's own
+  /// screen change (which would otherwise win); a pop with no transition to wait for (or one
+  /// already over) gets a short delay instead.
   func focusReturnedPlace() {
     guard let clusters, clusters.isActive else { return }
     let focus = { [weak self] in
       guard let self, self.window != nil, let target = clusters.returnFocus(in: self, limit: Self.spokenPins)
       else { return }
-      UIAccessibility.post(notification: .screenChanged, argument: target)
+      AXProbe.post(.layoutChanged, target)
     }
     var responder: UIResponder? = self
     while let next = responder?.next, !(next is UIViewController) { responder = next }

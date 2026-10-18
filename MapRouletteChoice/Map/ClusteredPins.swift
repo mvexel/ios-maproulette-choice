@@ -257,6 +257,8 @@ import UIKit
 
   /// What a VoiceOver double tap does.
   final class Element: UIAccessibilityElement {
+    /// `cluster-<id>` or `place-<task id>`.
+    var key = ""
     var action: (() -> Void)?
     override func accessibilityActivate() -> Bool {
       guard let action else { return false }
@@ -276,6 +278,7 @@ import UIKit
     func element(_ key: String, in container: Any) -> Element {
       if let element = byKey[key] { return element }
       let element = Element(accessibilityContainer: container)
+      element.key = key
       byKey[key] = element
       return element
     }
@@ -370,6 +373,19 @@ import UIKit
     return elements
   }
 
+  /// The first listed cluster or place, activated as a VoiceOver double tap does (`AXProbe`). Its
+  /// label, or nil when none is listed.
+  func activateFirst(_ kind: AXProbe.Kind, in map: MLNMapView, limit: Int) -> String? {
+    let prefix = kind == .cluster ? "cluster-" : "place-"
+    invalidate()
+    guard
+      let element = accessibilityElements(in: map, limit: limit).lazy.compactMap({ $0 as? Element })
+        .first(where: { $0.key.hasPrefix(prefix) && $0.action != nil })
+    else { return nil }
+    let label = element.accessibilityLabel
+    return element.accessibilityActivate() ? label : nil
+  }
+
   /// The map is on screen again (the questions closed): the place that was opened, so VoiceOver
   /// doesn't start over at Back. Nil when nothing was opened from the map.
   func returnFocus(in map: MLNMapView, limit: Int) -> UIAccessibilityElement? {
@@ -379,10 +395,13 @@ import UIKit
   }
 
   /// After a cluster's zoom has settled: the nearest cluster or pin, since the one activated is
-  /// gone. Nil when the move wasn't a VoiceOver zoom.
+  /// gone. Nil when the move wasn't a VoiceOver zoom, or nothing is drawn yet (asked again when
+  /// the map is idle).
   func focusAfterMove(in map: MLNMapView, limit: Int) -> UIAccessibilityElement? {
     guard focusAfterZoom else { return nil }
+    invalidate()
+    guard let first = accessibilityElements(in: map, limit: limit).first else { return nil }
     focusAfterZoom = false
-    return accessibilityElements(in: map, limit: limit).first
+    return first
   }
 }

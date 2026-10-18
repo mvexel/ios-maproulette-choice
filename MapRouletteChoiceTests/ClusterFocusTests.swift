@@ -14,6 +14,7 @@ import UIKit
     pool.keep(["place-1"])
     #expect(pool.element("place-1", in: container) === first)
     #expect(pool.element("place-2", in: container) !== first)
+    #expect(first.key == "place-1")
   }
 
   @Test func unlistedElementsAreDropped() {
