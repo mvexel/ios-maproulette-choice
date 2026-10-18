@@ -39,9 +39,11 @@ jobs:
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -resultBundlePath TestResults.xcresult \
             CODE_SIGNING_ALLOWED=NO \
-            | tee xcodebuild.log | grep -E "^(Test Suite|Test [Cc]ase .*(passed|failed|skipped)|\*\* TEST|.*error:)|recorded an issue|Expectation failed" || true
+            | tee xcodebuild.log | grep -E "^(Test Suite|Test [Cc]ase .*(passed|failed|skipped)|\*\* TEST|.*error:)|recorded an issue|Expectation failed|AXSNAPSHOT:" || true
           # A UI test that can't find its screen prints the accessibility tree between these markers.
           sed -n '/AXDUMP-BEGIN/,/AXDUMP-END/p' xcodebuild.log | head -300
+          # The 5,200-place accessibility snapshot time (LoadAXUITests), on the run's summary page.
+          grep -o "AXSNAPSHOT: .*" xcodebuild.log | sort -u | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY" || true
           grep -q "\*\* TEST SUCCEEDED \*\*" xcodebuild.log
       - name: Upload test results
         if: ${{ !cancelled() }}
