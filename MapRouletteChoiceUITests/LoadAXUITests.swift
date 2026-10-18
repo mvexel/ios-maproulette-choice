@@ -114,22 +114,23 @@ final class LoadAXUITests: XCTestCase {
     XCTAssert(Self.clusters(in: map).firstMatch.waitForExistence(timeout: 60), "clusters: \(Self.labels(map))")
     let activated = app.staticTexts["probe-activated"]
     let zoom = app.staticTexts["probe-zoom"]
+    let questions = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Map of '")).firstMatch
     // Zoom in through clusters until a place can be opened (clusters stop above zoom 15). The
-    // campaign screen has a Back button too, so a place opened when the probe activated one.
+    // campaign screen has a Back button too, so wait for the questions' map instead; the probe is
+    // under the questions until Back.
     for _ in 0..<8 {
       app.buttons["probe-place"].tap()
-      if activated.label != "none" { break }
+      if questions.waitForExistence(timeout: 3) { break }
       let before = Double(zoom.label) ?? 0
       app.buttons["probe-cluster"].tap()
       _ = Self.wait(until: { (Double(zoom.label) ?? 0) > before + 0.5 })
       sleep(1)
     }
-    let name = activated.label
-    XCTAssertNotEqual(name, "none", "a place opened: \(Self.labels(map))")
-    let questions = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Map of '")).firstMatch
-    XCTAssert(questions.waitForExistence(timeout: 10), "the questions opened for \(name)")
+    XCTAssert(questions.exists, "a place opened: \(Self.labels(map))")
     app.navigationBars.buttons["BackButton"].firstMatch.tap()
-    XCTAssert(map.waitForExistence(timeout: 10))
+    XCTAssert(activated.waitForExistence(timeout: 10), "back on the map")
+    let name = activated.label
+    XCTAssertNotEqual(name, "none")
     let focused = app.staticTexts["probe-focused"]
     XCTAssert(Self.wait(until: { focused.label == name }), "focus after Back: \(focused.label), opened: \(name)")
   }

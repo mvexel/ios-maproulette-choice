@@ -315,12 +315,20 @@ import UIKit
     let from = origin ?? map.userLocation?.location?.coordinate
     var found: [(key: Double, element: Element)] = []
     var keys: [String] = []
+    var clusterSpots: [(count: UInt, at: CGPoint)] = []
     for feature in map.visibleFeatures(in: map.bounds, styleLayerIdentifiers: Self.spokenLayers) {
       let coordinate = feature.coordinate
       let element: Element
       if let cluster = feature as? MLNPointFeatureCluster {
         let key = "cluster-\(cluster.clusterIdentifier)"
         guard !keys.contains(key) else { continue }
+        // The same cluster can come back twice under different ids (two tiles or zoom levels drawn
+        // at once, CI f5b7e03): one element per count and spot.
+        let at = map.convert(coordinate, toPointTo: map)
+        let count = cluster.clusterPointCount
+        guard !clusterSpots.contains(where: { $0.count == count && hypot($0.at.x - at.x, $0.at.y - at.y) < 3 })
+        else { continue }
+        clusterSpots.append((count, at))
         keys.append(key)
         element = pool.element(key, in: map)
         let left = (cluster.attribute(forKey: "left") as? NSNumber)?.intValue ?? 0
