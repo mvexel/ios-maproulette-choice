@@ -127,9 +127,11 @@ import UIKit
     circles.circleRadius = NSExpression(format: "mgl_step:from:stops:(point_count, 18, %@)", [100: 22, 1000: 26] as NSDictionary)
     circles.circleColor = NSExpression(
       format: "TERNARY(left > 0, %@, %@)", Self.color(0xA84F00), Self.color(dark ? 0x34D399 : 0x1F7A4D))
-    // A 3 pt navy ring while places are left; all checked, a 2 pt edge in the tick's colour.
+    // A 3 pt ring while places are left (navy, white on the dark map: Tess AE8); all checked, a
+    // 2 pt edge in the tick's colour.
     circles.circleStrokeColor = NSExpression(
-      format: "TERNARY(left > 0, %@, %@)", Self.color(0x14213D), dark ? Self.color(0x0B1220) : UIColor.white)
+      format: "TERNARY(left > 0, %@, %@)", dark ? UIColor.white : Self.color(0x14213D),
+      dark ? Self.color(0x0B1220) : UIColor.white)
     circles.circleStrokeWidth = NSExpression(format: "TERNARY(left > 0, 3, 2)")
     style.addLayer(circles)
 
