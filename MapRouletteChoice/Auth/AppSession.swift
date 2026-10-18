@@ -128,7 +128,13 @@ struct SessionClient: Sendable {
     /// Screenshot/demo mode: an in-process mock backend, signed in as user 7 (or a guest). No network.
     init(demo transport: any Transport, guest: Bool = false) {
       endpoints = try! AuthEndpoints(baseURL: "https://demo.invalid", clientID: "", allowLoopback: false)
-      mapStyleURL = AppConfig.defaultStyle
+      // `-demoNoStyle`: a style that fails at once; `-demoHangingStyle`: one whose request never
+      // answers, as MapLibre holds it offline. Both get the plain background.
+      let args = ProcessInfo.processInfo.arguments
+      mapStyleURL =
+        args.contains("-demoNoStyle")
+        ? URL(string: "https://style.invalid/none.json")!
+        : args.contains("-demoHangingStyle") ? URL(string: "https://10.255.255.1/style.json")! : AppConfig.defaultStyle
       auth = nil
       demo = transport
       guestsEnabled = guest

@@ -69,7 +69,7 @@ struct TaskMapView: UIViewRepresentable {
     context.coordinator.open = open
     // Pins are annotations, so they survive the style swap when the appearance changes.
     let style = MapStyle.url(styleURL, for: context.environment.colorScheme)
-    if map.styleURL != style { map.styleURL = style }
+    if context.coordinator.styleFallback.shouldLoad(style, on: map) { map.styleURL = style }
     if map.showsUserLocation != Self.locationAllowed { map.showsUserLocation = Self.locationAllowed }
     context.coordinator.show(
       tasks, done: done, pending: pending, waiting: waiting, reports: reports, flagged: flagged, origin: origin,
@@ -244,6 +244,7 @@ struct TaskMapView: UIViewRepresentable {
     /// The pins on the map, by task id.
     private var pins: [Int64: TaskAnnotation] = [:]
     private var fitted = false
+    let styleFallback = MapStyle.Fallback()
 
     init(open: @escaping (Int64) -> Void) { self.open = open }
 
@@ -446,6 +447,7 @@ struct TaskMapView: UIViewRepresentable {
     static let hiddenSymbolSources: Set<String> = ["poi", "aerodrome_label"]
 
     func mapView(_ mapView: MLNMapView, didFinishLoading style: MLNStyle) {
+      styleFallback.styleLoaded()
       if MapStyle.isDark(mapView) { MapStyle.brightenLabels(in: style) }
       for layer in style.layers {
         // Flat buildings: 3D extrusions clutter the small header map.
@@ -462,6 +464,14 @@ struct TaskMapView: UIViewRepresentable {
       Self.drawLines(reportLines, in: style, dark: MapStyle.isDark(mapView))
       clusters.restyle(style, dark: MapStyle.isDark(mapView))
     }
+
+    /// No style (offline with none cached): a plain background, whose didFinishLoading draws the
+    /// clusters and lines; without a style a clustered campaign showed no places at all.
+    func mapViewDidFailLoadingMap(_ mapView: MLNMapView, withError error: any Error) {
+      styleFallback.styleFailed(on: mapView)
+    }
+
+    func mapViewWillStartLoadingMap(_ mapView: MLNMapView) { styleFallback.styleStarted(on: mapView) }
 
     /// Pins are views rather than annotation images, for a 44 pt touch target and their own
     /// VoiceOver value. The user location (not a TaskAnnotation) keeps MapLibre's puck.
