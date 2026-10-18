@@ -182,6 +182,8 @@ struct SpotMapView: UIViewRepresentable {
   func makeUIView(context: Context) -> MLNMapView {
     let map = MLNMapView(frame: .zero, styleURL: MapStyle.url(AppConfig.detailStyle, for: context.environment.colorScheme))
     map.delegate = context.coordinator
+    // The first style starts loading in init, before the delegate is set (Tess AB18).
+    context.coordinator.styleFallback.styleStarted(on: map)
     map.tintColor = .systemBlue
     map.setCenter(mapped, zoomLevel: 18, animated: false)
     let mappedMarker = MappedSpot()

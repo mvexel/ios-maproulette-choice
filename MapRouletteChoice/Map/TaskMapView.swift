@@ -39,6 +39,8 @@ struct TaskMapView: UIViewRepresentable {
     let style = MapStyle.url(styleURL, for: context.environment.colorScheme)
     let map = interactive ? PinOrderMapView(frame: .zero, styleURL: style) : QuietMapView(frame: .zero, styleURL: style)
     map.delegate = context.coordinator
+    // The first style starts loading in init, before the delegate is set (Tess AB18).
+    context.coordinator.styleFallback.styleStarted(on: map)
     context.coordinator.returns = returns
     // Turning this on makes MapLibre ask for location itself, so wait until the app has asked.
     map.showsUserLocation = Self.locationAllowed

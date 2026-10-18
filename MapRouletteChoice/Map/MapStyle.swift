@@ -35,14 +35,20 @@ enum MapStyle {
   }
 
   /// Swaps a map whose style can't load to the plain background, and keeps SwiftUI updates from
-  /// asking for that style again until the wanted style changes (the appearance) or the phone gets
-  /// a connection back, which reloads it. Offline, MapLibre can hold the style request instead of
+  /// asking for that style again until the wanted style changes (the appearance), the phone gets
+  /// a connection back, the app comes back to the foreground, or (online) every `retryEvery`,
+  /// each of which reloads it. Offline, MapLibre can hold the style request instead of
   /// failing, so a style still loading after `wait(online:)` counts as failed too (Android #59, Kai).
   @MainActor final class Fallback {
     private var failed: URL?
     private weak var map: MLNMapView?
     private var timer: Task<Void, Never>?
     private var reconnect: (any NSObjectProtocol)?
+    private var foreground: (any NSObjectProtocol)?
+    private var retrying: Task<Void, Never>?
+    /// While online, a stalled style is tried again this often (Tess AB18: a stall while online
+    /// never comes back otherwise).
+    nonisolated static let retryEvery = Duration.seconds(30)
 
     /// How long a style may take before the plain background goes in: 6 s offline, 20 s online
     /// (Android #59).
@@ -50,7 +56,8 @@ enum MapStyle {
 
     isolated deinit {
       timer?.cancel()
-      if let reconnect { NotificationCenter.default.removeObserver(reconnect) }
+      retrying?.cancel()
+      for observer in [reconnect, foreground].compactMap({ $0 }) { NotificationCenter.default.removeObserver(observer) }
     }
 
     /// From `mapViewWillStartLoadingMap`: starts the clock on this style.
@@ -66,10 +73,13 @@ enum MapStyle {
       }
     }
 
-    /// From `didFinishLoading style`.
+    /// From `didFinishLoading style`. The plain background loading doesn't end the retries.
     func styleLoaded() {
       timer?.cancel()
       timer = nil
+      guard let map, !MapStyle.isPlain(map.styleURL) else { return }
+      retrying?.cancel()
+      retrying = nil
     }
 
     /// From `mapViewDidFailLoadingMap`, or when the style took too long.
@@ -80,10 +90,22 @@ enum MapStyle {
       self.map = map
       failed = url
       map.styleURL = MapStyle.plain(dark: url == MapStyle.dark)
+      if retrying == nil {
+        retrying = Task { [weak self] in
+          while !Task.isCancelled {
+            try? await Task.sleep(for: Self.retryEvery)
+            guard !Task.isCancelled, let self else { return }
+            if Connection.shared.online { self.retry() }
+          }
+        }
+      }
       guard reconnect == nil else { return }
       reconnect = NotificationCenter.default.addObserver(forName: Connection.back, object: nil, queue: .main) {
         [weak self] _ in MainActor.assumeIsolated { self?.retry() }
       }
+      foreground = NotificationCenter.default.addObserver(
+        forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
+      ) { [weak self] _ in MainActor.assumeIsolated { self?.retry() } }
     }
 
     /// Whether `map` should load `wanted`: it isn't showing it, and it isn't the one that failed.

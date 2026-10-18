@@ -58,6 +58,8 @@ struct CloseUpMapView: UIViewRepresentable {
     context.coordinator.dark = context.environment.colorScheme == .dark
     let map = CloseUpMap(frame: .zero, styleURL: MapStyle.url(styleURL, for: context.environment.colorScheme))
     map.delegate = context.coordinator
+    // The first style starts loading in init, before the delegate is set (Tess AB18).
+    context.coordinator.styleFallback.styleStarted(on: map)
     map.tintColor = .systemBlue
     // North-up: the heading on the blue dot shows facing (§A).
     map.allowsRotating = false
