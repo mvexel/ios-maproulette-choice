@@ -5,6 +5,15 @@ import Testing
 @testable import MapRouletteChoice
 
 @MainActor @Suite struct TaskTextTests {
+  /// Iris's cluster copy (L1-CLUSTER). Counts group as the phone's locale does; the tests run in en_US.
+  @Test func clusterLabels() {
+    let benches = Noun(one: "bench", many: "benches")
+    #expect(Wording.clusterLeft(940, benches) == "940 benches left to check here.")
+    #expect(Wording.clusterLeft(1, benches) == "1 bench left to check here.")
+    #expect(Wording.clusterAllChecked(120, benches) == "120 benches here, all checked.")
+    #expect(Wording.clusterLeft(1240, benches) == "\(1240.formatted()) benches left to check here.")
+  }
+
   @Test func statusLabels() {
     #expect(TaskText.status(nil) == "Status unavailable")
     #expect(TaskText.status(2) == "Not an issue")

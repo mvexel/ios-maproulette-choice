@@ -50,6 +50,16 @@ struct TaskMapView: UIViewRepresentable {
       map.accessibilityElementsHidden = true
     }
     map.isUserInteractionEnabled = interactive
+    if let ordered = map as? PinOrderMapView {
+      ordered.clusters = context.coordinator.clusters
+      // Taps on cluster and pin layers; MapLibre's own double tap (zoom) goes first.
+      let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:)))
+      for case let other as UITapGestureRecognizer in map.gestureRecognizers ?? [] where other.numberOfTapsRequired == 2 {
+        tap.require(toFail: other)
+      }
+      tap.delegate = context.coordinator
+      map.addGestureRecognizer(tap)
+    }
     // Salt Lake City until tasks load.
     map.setCenter(CLLocationCoordinate2D(latitude: 40.7608, longitude: -111.8910), zoomLevel: 11, animated: false)
     return map
@@ -214,8 +224,14 @@ struct TaskMapView: UIViewRepresentable {
     }
   }
 
-  @MainActor final class Coordinator: NSObject, @preconcurrency MLNMapViewDelegate {
+  @MainActor final class Coordinator: NSObject, @preconcurrency MLNMapViewDelegate, UIGestureRecognizerDelegate {
     var open: (Int64) -> Void
+    /// Campaigns over 500 places, drawn as clusters instead of `pins`.
+    private(set) lazy var clusters = ClusteredPins(
+      open: { [weak self] id in self?.open(id) }, select: { [weak self] place in self?.showCallout(place) })
+    /// A clustered campaign's tapped pin: an annotation over it, for the callout.
+    private var calloutPin: TaskAnnotation?
+    private weak var map: MLNMapView?
     private var shown: [Int64] = []
     private var shownDone: Set<Int64> = []
     private var shownPending: Set<Int64> = []
@@ -252,6 +268,14 @@ struct TaskMapView: UIViewRepresentable {
         map.removeAnnotations(old)
       }
       showReportedSpots(tasks, done: done, reports: reports, on: map)
+      self.map = map
+      if tasks.count > ClusteredPins.threshold {
+        showClustered(
+          tasks, done: done, pending: pending, waiting: waiting, reports: reports, flagged: flagged, origin: origin,
+          noun: noun, refit: refit, began: began, on: map)
+        return
+      }
+      if clusters.isActive { clusters.remove(from: map) }
       // Only pins that are new or changed are added again: a big campaign arrives a page at a time,
       // and replacing every pin for each page made each page cost more than the last (Tess, AB13).
       // Rank and distance change in place; PinView reads them from its annotation.
@@ -302,6 +326,79 @@ struct TaskMapView: UIViewRepresentable {
         map.showAnnotations(annotations, animated: true)
       }
     }
+
+    /// A big campaign: one clustered source instead of an annotation view per place, and no
+    /// per-pin rank or distance (VoiceOver's elements work them out for what's on screen).
+    private func showClustered(
+      _ tasks: [LocatedTask], done: Set<Int64>, pending: Set<Int64>, waiting: Set<Int64>,
+      reports: [Int64: TaskReport], flagged: Set<Int64>, origin: CLLocationCoordinate2D?, noun: Noun, refit: Bool,
+      began: ContinuousClock.Instant, on map: MLNMapView
+    ) {
+      if !pins.isEmpty {
+        map.removeAnnotations(Array(pins.values))
+        pins = [:]
+      }
+      clusters.noun = noun
+      clusters.origin = origin
+      var south = 90.0, north = -90.0, west = 180.0, east = -180.0
+      let places = tasks.compactMap { task -> ClusteredPins.Place? in
+        guard let c = task.coordinate else { return nil }
+        south = min(south, c.latitude)
+        north = max(north, c.latitude)
+        west = min(west, c.longitude)
+        east = max(east, c.longitude)
+        let pin = Pin(
+          done: done.contains(task.id), pending: pending.contains(task.id),
+          reported: reports[task.id] != nil || flagged.contains(task.id), waiting: waiting.contains(task.id))
+        return ClusteredPins.Place(task: task, coordinate: c, pin: pin)
+      }
+      clusters.show(places, on: map)
+      LoadLog.log.debug(
+        "clusters: \(places.count) places in \(began.duration(to: .now), privacy: .public) at \(LoadLog.elapsed, privacy: .public)"
+      )
+      guard refit, !places.isEmpty else { return }
+      fitted = true
+      let bounds = MLNCoordinateBounds(
+        sw: CLLocationCoordinate2D(latitude: south, longitude: west),
+        ne: CLLocationCoordinate2D(latitude: north, longitude: east))
+      map.setVisibleCoordinateBounds(
+        bounds, edgePadding: UIEdgeInsets(top: 40, left: 40, bottom: 40, right: 40), animated: true,
+        completionHandler: nil)
+    }
+
+    /// A clustered pin's callout, as an unclustered pin shows it: an annotation over the pin.
+    private func showCallout(_ place: ClusteredPins.Place) {
+      guard let map else { return }
+      if let old = calloutPin { map.removeAnnotation(old) }
+      let a = TaskAnnotation()
+      a.taskID = place.id
+      a.pin = place.pin
+      a.coordinate = place.coordinate
+      a.title = Wording.placeName(place.task.task, clusters.noun)
+      a.subtitle = place.pin.calloutSubtitle
+      calloutPin = a
+      map.addAnnotation(a)
+      map.selectAnnotation(a, animated: false, completionHandler: nil)
+    }
+
+    @objc func tapped(_ tap: UITapGestureRecognizer) {
+      guard clusters.isActive, tap.state == .ended, let map = tap.view as? MLNMapView else { return }
+      let point = tap.location(in: map)
+      // After MapLibre's own tap, which deselects whatever was selected.
+      Task { @MainActor [weak self] in self?.clusters.tap(at: point, on: map) }
+    }
+
+    func gestureRecognizer(
+      _ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+    ) -> Bool { true }
+
+    func mapView(_ mapView: MLNMapView, didDeselect annotation: any MLNAnnotation) {
+      guard let calloutPin, annotation === calloutPin else { return }
+      mapView.removeAnnotation(calloutPin)
+      self.calloutPin = nil
+    }
+
+    func mapView(_ mapView: MLNMapView, regionDidChangeAnimated animated: Bool) { clusters.invalidate() }
 
     /// A dot and a dashed line for each open place reported as moved. Added before the pins, so
     /// they sit underneath.
@@ -363,6 +460,7 @@ struct TaskMapView: UIViewRepresentable {
         }
       }
       Self.drawLines(reportLines, in: style, dark: MapStyle.isDark(mapView))
+      clusters.restyle(style, dark: MapStyle.isDark(mapView))
     }
 
     /// Pins are views rather than annotation images, for a 44 pt touch target and their own
@@ -419,8 +517,10 @@ struct TaskMapView: UIViewRepresentable {
 /// this lists them nearest the person first (`TaskAnnotation.rank`), like the List, then the rest
 /// (puck, compass, attribution) as MapLibre has them (Tess, #50). At most the nearest 200 pins are
 /// listed (Android parity, AE6).
+/// A clustered campaign lists its visible clusters and pins instead (`ClusteredPins`), also at most 200.
 private final class PinOrderMapView: MLNMapView {
   static let spokenPins = 200
+  weak var clusters: ClusteredPins?
   private var cached: [Any] = []
   private var cachedAt = Date.distantPast
 
@@ -428,6 +528,14 @@ private final class PinOrderMapView: MLNMapView {
   /// each; a pan or new pins change MapLibre's count, which rebuilds it.
   private func ordered() -> [Any] {
     let count = super.accessibilityElementCount()
+    if let clusters, clusters.isActive {
+      // MapLibre's own elements here are the puck, compass and attribution (and a callout pin).
+      var rest: [Any] = []
+      for i in 0..<count {
+        if let element = super.accessibilityElement(at: i), !(element is TaskMapView.PinView) { rest.append(element) }
+      }
+      return clusters.accessibilityElements(in: self, limit: Self.spokenPins) + rest
+    }
     if count == cached.count, Date().timeIntervalSince(cachedAt) < 0.5 { return cached }
     var pins: [TaskMapView.PinView] = []
     var rest: [Any] = []

@@ -138,6 +138,15 @@ enum Wording {
     "Someone reported this \(noun.one) moved, about \(movedMeasure(meters, us: us))."
   }
   static let needsAnotherLook = "Needs another look"
+
+  // A map cluster, for VoiceOver (L1-CLUSTER, Iris).
+  static func clusterLeft(_ n: Int, _ noun: Noun) -> String {
+    "\(n.formatted()) \(n == 1 ? noun.one : noun.many) left to check here."
+  }
+  static func clusterAllChecked(_ n: Int, _ noun: Noun) -> String {
+    "\(n.formatted()) \(n == 1 ? noun.one : noun.many) here, all checked."
+  }
+  static let clusterHint = "Double-tap to zoom in."
   static let needsAccount = "To save answers you'll sign in with a free OpenStreetMap account."
 
   /// A place's display name: its `name`, else "Stop 12345" from `ref`, else "Stop". The
