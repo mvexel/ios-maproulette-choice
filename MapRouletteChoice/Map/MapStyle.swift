@@ -49,6 +49,14 @@ enum MapStyle {
     /// While online, a stalled style is tried again this often (Tess AB18: a stall while online
     /// never comes back otherwise).
     nonisolated static let retryEvery = Duration.seconds(30)
+    private let waitFor: (Bool) -> Duration
+    private let retryAfter: Duration
+
+    /// Shorter waits are for tests.
+    init(wait: @escaping (Bool) -> Duration = Fallback.wait(online:), retryEvery: Duration = Fallback.retryEvery) {
+      waitFor = wait
+      retryAfter = retryEvery
+    }
 
     /// How long a style may take before the plain background goes in: 6 s offline, 20 s online
     /// (Android #59).
@@ -65,7 +73,7 @@ enum MapStyle {
       self.map = map
       timer?.cancel()
       guard let url = map.styleURL, !MapStyle.isPlain(url) else { return }
-      let wait = Self.wait(online: Connection.shared.online)
+      let wait = waitFor(Connection.shared.online)
       timer = Task { [weak self, weak map] in
         try? await Task.sleep(for: wait)
         guard !Task.isCancelled, let self, let map, map.styleURL == url else { return }
@@ -93,7 +101,7 @@ enum MapStyle {
       if retrying == nil {
         retrying = Task { [weak self] in
           while !Task.isCancelled {
-            try? await Task.sleep(for: Self.retryEvery)
+            try? await Task.sleep(for: self?.retryAfter ?? Self.retryEvery)
             guard !Task.isCancelled, let self else { return }
             if Connection.shared.online { self.retry() }
           }
