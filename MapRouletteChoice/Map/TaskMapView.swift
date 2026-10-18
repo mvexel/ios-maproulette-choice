@@ -2,6 +2,7 @@
 import CoreLocation
 import MapRoulette
 import SwiftUI
+import os
 
 /// A MapLibre map (OpenFreeMap style by default) of a campaign's places, with the brand pins
 /// (brand/pins): to check, checked, and saved but not on the map yet (`pending`, a guest's
@@ -234,6 +235,7 @@ struct TaskMapView: UIViewRepresentable {
       _ tasks: [LocatedTask], done: Set<Int64>, pending: Set<Int64>, waiting: Set<Int64>, reports: [Int64: TaskReport],
       flagged: Set<Int64>, origin: CLLocationCoordinate2D?, noun: Noun, on map: MLNMapView
     ) {
+      let began = ContinuousClock.now
       let ids = tasks.map(\.id)
       let moved = origin?.latitude != shownOrigin?.latitude || origin?.longitude != shownOrigin?.longitude
       guard ids != shown || done != shownDone || pending != shownPending || waiting != shownWaiting || reports != shownReports || flagged != shownFlagged || moved
@@ -286,6 +288,9 @@ struct TaskMapView: UIViewRepresentable {
       if !gone.isEmpty { map.removeAnnotations(gone) }
       pins = keep
       if !added.isEmpty { map.addAnnotations(added) }
+      LoadLog.log.debug(
+        "pins: \(annotations.count) on the map (+\(added.count) -\(gone.count)) in \(began.duration(to: .now), privacy: .public) at \(LoadLog.elapsed, privacy: .public)"
+      )
       guard !annotations.isEmpty else { return }
       // Fit once; later refreshes (a task marked done) keep the user's view.
       guard refit else { return }

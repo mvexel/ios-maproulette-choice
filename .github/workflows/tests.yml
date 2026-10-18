@@ -23,22 +23,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Show Xcode
         run: xcodebuild -version
-      # iPhone 17 on the newest iOS runtime (the Mac passes use iPhone 17), else the newest iPhone,
-      # so the job doesn't break when the image changes.
       - name: Pick and boot a simulator
         id: sim
-        run: |
-          udid=$(xcrun simctl list devices available -j | python3 -c '
-          import json, sys
-          devices = json.load(sys.stdin)["devices"]
-          ios = sorted((k for k in devices if "iOS" in k), key=lambda k: [int(p) for p in k.rsplit("iOS-", 1)[-1].split("-")])
-          phones = [d for d in devices[ios[-1]] if d["name"].startswith("iPhone")]
-          print(next((d for d in phones if d["name"] == "iPhone 17"), phones[-1])["udid"])')
-          echo "udid=$udid" >> "$GITHUB_OUTPUT"
-          xcrun simctl list devices available | grep "$udid"
-          # Booted before the tests start, so the first UI test doesn't spend its timeouts on a cold boot.
-          xcrun simctl boot "$udid"
-          xcrun simctl bootstatus "$udid" -b
+        run: scripts/boot-simulator.sh
       # SCREENSHOT_DIR makes the UI tests write their review shots (App Store, accessibility, previews).
       - name: Unit and UI tests
         env:
@@ -65,5 +52,46 @@ jobs:
             TestResults.xcresult
             xcodebuild.log
             shots
+          if-no-files-found: warn
+          retention-days: 14
+
+  # How long a 5,200-place campaign takes to open (L1-CLUSTER's yardstick): first places, full
+  # tally, pin redraws, peak memory. Report only; it doesn't fail on slow numbers, only when the
+  # tally never shows. The table is on the run's summary page.
+  open-time:
+    name: Open time (5,200 places)
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pick and boot a simulator
+        id: sim
+        run: scripts/boot-simulator.sh
+      # Debug, because the -demoLoad campaign is debug-only; Tess's AB13b numbers are Debug too.
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project MapRouletteChoice.xcodeproj \
+            -scheme MapRouletteChoice \
+            -configuration Debug \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee build.log | grep -E "(error:|\*\* BUILD)" || true
+          grep -q "\*\* BUILD SUCCEEDED \*\*" build.log
+          app=$(find DerivedData/Build/Products/Debug-iphonesimulator -maxdepth 1 -name "*.app" ! -name "*Tests*" | head -1)
+          xcrun simctl install "${{ steps.sim.outputs.udid }}" "$app"
+      - name: Open a 5,200-place campaign
+        run: scripts/open-time.py "${{ steps.sim.outputs.udid }}" 5200
+      - name: Upload timings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: open-time
+          path: |
+            open-time.json
+            open-time.log
+            build.log
           if-no-files-found: warn
           retention-days: 14

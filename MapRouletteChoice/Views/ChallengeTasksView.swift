@@ -91,7 +91,6 @@ struct ChallengeTasksView: View {
   private static let maxPages = 50
   /// While a campaign's pages arrive, the map and list update at most this often.
   private static let redrawEvery = Duration.milliseconds(500)
-  private static let log = Logger(subsystem: "lol.osm.maproulette.choice", category: "load")
 
   private var progress: CampaignProgress {
     // Pending reports, this phone's or another guest's, need another look, not "checked"
@@ -758,7 +757,7 @@ struct ChallengeTasksView: View {
         // that the map redraws at most every couple of seconds: redrawing every pin for every page
         // made each page cost more than the last (Tess, AB13: 290 s for 5,200 places).
         // Sorting and parsing run off the main actor; it only takes the finished snapshot.
-        let started = ContinuousClock.now
+        LoadLog.started = .now
         var byID: [Int64: MapRouletteTask] = [:]
         var fullPages = 0
         var pages = 0
@@ -779,16 +778,15 @@ struct ChallengeTasksView: View {
           loadedSoFar = snapshot.located.count
           keptFrom = nil
           status = ""
-          Self.log.debug(
-            "page \(pages): \(byID.count) places shown at \(started.duration(to: .now), privacy: .public)")
+          LoadLog.log.debug("page \(pages): \(byID.count) places shown at \(LoadLog.elapsed, privacy: .public)")
         }
         try Task.checkCancellation()
-        Self.log.debug("\(pages) pages, \(byID.count) places read at \(started.duration(to: .now), privacy: .public)")
+        LoadLog.log.debug("\(pages) pages, \(byID.count) places read at \(LoadLog.elapsed, privacy: .public)")
         let snapshot = await Self.snapshot(byID)
         let all = snapshot.tasks
         let located = snapshot.located
         let heldNow = await Self.heldTasks(located, search: heldRows, in: challengeID, client: client)
-        Self.log.debug("holds read at \(started.duration(to: .now), privacy: .public)")
+        LoadLog.log.debug("holds read at \(LoadLog.elapsed, privacy: .public)")
         try Task.checkCancellation()
         held = heldNow.answers
         heldReports = heldNow.reports
@@ -800,6 +798,7 @@ struct ChallengeTasksView: View {
         hidden = located.filter { !$0.isOpen && !$0.isDone }.count
         truncated = fullPages >= Self.maxPages
         loadedSoFar = nil
+        LoadLog.log.debug("tally set: \(located.count) places at \(LoadLog.elapsed, privacy: .public)")
         keptFrom = nil
         keptTimer?.cancel()
         keptTimer = nil
