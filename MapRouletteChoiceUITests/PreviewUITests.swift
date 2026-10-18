@@ -13,6 +13,8 @@ final class PreviewUITests: XCTestCase {
     let start = app.buttons["Let's go"]
     XCTAssert(start.waitForExistence(timeout: 10))
     XCTAssert(text(app, "You're previewing as rosa_slc.").exists, "the welcome card names the OSM account")
+    XCTAssert(text(app, "In preview, nothing you answer is saved.").exists, "no OpenStreetMap line in preview")
+    XCTAssertFalse(text(app, "Your answers are saved").exists)
     shot(app, "preview-welcome")
     start.tap()
     allowLocationIfAsked(app)
