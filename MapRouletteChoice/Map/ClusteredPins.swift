@@ -217,10 +217,31 @@ import UIKit
     return true
   }
 
+  /// Zooms in on `cluster`. The expansion zoom is asked only of a cluster the map shows now: the
+  /// source re-clusters as pages and answers arrive, and a VoiceOver element can hold the cluster
+  /// from its last rebuild; MapLibre throws for a cluster id the source no longer has ("No cluster
+  /// with the specified id", Android). A cluster that is gone zooms in two levels instead.
   private func zoom(into cluster: MLNPointFeatureCluster, on map: MLNMapView) {
-    guard let source = map.style?.source(withIdentifier: Self.sourceID) as? MLNShapeSource else { return }
-    let zoom = max(source.zoomLevel(forExpanding: cluster), map.zoomLevel + 1)
+    let source = map.style?.source(withIdentifier: Self.sourceID) as? MLNShapeSource
+    let expansion = source.flatMap { source in
+      Self.current(cluster, on: map).map { source.zoomLevel(forExpanding: $0) }
+    }
+    let zoom = Self.zoom(expansion: expansion, from: map.zoomLevel)
     map.setCenter(cluster.coordinate, zoomLevel: zoom, animated: !UIAccessibility.isReduceMotionEnabled)
+  }
+
+  /// The zoom to go to: the cluster's expansion zoom but at least one level in, else two levels in.
+  static func zoom(expansion: Double?, from current: Double) -> Double {
+    expansion.map { max($0, current + 1) } ?? current + 2
+  }
+
+  /// The cluster on screen now with `cluster`'s id, near where it was drawn.
+  private static func current(_ cluster: MLNPointFeatureCluster, on map: MLNMapView) -> MLNPointFeatureCluster? {
+    let p = map.convert(cluster.coordinate, toPointTo: map)
+    let near = CGRect(x: p.x - 22, y: p.y - 22, width: 44, height: 44)
+    return map.visibleFeatures(in: near, styleLayerIdentifiers: [circleLayerID])
+      .lazy.compactMap { $0 as? MLNPointFeatureCluster }
+      .first { $0.clusterIdentifier == cluster.clusterIdentifier }
   }
 
   // MARK: VoiceOver

@@ -44,4 +44,12 @@ import UIKit
     let near = pool.element("cluster-9", in: container)
     #expect(pool.returnFocus(in: [near]) === near)
   }
+
+  /// A cluster the source no longer has (re-clustered since its element was built) is never asked
+  /// for its expansion zoom; the map zooms in two levels instead.
+  @Test func goneClusterZoomsInTwoLevels() {
+    #expect(ClusteredPins.zoom(expansion: nil, from: 12) == 14)
+    #expect(ClusteredPins.zoom(expansion: 15, from: 12) == 15)
+    #expect(ClusteredPins.zoom(expansion: 12.5, from: 12) == 13)
+  }
 }
