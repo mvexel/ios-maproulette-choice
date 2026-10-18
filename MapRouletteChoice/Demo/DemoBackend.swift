@@ -20,6 +20,8 @@
   /// `-demoNoSignal` starts with no signal for a guest's saves, so answers wait on the phone (O1).
   /// "Demo: no signal" under Settings is a dead spot: every request fails, so an opened campaign
   /// shows the phone's copy (O2); switching it off brings both back.
+  /// `-demoLoad <n>` serves "Load test trees": n made-up trees (5,200 without n) on a grid around
+  /// Woodbine Food Hall, every tenth one checked, for the open-time CI job (scripts/open-time.sh).
   /// `-demoClaimed` answers the finish-link request with 409 `guest_claimed`, for the claimed copy.
   /// `-demoWoodbine` serves the first pilot, "Woodbine entrance doors" (design/woodbine-campaign.md),
   /// on eight real entrance nodes around Woodbine Food Hall; 188 already has `door`, so only the
@@ -30,7 +32,7 @@
   /// `-demoCrossings` and `-demoBuildings` serve the Woodbine crossings (81 nodes) and buildings (93
   /// ways at their centroid) from `DemoMicro.swift` the same way, from task 1001 up, for footprints.
   actor DemoBackend: Transport {
-    enum Campaign: Sendable { case benches, stops, woodbine, trees, crossings, buildings }
+    enum Campaign: Sendable { case benches, stops, woodbine, trees, crossings, buildings, load }
 
     static let challengeID: Int64 = 3
     /// A guest's saves fail as if there were no signal (`-demoNoSignal`).
@@ -49,12 +51,26 @@
       case .trees: trees.map { (element: $0.node, lat: $0.lat, lng: $0.lng) }
       case .crossings: crossings
       case .buildings: buildings
+      case .load: loadPlaces
       default: nil
       }
     }
     private static func micro(_ campaign: Campaign, _ id: Int64) -> (element: Int64, lat: Double, lng: Double)? {
       micro(campaign)?[safe: Int(id - 1001)]
     }
+    /// `-demoLoad`'s trees: a square grid about 45 m apart, centred on Woodbine Food Hall.
+    private static let loadPlaces: [(element: Int64, lat: Double, lng: Double)] = {
+      let args = ProcessInfo.processInfo.arguments
+      var count = 5200
+      if let i = args.firstIndex(of: "-demoLoad"), i + 1 < args.count, let n = Int(args[i + 1]) { count = n }
+      let side = Int(Double(count).squareRoot().rounded(.up))
+      return (0..<count).map { i -> (element: Int64, lat: Double, lng: Double) in
+        let row: Double = Double(i / side - side / 2)
+        let column: Double = Double(i % side - side / 2)
+        let element = Int64(20_000_000 + i)
+        return (element: element, lat: 40.7545 + 0.0004 * row, lng: -111.9040 + 0.0005 * column)
+      }
+    }()
     /// A campaign's tasks.
     private static func ids(for campaign: Campaign) -> [Int64] {
       micro(campaign).map { Array(1001...Int64(1000 + $0.count)) } ?? taskIDs
@@ -74,7 +90,7 @@
     private var stops: Bool { campaign == .stops }
     /// The campaign a demo launch asks for.
     static func demoCampaign(_ args: [String]) -> Campaign {
-      args.contains("-demoCrossings") ? .crossings : args.contains("-demoBuildings") ? .buildings
+      args.contains("-demoLoad") ? .load : args.contains("-demoCrossings") ? .crossings : args.contains("-demoBuildings") ? .buildings
         : args.contains("-demoTrees") ? .trees : args.contains("-demoWoodbine") ? .woodbine : args.contains("-demoStops") ? .stops : .benches
     }
     let draft: Bool
@@ -102,6 +118,9 @@
       }
       if campaign == .crossings || campaign == .buildings {
         status = Dictionary(uniqueKeysWithValues: Self.ids(for: campaign).map { ($0, 0) })
+      }
+      if campaign == .load {
+        status = Dictionary(uniqueKeysWithValues: Self.ids(for: campaign).map { ($0, $0.isMultiple(of: 10) ? 1 : 0) })
       }
       if heldReport { othersHolds = [184: "answer", 188: "report"] }
       if reported {
@@ -254,7 +273,7 @@
         case .benches: payload(element: 0)
         case .stops: stopPayload(element: 0)
         case .woodbine: woodbinePayload(element: 0, entrance: "yes")
-        case .trees: treesPayload(element: 0)
+        case .trees, .load: treesPayload(element: 0)
         case .crossings: crossingsPayload(element: 0)
         case .buildings: buildingsPayload(element: 0)
         }
@@ -290,6 +309,14 @@
     }
 
     private var published: [String: Any] {
+      if campaign == .load {
+        return [
+          "id": Self.challengeID, "parent": 1, "name": "Load test trees",
+          "description": "\(Self.loadPlaces.count) made-up trees for timing how long a big campaign takes to open.",
+          "instruction": "Survey the tree at the mapped node. Sets leaf_type=* only when missing.",
+          "enabled": true, "cooperativeType": 3, "tags": ["mobile-survey-v1"],
+        ]
+      }
       if campaign == .trees {
         return [
           "id": Self.challengeID, "parent": 1, "name": "Woodbine trees",
@@ -365,7 +392,7 @@
     private func elementID(_ id: Int64) -> Int64 {
       switch campaign {
       case .woodbine: Self.entrances[id]?.node ?? id + 1000
-      case .trees, .crossings, .buildings: Self.micro(campaign, id)?.element ?? id + 1000
+      case .trees, .crossings, .buildings, .load: Self.micro(campaign, id)?.element ?? id + 1000
       default: id + 1000
       }
     }
@@ -397,7 +424,7 @@
         properties = ["entrance": entrance]
         if id == 188 { properties["door"] = "hinged" }
         work = woodbinePayload(element: element, entrance: entrance)
-      case .trees:
+      case .trees, .load:
         properties = ["natural": "tree"]
         work = treesPayload(element: element)
       case .crossings:
