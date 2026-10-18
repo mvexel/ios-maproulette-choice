@@ -43,22 +43,6 @@ jobs:
           # A UI test that can't find its screen prints the accessibility tree between these markers.
           sed -n '/AXDUMP-BEGIN/,/AXDUMP-END/p' xcodebuild.log | head -300
           grep -q "\*\* TEST SUCCEEDED \*\*" xcodebuild.log
-      # TEMPORARY (remove before merge): DirectionLineTests.metricAndUSDistances failed once on
-      # run 72 with no detail in the log. Run the unit tests 25 times, stopping at a failure, to
-      # catch it with its expectation printed.
-      - name: Unit tests, repeated (diagnostic)
-        if: ${{ !cancelled() }}
-        run: |
-          set -o pipefail
-          xcodebuild test \
-            -project MapRouletteChoice.xcodeproj \
-            -scheme MapRouletteChoice \
-            -destination "id=${{ steps.sim.outputs.udid }}" \
-            -only-testing:MapRouletteChoiceTests \
-            -test-iterations 25 -run-tests-until-failure \
-            CODE_SIGNING_ALLOWED=NO \
-            | tee repeat.log | grep -E "recorded an issue|Expectation failed|error:|\*\* TEST|Test run with|iteration" || true
-          grep -q "\*\* TEST SUCCEEDED \*\*" repeat.log
       - name: Upload test results
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
