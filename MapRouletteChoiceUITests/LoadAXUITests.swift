@@ -56,9 +56,10 @@ final class LoadAXUITests: XCTestCase {
     let cluster = clusters.element(boundBy: 0)
     XCTAssert(cluster.label.contains(where: \.isNumber), cluster.label)
     XCTAssertGreaterThanOrEqual(cluster.frame.width, 43.5)
-    let listed = clusters.allElementsBoundByIndex
-    let spots = Set(listed.map { "\($0.label) \(Int($0.frame.midX)),\(Int($0.frame.midY))" })
-    XCTAssertEqual(spots.count, listed.count, "each cluster is listed once: \(Self.labels(map))")
+    // From one snapshot of a settled map: each element query re-reads the list, which changes while
+    // the map still moves, so one cluster could come back at two indexes (CI 6f98757).
+    let listed = try Self.settledClusters(map)
+    XCTAssertEqual(Set(listed).count, listed.count, "each cluster is listed once: \(listed)")
 
     // Zoom in through clusters until single places show (clusters stop above zoom 15).
     let places = map.descendants(matching: .any).matching(NSPredicate(format: "value == 'To check'"))
@@ -159,6 +160,23 @@ final class LoadAXUITests: XCTestCase {
       RunLoop.current.run(until: Date().addingTimeInterval(0.25))
     }
     return condition()
+  }
+
+  /// The clusters' labels and centres, from one snapshot, once two snapshots a second apart agree.
+  @MainActor private static func settledClusters(_ map: XCUIElement) throws -> [String] {
+    func read() throws -> [String] {
+      try map.snapshot().children
+        .filter { $0.label.range(of: "^[0-9].* left to check here\\.$", options: .regularExpression) != nil }
+        .map { "\($0.label) \(Int($0.frame.midX)),\(Int($0.frame.midY))" }
+    }
+    var last = try read()
+    for _ in 0..<10 {
+      RunLoop.current.run(until: Date().addingTimeInterval(1))
+      let now = try read()
+      if now == last { return now }
+      last = now
+    }
+    return last
   }
 
   /// The map's spoken labels, for a failure message.
